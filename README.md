@@ -47,6 +47,21 @@ Every source works the same way:
 
 Every row carries `source`, `source_id`, and `fetched_at` for provenance.
 
+## Sources
+
+| Source | What | Notes |
+| --- | --- | --- |
+| `usaspending` | DoD contract awards matching `config/keywords.yaml` | No key. DoD data is published ~90 days after signing, so we look back 180 days nightly and let idempotent upserts pick up late records. |
+| `dod_contracts` | Daily DoD contract announcements (≥ $7.5M), split into paragraphs and extracted with `llm.extract` | New days are found via the war.gov RSS feed. Article pages return 403 (Akamai) to non-browser clients, so pages come from (1) a polite direct fetch, (2) Bright Data Web Unlocker **only if** `BRIGHTDATA_API_KEY` + `BRIGHTDATA_ZONE` are set, or (3) HTML saved from a browser into `data/inbox/dod_contracts/`. The raw paragraph is stored next to its extraction (`awards.raw_text`, `awards.extraction`). |
+
+### Fetching policy
+
+All fetches go through `pipeline.http.PoliteClient`: a descriptive
+User-Agent, one request at a time per host, and backoff on 429/5xx. The one
+deliberate exception is the opt-in Bright Data fallback for war.gov article
+pages. It goes around DoD's bot protection, so it stays off unless an
+operator sets both secrets. Volume is about one page per weekday.
+
 ## Layout
 
 ```

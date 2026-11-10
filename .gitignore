@@ -9,3 +9,5 @@ dist/
 # Raw snapshots are kept out of git (multi-MB/day); CI uploads them as artifacts.
 data/raw/*
 !data/raw/.gitkeep
+data/inbox/*
+!data/inbox/.gitkeep

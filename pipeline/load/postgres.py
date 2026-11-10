@@ -11,6 +11,7 @@ from collections.abc import Iterable
 from datetime import UTC, datetime
 
 import psycopg
+from psycopg.types.json import Jsonb
 
 from pipeline.models import AwardRecord, OrgRef
 
@@ -92,8 +93,9 @@ def upsert_award(conn: psycopg.Connection, award: AwardRecord, stats: LoadStats)
     award_id, inserted = conn.execute(
         """
         INSERT INTO awards (recipient_id, agency_id, amount, signed_at, description, url,
+                            raw_text, extraction, extraction_model,
                             source, source_id, fetched_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (source, source_id) DO UPDATE SET
             recipient_id = EXCLUDED.recipient_id,
             agency_id = EXCLUDED.agency_id,
@@ -101,6 +103,9 @@ def upsert_award(conn: psycopg.Connection, award: AwardRecord, stats: LoadStats)
             signed_at = EXCLUDED.signed_at,
             description = EXCLUDED.description,
             url = EXCLUDED.url,
+            raw_text = COALESCE(EXCLUDED.raw_text, awards.raw_text),
+            extraction = COALESCE(EXCLUDED.extraction, awards.extraction),
+            extraction_model = COALESCE(EXCLUDED.extraction_model, awards.extraction_model),
             fetched_at = EXCLUDED.fetched_at
         RETURNING id, (xmax = 0)
         """,
@@ -111,12 +116,24 @@ def upsert_award(conn: psycopg.Connection, award: AwardRecord, stats: LoadStats)
             award.signed_at,
             award.description,
             award.url,
+            award.raw_text,
+            Jsonb(award.extraction) if award.extraction is not None else None,
+            award.extraction_model,
             award.source,
             award.source_id,
             award.fetched_at or datetime.now(UTC),
         ),
     ).fetchone()
     stats.record("awards", inserted)
+    for org in award.awardees:
+        org_id = upsert_org(conn, org, stats)
+        upsert_edge(
+            conn,
+            ("award", award_id, "awarded_to", "organization", org_id),
+            source=award.source,
+            stats=stats,
+            evidence_url=award.url,
+        )
     return award_id
 
 

@@ -33,3 +33,10 @@ class AwardRecord(BaseModel):
     signed_at: date | None = None
     description: str | None = None
     url: str | None = None
+    # All awardees; the loader writes (award, awarded_to, org) edges for each.
+    # `recipient` is set only when there is exactly one.
+    awardees: list[OrgRef] = Field(default_factory=list)
+    # For prose-extracted awards: source paragraph + validated LLM output.
+    raw_text: str | None = None
+    extraction: dict | None = None
+    extraction_model: str | None = None
