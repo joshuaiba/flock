@@ -1,0 +1,81 @@
+name: nightly
+
+on:
+  schedule:
+    # 09:00 UTC: after DoD's ~5pm ET daily contract posting, quiet hours for
+    # government hosts.
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      # Optional opt-in for war.gov article pages (see README "Fetching policy").
+      BRIGHTDATA_API_KEY: ${{ secrets.BRIGHTDATA_API_KEY }}
+      BRIGHTDATA_ZONE: ${{ secrets.BRIGHTDATA_ZONE }}
+      # Optional repository variables.
+      FLOCK_CONTACT: ${{ vars.FLOCK_CONTACT }}
+      GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+      FLOCK_STATS_FILE: ${{ github.workspace }}/stats.jsonl
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+
+      - name: Install
+        run: uv sync --frozen --no-dev
+
+      - name: Migrate
+        run: uv run --no-sync python -m pipeline.db
+
+      - name: USAspending
+        id: usaspending
+        continue-on-error: true
+        run: uv run --no-sync python -m pipeline.sources.usaspending.run
+
+      # Non-blocking: war.gov returns 403 to non-browser clients unless the
+      # Bright Data opt-in is configured. Exit code 2 = everything blocked.
+      - name: DoD contract announcements
+        id: dod_contracts
+        continue-on-error: true
+        run: uv run --no-sync python -m pipeline.sources.dod_contracts.run
+
+      - name: Autonomy classifier
+        id: classifier
+        continue-on-error: true
+        run: uv run --no-sync python -m pipeline.extract.classifier
+
+      - name: Job summary
+        if: always()
+        env:
+          OUTCOME_USASPENDING: ${{ steps.usaspending.outcome }}
+          OUTCOME_DOD_CONTRACTS: ${{ steps.dod_contracts.outcome }}
+          OUTCOME_CLASSIFIER: ${{ steps.classifier.outcome }}
+        run: uv run --no-sync python -m pipeline.report >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload raw snapshots
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: raw-${{ github.run_id }}
+          path: data/raw/
+          if-no-files-found: ignore
+          retention-days: 90
+
+      # USAspending and the classifier are required; DoD announcements are not.
+      - name: Fail if a required step failed
+        if: steps.usaspending.outcome == 'failure' || steps.classifier.outcome == 'failure'
+        run: |
+          echo "usaspending=${{ steps.usaspending.outcome }} classifier=${{ steps.classifier.outcome }}"
+          exit 1

@@ -97,3 +97,25 @@ Database tests run against a throwaway embedded Postgres (`pgserver`, a dev
 dependency), or against `TEST_DATABASE_URL` if you set it. They never read
 `DATABASE_URL`. Tests never make live network calls; ingestors are tested
 against recorded fixtures in `tests/fixtures/`.
+
+## Scheduled runs
+
+`.github/workflows/nightly.yml` runs daily at 09:00 UTC (and on manual
+dispatch): migrate → USAspending → DoD announcements → classifier. It writes
+a job summary with new-row counts per step and table totals, and uploads
+`data/raw/` as a 90-day artifact. USAspending and the classifier are
+required. The DoD step is non-blocking because its pages are usually 403.
+
+Repository **secrets**:
+
+| Secret | Required | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | yes | Postgres connection string |
+| `GEMINI_API_KEY` | yes | `llm.extract` (DoD extraction + classifier) |
+| `BRIGHTDATA_API_KEY`, `BRIGHTDATA_ZONE` | no | Opt-in unlocker for war.gov article pages |
+
+Optional repository **variables**: `FLOCK_CONTACT` (appended to the
+User-Agent) and `GEMINI_MODEL`.
+
+`.github/workflows/ci.yml` runs ruff and pytest against a Postgres service
+container on every push and PR.
