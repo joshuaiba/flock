@@ -5,3 +5,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 dist/
+
+# Raw snapshots are kept out of git (multi-MB/day); CI uploads them as artifacts.
+data/raw/*
+!data/raw/.gitkeep

@@ -1,0 +1,102 @@
+{
+  "spending_level": "awards",
+  "limit": 3,
+  "results": [
+    {
+      "internal_id": 363798371,
+      "Award ID": "W15P7T26F0230",
+      "generated_internal_id": "CONT_AWD_W15P7T26F0230_9700_W15P7T23D0003_9700",
+      "Recipient Name": "LEIDOS, INC.",
+      "Recipient UEI": "UE9QJD4KK1L6",
+      "recipient_id": "5ddb264f-234b-872c-2571-4731fde123c6-C",
+      "Awarding Agency": "Department of Defense",
+      "Awarding Agency Code": "097",
+      "Awarding Sub Agency": "Department of the Army",
+      "Awarding Sub Agency Code": "2100",
+      "Award Amount": 224776.0,
+      "Description": "PROCURE COMPACT TACTICAL DRONE",
+      "Base Obligation Date": "2026-08-04",
+      "Start Date": "2026-08-04",
+      "End Date": "2027-04-01",
+      "Last Modified Date": "2026-11-02 14:06:57",
+      "Contract Award Type": "DELIVERY ORDER",
+      "NAICS": {
+        "code": "334111",
+        "description": "ELECTRONIC COMPUTER MANUFACTURING"
+      },
+      "PSC": {
+        "code": "5810",
+        "description": "COMMUNICATIONS SECURITY EQUIPMENT AND COMPONENTS"
+      },
+      "awarding_agency_id": 1173,
+      "agency_slug": "department-of-defense"
+    },
+    {
+      "internal_id": 363806807,
+      "Award ID": "W911S226PA933",
+      "generated_internal_id": "CONT_AWD_W911S226PA933_9700_-NONE-_-NONE-",
+      "Recipient Name": "ROBOLINK, INC.",
+      "Recipient UEI": "MZZ3J4UAC9F4",
+      "recipient_id": "3b4be80a-18d4-8d05-ec94-69c94b3842bc-C",
+      "Awarding Agency": "Department of Defense",
+      "Awarding Agency Code": "097",
+      "Awarding Sub Agency": "Department of the Army",
+      "Awarding Sub Agency Code": "2100",
+      "Award Amount": 121611.25,
+      "Description": "S2P2: JROTC DRONES W911S226U3599",
+      "Base Obligation Date": "2026-08-03",
+      "Start Date": "2026-08-03",
+      "End Date": "2026-09-08",
+      "Last Modified Date": "2026-11-02 09:11:23",
+      "Contract Award Type": "PURCHASE ORDER",
+      "NAICS": {
+        "code": "336411",
+        "description": "AIRCRAFT MANUFACTURING"
+      },
+      "PSC": {
+        "code": "1550",
+        "description": "UNMANNED AIRCRAFT"
+      },
+      "awarding_agency_id": 1173,
+      "agency_slug": "department-of-defense"
+    },
+    {
+      "internal_id": 363798367,
+      "Award ID": "W15P7T26F0223",
+      "generated_internal_id": "CONT_AWD_W15P7T26F0223_9700_W15P7T23D0003_9700",
+      "Recipient Name": "LEIDOS, INC.",
+      "Recipient UEI": "UE9QJD4KK1L6",
+      "recipient_id": "5ddb264f-234b-872c-2571-4731fde123c6-C",
+      "Awarding Agency": "Department of Defense",
+      "Awarding Agency Code": "097",
+      "Awarding Sub Agency": "Department of the Army",
+      "Awarding Sub Agency Code": "2100",
+      "Award Amount": 848933.0,
+      "Description": "PROCURE DRONEBUSTER BLOCK SYSTEM, RADAR, SOFTWARE, AND RAPID DEPLOYMENT KIT",
+      "Base Obligation Date": "2026-07-31",
+      "Start Date": "2026-07-31",
+      "End Date": "2027-03-18",
+      "Last Modified Date": "2026-11-02 14:06:57",
+      "Contract Award Type": "DELIVERY ORDER",
+      "NAICS": {
+        "code": "334111",
+        "description": "ELECTRONIC COMPUTER MANUFACTURING"
+      },
+      "PSC": {
+        "code": "5810",
+        "description": "COMMUNICATIONS SECURITY EQUIPMENT AND COMPONENTS"
+      },
+      "awarding_agency_id": 1173,
+      "agency_slug": "department-of-defense"
+    }
+  ],
+  "page_metadata": {
+    "page": 1,
+    "hasNext": true,
+    "last_record_unique_id": 363798367,
+    "last_record_sort_value": "1785456000000"
+  },
+  "messages": [
+    "For searches, time period start and end dates are currently limited to an earliest date of 2007-10-01.  For data going back to 2000-10-01, use either the Custom Award Download feature on the website or one of our download or bulk_download API endpoints as listed on https://api.usaspending.gov/docs/endpoints. "
+  ]
+}

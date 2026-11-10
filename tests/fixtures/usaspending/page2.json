@@ -1,0 +1,102 @@
+{
+  "spending_level": "awards",
+  "limit": 3,
+  "results": [
+    {
+      "internal_id": 363838388,
+      "Award ID": "N0001426C1510",
+      "generated_internal_id": "CONT_AWD_N0001426C1510_9700_-NONE-_-NONE-",
+      "Recipient Name": "GENERAL ELECTRIC COMPANY",
+      "Recipient UEI": "J1T1FEN3PWX6",
+      "recipient_id": "61dfb4da-ba2f-398f-13e9-5792607bf051-C",
+      "Awarding Agency": "Department of Defense",
+      "Awarding Agency Code": "097",
+      "Awarding Sub Agency": "Department of the Navy",
+      "Awarding Sub Agency Code": "1700",
+      "Award Amount": 2173363.0,
+      "Description": "ATTRITABLE / UNMANNED AIR VEHICLE SYSTEMS ARE INCREASINGLY IMPORTANT TO MAINTAINING U.S. AIR SUPERIORITY AND MILITARY ADVANTAGE OVER GLOBAL ADVERSARIES. ONE SUCH CAPABILITY IS ROTATING DETONATION AUGMENTOR (RDA) TECHNOLOGY.",
+      "Base Obligation Date": "2026-07-30",
+      "Start Date": "2026-07-30",
+      "End Date": "2027-04-29",
+      "Last Modified Date": "2026-11-03 14:46:48",
+      "Contract Award Type": "DEFINITIVE CONTRACT",
+      "NAICS": {
+        "code": "541715",
+        "description": "RESEARCH AND DEVELOPMENT IN THE PHYSICAL, ENGINEERING, AND LIFE SCIENCES (EXCEPT NANOTECHNOLOGY AND BIOTECHNOLOGY)"
+      },
+      "PSC": {
+        "code": "AC12",
+        "description": "NATIONAL DEFENSE R&D SERVICES; DEPARTMENT OF DEFENSE - MILITARY; APPLIED RESEARCH"
+      },
+      "awarding_agency_id": 1173,
+      "agency_slug": "department-of-defense"
+    },
+    {
+      "internal_id": 363806412,
+      "Award ID": "W58RGZ26F0394",
+      "generated_internal_id": "CONT_AWD_W58RGZ26F0394_9700_W58RGZ26G0021_9700",
+      "Recipient Name": "TEAL DRONES INC",
+      "Recipient UEI": "P22FX2MVJZL1",
+      "recipient_id": "67f7fa6f-1c68-be1e-49c1-174edea95fe9-C",
+      "Awarding Agency": "Department of Defense",
+      "Awarding Agency Code": "097",
+      "Awarding Sub Agency": "Department of the Army",
+      "Awarding Sub Agency Code": "2100",
+      "Award Amount": 99960.0,
+      "Description": "IN SUPPORT OF EXECUTIVE ORDER 14307-UNLEASHING AMERICAN DRONE DOMINANCE, THE ARMY CONTRACTING COMMAND-REDSTONE ARSENAL ESTABLISHES THIS BASIC ORDERING AGREEMENTS TO PROCURE DRONES AND DRONE COMPONENTS.",
+      "Base Obligation Date": "2026-07-29",
+      "Start Date": "2026-07-29",
+      "End Date": "2026-08-12",
+      "Last Modified Date": "2026-11-02 14:06:57",
+      "Contract Award Type": "DELIVERY ORDER",
+      "NAICS": {
+        "code": "336411",
+        "description": "AIRCRAFT MANUFACTURING"
+      },
+      "PSC": {
+        "code": "1550",
+        "description": "UNMANNED AIRCRAFT"
+      },
+      "awarding_agency_id": 1173,
+      "agency_slug": "department-of-defense"
+    },
+    {
+      "internal_id": 363806415,
+      "Award ID": "W58RGZ26F0405",
+      "generated_internal_id": "CONT_AWD_W58RGZ26F0405_9700_W58RGZ26G0014_9700",
+      "Recipient Name": "NEROS, INC.",
+      "Recipient UEI": "JC6XP8B7EC51",
+      "recipient_id": "eadb7f92-3d4e-3e35-50fe-9e83abf18d07-C",
+      "Awarding Agency": "Department of Defense",
+      "Awarding Agency Code": "097",
+      "Awarding Sub Agency": "Department of the Army",
+      "Awarding Sub Agency Code": "2100",
+      "Award Amount": 66400.0,
+      "Description": "IN SUPPORT OF EXECUTIVE ORDER 14307-UNLEASHING AMERICAN DRONE DOMINANCE, THE ARMY CONTRACTING COMMAND-REDSTONE ARSENAL ESTABLISHED BASIC ORDERING AGREEMENTS TO PROCURE DRONES AND DRONE COMPONENTS.",
+      "Base Obligation Date": "2026-07-27",
+      "Start Date": "2026-07-27",
+      "End Date": "2026-09-15",
+      "Last Modified Date": "2026-11-02 14:06:57",
+      "Contract Award Type": "DELIVERY ORDER",
+      "NAICS": {
+        "code": "336411",
+        "description": "AIRCRAFT MANUFACTURING"
+      },
+      "PSC": {
+        "code": "1550",
+        "description": "UNMANNED AIRCRAFT"
+      },
+      "awarding_agency_id": 1173,
+      "agency_slug": "department-of-defense"
+    }
+  ],
+  "page_metadata": {
+    "page": 2,
+    "hasNext": true,
+    "last_record_unique_id": 363806415,
+    "last_record_sort_value": "1785110400000"
+  },
+  "messages": [
+    "For searches, time period start and end dates are currently limited to an earliest date of 2007-10-01.  For data going back to 2000-10-01, use either the Custom Award Download feature on the website or one of our download or bulk_download API endpoints as listed on https://api.usaspending.gov/docs/endpoints. "
+  ]
+}

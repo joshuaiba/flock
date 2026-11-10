@@ -1,0 +1,27 @@
+# Autonomy / drone keywords for upstream keyword search.
+#
+# USAspending `keywords` filter: terms are OR'd together, multi-word terms
+# match as phrases, and matching is case-insensitive full text across award
+# fields (description, recipient, etc.). Keep terms specific: broad words like
+# "robot" or "AI" pull in lots of unrelated awards.
+usaspending:
+  - unmanned
+  - uncrewed
+  - drone
+  - drones
+  - UAS
+  - sUAS
+  - UAV
+  - UUV
+  - USV
+  - UGV
+  - counter-UAS
+  - C-UAS
+  - counter-drone
+  - autonomous
+  - autonomy
+  - swarm
+  - swarming
+  - loitering munition
+  - remotely piloted
+  - collaborative combat aircraft
