@@ -3,7 +3,13 @@
 # USAspending `keywords` filter: terms are OR'd together, multi-word terms
 # match as phrases, and matching is case-insensitive full text across award
 # fields (description, recipient, etc.). Keep terms specific: broad words like
-# "robot" or "AI" pull in lots of unrelated awards.
+# "robot" or "AI" pull in lots of unrelated awards. Terms must be 3+ chars.
+#
+# Known noise: "UAS" is stemmed to "ua" upstream, so it also matches
+# urinalysis supplies ("TUBE UA ...") and "UAC" (unauthorized commitment)
+# ratifications: ~214 of 592 hits on 2026-11-09. We keep it anyway because
+# dropping it loses real records that say only "UAS" (e.g. "COUNTER UAS
+# SYSTEMS"), and the classifier filters the noise once per record.
 usaspending:
   - unmanned
   - uncrewed

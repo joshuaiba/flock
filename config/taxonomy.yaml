@@ -1,0 +1,15 @@
+# Autonomy taxonomy. Tag slugs are what the classifier may emit; descriptions
+# are shown to the model. Every positive classification is also tagged
+# `autonomy` (the root), so taggings alone answer "is this autonomy-related?".
+root: autonomy
+tags:
+  uas: Uncrewed/unmanned aircraft and drones of any size (sUAS, Group 1-5 UAS, UAV), including their payloads, components, training and support.
+  counter-uas: Detecting, tracking, defeating or training against hostile drones (C-UAS, C-sUAS).
+  swarming: Many uncrewed vehicles operating cooperatively as a swarm or coordinated formation.
+  gps-denied-nav: Navigation, positioning or timing without GPS (alternative PNT, visual/terrain navigation, contested-environment navigation).
+  maritime: Uncrewed surface or undersea vessels (USV, UUV) and autonomous maritime security systems.
+  ground-robotics: Uncrewed ground vehicles (UGV), robotic combat vehicles and ground robots.
+  autonomy-software: Autonomy stacks, perception, mission autonomy, and AI/ML that lets vehicles or systems act without human control.
+  collaborative-combat-aircraft: Collaborative combat aircraft (CCA), loyal-wingman and attritable combat drones.
+  loitering-munitions: Loitering munitions and one-way attack drones.
+  uxs-c2: Command, control, tasking and human-machine teaming of uncrewed systems.
