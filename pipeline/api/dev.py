@@ -18,6 +18,7 @@ from pathlib import Path
 import psycopg
 import uvicorn
 
+from pipeline import signals
 from pipeline.api import seed
 from pipeline.db import migrate
 
@@ -42,6 +43,8 @@ def main(argv: list[str] | None = None) -> None:
             print(f"applied {name}")
         if conn.execute("SELECT count(*) FROM awards").fetchone()[0] == 0:
             print(f"seeded sample data: {seed.seed(conn)}")
+        # Windows end on the day of the refresh, so refresh on every start.
+        signals.refresh(conn)
     os.environ["DATABASE_URL"] = dsn
     try:
         uvicorn.run("pipeline.api.app:app", host="127.0.0.1", port=args.port)

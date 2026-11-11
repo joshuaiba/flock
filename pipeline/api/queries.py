@@ -75,24 +75,25 @@ def tags() -> list[dict]:
 
 
 def summary(conn: psycopg.Connection) -> dict:
+    """The hero's figures. The 30-day numbers and the open-solicitation count
+    come from the signal views (migrations/007_signals.sql), so they match the
+    dashboard exactly."""
     row = _one(
         conn,
-        AWARDS_CTE
-        + """
-        SELECT
-            count(*) FILTER (WHERE day >= current_date - 30)                 AS awards_30d,
-            COALESCE(sum(amount) FILTER (WHERE day >= current_date - 30), 0) AS amount_30d,
-            count(*)                                                         AS awards_total,
-            COALESCE(sum(amount), 0)                                         AS amount_total,
-            count(DISTINCT recipient_id)                                     AS companies,
-            max(fetched_at)                                                  AS updated_at,
-            bool_or(source = 'seed')                                         AS sample
-        FROM aa
+        """
+        SELECT m.as_of, m.sample,
+               COALESCE(f.awards, 0) AS awards_30d, COALESCE(f.amount, 0) AS amount_30d,
+               COALESCE(s.open, 0) AS open_opportunities,
+               (SELECT count(*) FROM signal_awards) AS awards_total,
+               (SELECT COALESCE(sum(amount), 0) FROM signal_awards) AS amount_total,
+               (SELECT count(*) FROM signal_companies) AS companies,
+               (SELECT max(fetched_at) FROM signal_awards) AS updated_at
+        FROM signal_meta m
+        LEFT JOIN signal_funding f
+          ON f.window_days = 30 AND f.subject_type = 'total' AND f.slice = ''
+        LEFT JOIN signal_solicitations s
+          ON s.window_days = 30 AND s.subject_type = 'total' AND s.slice = ''
         """,
-    )
-    opps = _one(
-        conn,
-        "SELECT count(*) AS n FROM opportunities WHERE closes_at IS NULL OR closes_at > now()",
     )
     return {
         "awards_30d": row["awards_30d"],
@@ -100,8 +101,9 @@ def summary(conn: psycopg.Connection) -> dict:
         "awards_total": row["awards_total"],
         "amount_total": _money(row["amount_total"]),
         "companies": row["companies"],
-        "open_opportunities": opps["n"],
+        "open_opportunities": row["open_opportunities"],
         "updated_at": row["updated_at"],
+        "as_of": row["as_of"],
         "sample": bool(row["sample"]),
     }
 
@@ -152,14 +154,16 @@ def _primary(tag_totals: dict[str, float]) -> str | None:
 
 
 def graph(conn: psycopg.Connection, days: int = 90, max_companies: int = 150) -> dict:
-    """Companies, agencies and solicitations in the window, with money edges."""
+    """Companies, agencies and solicitations in the window, with money edges.
+    `days = 0` means everything on record."""
     rows = _rows(
         conn,
         AWARDS_CTE
         + """
         SELECT aa.recipient_id, aa.agency_id, aa.opportunity_id, aa.amount, aa.tags
         FROM aa
-        WHERE aa.day >= current_date - %(days)s::int AND aa.recipient_id IS NOT NULL
+        WHERE (%(days)s = 0 OR aa.day >= current_date - %(days)s::int)
+          AND aa.recipient_id IS NOT NULL
         """,
         days=days,
     )
@@ -213,6 +217,7 @@ def graph(conn: psycopg.Connection, days: int = 90, max_companies: int = 150) ->
                (o.closes_at IS NULL OR o.closes_at > now()) AS open
         FROM opportunities o
         WHERE o.id = ANY(%(ids)s)
+           OR %(days)s = 0
            OR COALESCE(o.posted_at, o.fetched_at) >= current_date - %(days)s::int
         """,
         ids=list(opp_ids),
@@ -450,81 +455,74 @@ def search(conn: psycopg.Connection, q: str, limit: int = 12) -> list[dict]:
 
 
 def digest(conn: psycopg.Connection) -> dict:
-    """The last seven days against the seven before, for the field report."""
-    today = date.today()
+    """The last seven days against the seven before, for the field report.
+
+    Read from the signal views, with the 7-day window: the same rows and the
+    same as-of date as the dashboard, so the two never disagree."""
+    meta = _one(conn, "SELECT as_of FROM signal_meta")
+    today = meta["as_of"]
     start = today - timedelta(days=6)
     week = _one(
         conn,
-        AWARDS_CTE
-        + """
-        SELECT
-            count(*) FILTER (WHERE day >= %(start)s)                           AS n,
-            COALESCE(sum(amount) FILTER (WHERE day >= %(start)s), 0)           AS amount,
-            count(*) FILTER (WHERE day < %(start)s)                            AS prev_n,
-            COALESCE(sum(amount) FILTER (WHERE day < %(start)s), 0)            AS prev_amount
-        FROM aa WHERE day >= %(start)s::date - 7
-        """,
-        start=start,
-    )
+        """SELECT amount, awards, prev_amount, prev_awards FROM signal_funding
+           WHERE window_days = 7 AND subject_type = 'total' AND slice = ''""",
+    ) or {"amount": 0, "awards": 0, "prev_amount": 0, "prev_awards": 0}
     top = _rows(
         conn,
-        AWARDS_CTE
-        + """
-        SELECT aa.id, aa.amount, aa.day, aa.description, aa.tags, aa.url,
+        """
+        SELECT a.id, a.amount, a.day, a.description, a.tags, a.url,
                o.id AS org_id, o.canonical_name AS org_name,
                ag.id AS agency_id, ag.canonical_name AS agency_name
-        FROM aa
-        LEFT JOIN organizations o ON o.id = aa.recipient_id
-        LEFT JOIN organizations ag ON ag.id = aa.agency_id
-        WHERE aa.day >= %(start)s AND aa.amount IS NOT NULL
-        ORDER BY aa.amount DESC LIMIT 5
+        FROM signal_awards a
+        LEFT JOIN organizations o ON o.id = a.recipient_id
+        LEFT JOIN organizations ag ON ag.id = a.agency_id
+        WHERE a.day >= %(start)s AND a.day <= %(today)s AND a.amount IS NOT NULL
+        ORDER BY a.amount DESC, a.id LIMIT 5
         """,
         start=start,
+        today=today,
     )
     by_tag = _rows(
         conn,
-        AWARDS_CTE
-        + """
-        SELECT t AS slug, count(*) AS n, COALESCE(sum(aa.amount), 0) AS amount
-        FROM aa, unnest(aa.tags) AS t
-        WHERE aa.day >= %(start)s
-        GROUP BY t ORDER BY amount DESC LIMIT 4
+        """
+        SELECT slice AS slug, awards AS n, amount FROM signal_funding
+        WHERE window_days = 7 AND subject_type = 'total' AND slice <> '' AND awards > 0
+        ORDER BY amount DESC, slice LIMIT 4
         """,
-        start=start,
     )
     newcomers = _rows(
         conn,
-        AWARDS_CTE
-        + """
-        SELECT o.id, o.canonical_name AS name, min(aa.day) AS first_day,
-               COALESCE(sum(aa.amount), 0) AS amount
-        FROM aa JOIN organizations o ON o.id = aa.recipient_id
-        GROUP BY o.id, o.canonical_name
-        HAVING min(aa.day) >= %(start)s
-        ORDER BY amount DESC LIMIT 5
+        """
+        SELECT o.id, o.canonical_name AS name, c.first_day, c.amount
+        FROM signal_companies c JOIN organizations o ON o.id = c.org_id
+        WHERE c.first_day >= %(start)s AND c.first_day <= %(today)s
+        ORDER BY c.amount DESC, o.id LIMIT 5
         """,
         start=start,
+        today=today,
     )
     opened = _rows(
         conn,
         """
-        SELECT o.id, o.title, o.url, o.posted_at::date AS posted, o.closes_at::date AS closes,
+        SELECT o.id, o.title, o.url, o.day AS posted, o.closes_at::date AS closes,
                ag.id AS agency_id, ag.canonical_name AS agency_name
-        FROM opportunities o LEFT JOIN organizations ag ON ag.id = o.agency_id
-        WHERE COALESCE(o.posted_at, o.fetched_at)::date >= %(start)s
-        ORDER BY o.posted_at DESC NULLS LAST LIMIT 5
+        FROM signal_opportunities o LEFT JOIN organizations ag ON ag.id = o.agency_id
+        WHERE o.day >= %(start)s AND o.day <= %(today)s
+        ORDER BY o.day DESC, o.id DESC LIMIT 5
         """,
         start=start,
+        today=today,
     )
     closing = _rows(
         conn,
         """
         SELECT o.id, o.title, o.url, o.closes_at::date AS closes,
                ag.id AS agency_id, ag.canonical_name AS agency_name
-        FROM opportunities o LEFT JOIN organizations ag ON ag.id = o.agency_id
-        WHERE o.closes_at > now() AND o.closes_at < now() + interval '14 days'
+        FROM signal_opportunities o LEFT JOIN organizations ag ON ag.id = o.agency_id
+        WHERE o.closes_at::date > %(today)s AND o.closes_at::date <= %(today)s::date + 14
         ORDER BY o.closes_at LIMIT 4
         """,
+        today=today,
     )
     for r in top:
         r["amount"] = _money(r["amount"])
@@ -533,9 +531,9 @@ def digest(conn: psycopg.Connection) -> dict:
     return {
         "week_of": start,
         "through": today,
-        "awards": week["n"],
+        "awards": week["awards"],
         "amount": _money(week["amount"]),
-        "prev_awards": week["prev_n"],
+        "prev_awards": week["prev_awards"],
         "prev_amount": _money(week["prev_amount"]),
         "top": top,
         "by_tag": by_tag,

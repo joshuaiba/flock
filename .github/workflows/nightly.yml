@@ -74,6 +74,15 @@ jobs:
           RESOLVE_LIMIT: ${{ vars.RESOLVE_LIMIT || '25' }}
         run: uv run --no-sync python -m pipeline.resolve run --limit "$RESOLVE_LIMIT"
 
+      # Recompute the dashboard's metrics (migrations/007_signals.sql) from
+      # whatever the steps above loaded. Runs even when a step failed, so the
+      # site's "as of" date and numbers still match the data that is there.
+      - name: Refresh signals
+        id: signals
+        if: always()
+        continue-on-error: true
+        run: uv run --no-sync python -m pipeline.signals
+
       - name: Job summary
         if: always()
         env:
@@ -81,6 +90,7 @@ jobs:
           OUTCOME_DOD_CONTRACTS: ${{ steps.dod_contracts.outcome }}
           OUTCOME_CLASSIFIER: ${{ steps.classifier.outcome }}
           OUTCOME_RESOLVE: ${{ steps.resolve.outcome }}
+          OUTCOME_SIGNALS: ${{ steps.signals.outcome }}
         run: uv run --no-sync python -m pipeline.report >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload raw snapshots
@@ -92,10 +102,12 @@ jobs:
           if-no-files-found: ignore
           retention-days: 90
 
-      # USAspending and the classifier are required; DoD announcements and
-      # organization resolution are not.
+      # USAspending, the classifier and the signals refresh are required; DoD
+      # announcements and organization resolution are not.
       - name: Fail if a required step failed
-        if: steps.usaspending.outcome == 'failure' || steps.classifier.outcome == 'failure'
+        if: >-
+          steps.usaspending.outcome == 'failure' || steps.classifier.outcome == 'failure'
+          || steps.signals.outcome == 'failure'
         run: |
-          echo "usaspending=${{ steps.usaspending.outcome }} classifier=${{ steps.classifier.outcome }}"
+          echo "usaspending=${{ steps.usaspending.outcome }} classifier=${{ steps.classifier.outcome }} signals=${{ steps.signals.outcome }}"
           exit 1

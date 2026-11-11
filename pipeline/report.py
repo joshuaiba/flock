@@ -126,6 +126,18 @@ def render(stats: dict[str, dict], outcomes: dict[str, str], totals: dict | None
             f"- **classifier**: {c.get('candidates', 0)} classified, "
             f"{c.get('positive', 0)} autonomy, {c.get('failed', 0)} failed"
         )
+    signals_outcome = outcomes.get("signals")
+    if g := stats.get("signals"):
+        details.append(
+            f"- **signals**: refreshed as of {g.get('as_of', '?')} over "
+            f"{g.get('signal_awards', 0)} awards and "
+            f"{g.get('signal_opportunities', 0)} solicitations"
+        )
+    elif signals_outcome and signals_outcome != "success":
+        details.append(
+            f"- **signals**: {ICON.get(signals_outcome, '❔')} {signals_outcome}; "
+            "the dashboard still shows the previous refresh"
+        )
     if details:
         lines += ["", "### Details", "", *details]
     if r := stats.get("resolve"):
@@ -144,6 +156,9 @@ def render(stats: dict[str, dict], outcomes: dict[str, str], totals: dict | None
 
 def main() -> None:
     outcomes = {s: os.environ.get(f"OUTCOME_{s.upper()}", "unknown") for s in STEPS}
+    # Not a loading step (it adds no rows), so it has a detail line, not a table row.
+    if signals := os.environ.get("OUTCOME_SIGNALS"):
+        outcomes["signals"] = signals
     print(render(read_stats(os.environ.get("FLOCK_STATS_FILE")), outcomes, table_totals()))
 
 

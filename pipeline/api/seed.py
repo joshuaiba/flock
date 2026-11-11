@@ -16,6 +16,7 @@ from decimal import Decimal
 
 import psycopg
 
+from pipeline import signals
 from pipeline.api.queries import taxonomy
 from pipeline.load.postgres import LoadStats, upsert_award, upsert_org
 from pipeline.models import AwardRecord, OrgRef
@@ -312,4 +313,6 @@ def seed(conn: psycopg.Connection, *, today: date | None = None, rng_seed: int =
             stats,
         )
     conn.commit()
+    # The API reads the signal views; compute them over the rows just written.
+    signals.refresh(conn)
     return {"awards": n_awards, "companies": len(names), "opportunities": 44}

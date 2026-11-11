@@ -59,6 +59,10 @@ def test_graph_window_narrows(seeded):
     narrow = client.get("/api/graph", params={"days": 30}).json()
     total = lambda g: sum(e["amount"] for e in g["edges"] if e["kind"] == "award")  # noqa: E731
     assert 0 < total(narrow) < total(wide)
+    # 0 means everything on record: at least as much as the widest window.
+    everything = client.get("/api/graph", params={"days": 0}).json()
+    assert total(everything) >= total(wide)
+    assert len(everything["nodes"]) >= len(wide["nodes"])
 
 
 def test_org_page_for_company(seeded):

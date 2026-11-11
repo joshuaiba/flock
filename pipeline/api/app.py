@@ -8,26 +8,16 @@ here can write to the database. Merge review and undo stay in the CLI.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from typing import Annotated
 
 import psycopg
 from fastapi import Depends, FastAPI, HTTPException, Query
 
-from pipeline import db
-from pipeline.api import queries
+from pipeline.api import queries, signals
+from pipeline.api.signals import get_conn
 
 app = FastAPI(title="flock", docs_url="/api/docs", openapi_url="/api/openapi.json")
-
-
-def get_conn() -> Iterator[psycopg.Connection]:
-    conn = db.connect()
-    conn.read_only = True
-    try:
-        yield conn
-    finally:
-        conn.close()
-
+app.include_router(signals.router)
 
 Conn = Annotated[psycopg.Connection, Depends(get_conn)]
 
@@ -49,8 +39,8 @@ def recent(conn: Conn, limit: Annotated[int, Query(ge=1, le=200)] = 70) -> list[
 
 @app.get("/api/graph")
 def graph(conn: Conn, days: int = 90) -> dict:
-    if days not in (30, 90, 365):
-        raise HTTPException(422, "days must be 30, 90 or 365")
+    if days not in (0, 30, 90, 365):
+        raise HTTPException(422, "days must be 30, 90, 365, or 0 for everything on record")
     return queries.graph(conn, days)
 
 
