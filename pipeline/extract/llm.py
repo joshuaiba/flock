@@ -21,6 +21,7 @@ from __future__ import annotations
 import inspect
 import logging
 import random
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -36,6 +37,7 @@ from pipeline.agents import budgets, run_log, settings
 log = logging.getLogger(__name__)
 
 RETRY_STATUSES = {429, 500, 502, 503, 504}
+MAX_BACKOFF = 120.0  # seconds; also the longest server-requested delay we wait out
 
 # The text under analysis is the user prompt; everything else is instructions.
 DATA_FRAMING = (
@@ -48,6 +50,22 @@ class ExtractionError(Exception):
     pass
 
 
+def daily_quota_exhausted(e: ModelHTTPError) -> bool:
+    """True for a 429 that waiting a minute or two cannot fix.
+
+    Gemini reports a spent daily quota as 429 RESOURCE_EXHAUSTED with a
+    `...PerDay...` quota id and/or a RetryInfo delay of many minutes; ordinary
+    per-minute throttling carries a delay of seconds.
+    """
+    if e.status_code != 429:
+        return False
+    body = str(e.body)
+    if "PerDay" in body:
+        return True
+    m = re.search(r"retryDelay\W+(\d+(?:\.\d+)?)s", body)
+    return bool(m) and float(m.group(1)) > MAX_BACKOFF
+
+
 @dataclass
 class Provider:
     """A Pydantic AI model plus the label recorded with each result.
@@ -55,6 +73,12 @@ class Provider:
     Calls are paced (`min_interval` seconds apart) and transient HTTP errors
     (429/5xx) are retried with exponential backoff, because Gemini rate limits
     are per project and a nightly run makes hundreds of calls.
+
+    A 429 that reports a spent *daily* quota is different: backing off cannot
+    help, so it is raised at once and remembered. Every later call on this
+    provider then fails immediately without a request (`exhausted` is true),
+    which lets callers stop the pass instead of grinding through backoff for
+    every remaining item.
     """
 
     name: str  # e.g. "gemini:gemini-3.8-flash"
@@ -63,8 +87,15 @@ class Provider:
     http_attempts: int = 6
     sleep: Callable[[float], None] = time.sleep
     _last: float = field(default=0.0, repr=False)
+    _exhausted: ModelHTTPError | None = field(default=None, repr=False)
+
+    @property
+    def exhausted(self) -> bool:
+        return self._exhausted is not None
 
     def call[T](self, fn: Callable[[], T]) -> T:
+        if self._exhausted is not None:
+            raise self._exhausted
         for attempt in range(self.http_attempts):
             wait = self.min_interval - (time.monotonic() - self._last)
             if wait > 0:
@@ -73,9 +104,13 @@ class Provider:
             try:
                 return fn()
             except ModelHTTPError as e:
+                if daily_quota_exhausted(e):
+                    log.error("%s daily quota exhausted; not retrying", self.name)
+                    self._exhausted = e
+                    raise
                 if e.status_code not in RETRY_STATUSES or attempt == self.http_attempts - 1:
                     raise
-                delay = min(120.0, 2.0 * 2**attempt) * (0.5 + random.random() / 2)
+                delay = min(MAX_BACKOFF, 2.0 * 2**attempt) * (0.5 + random.random() / 2)
                 log.warning("%s -> %s; retrying in %.1fs", self.name, e.status_code, delay)
                 self.sleep(delay)
         raise AssertionError("unreachable")

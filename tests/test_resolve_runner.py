@@ -145,3 +145,26 @@ def test_uei_auto_merge_closes_an_open_review_question(db):
     stats = runner.run(db, limit=10, http=http_client())
     assert stats["auto_merged"] == 1 and stats["pending_total"] == 0
     assert count(db, "organizations", "merged_into IS NOT NULL") == 1
+
+
+def test_spent_model_quota_stops_the_pass(db):
+    from pydantic_ai.exceptions import ModelHTTPError
+    from pydantic_ai.models.function import FunctionModel
+
+    from pipeline.extract import llm
+
+    _two_pairs(db)
+    requests = []
+
+    def respond(messages, info):
+        requests.append(1)
+        raise ModelHTTPError(429, "m", {"error": {"details": [{"quotaId": "RequestsPerDay"}]}})
+
+    p = llm.Provider(
+        name="fake:quota", model=FunctionModel(respond), min_interval=0.0, sleep=lambda s: None
+    )
+    stats = runner.run(db, limit=10, provider=p, http=http_client())
+    # One request, one failure; the second pair is left for the next run.
+    assert len(requests) == 1 and stats["candidates"] == 2
+    assert stats["failed"] == 1 and stats["stopped"] == "model daily quota exhausted"
+    assert count(db, "org_merges") == 0 and count(db, "pending_merges") == 0

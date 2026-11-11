@@ -300,3 +300,47 @@ def test_extract_writes_agent_runs(db):
     assert all(r[5] > 0 and r[6] > 0 for r in rows)
     assert rows[0][7] == {"name": "x", "count": 1} and rows[0][8] is None
     assert rows[1][7] is None and "UnexpectedModelBehavior" in rows[1][8]
+
+
+DAILY_429 = {
+    "error": {
+        "code": 429,
+        "status": "RESOURCE_EXHAUSTED",
+        "details": [
+            {"quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier"},
+            {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "6676s"},
+        ],
+    }
+}
+
+
+@pytest.mark.parametrize(
+    "status,body,expected",
+    [
+        (429, DAILY_429, True),
+        (429, {"error": {"details": [{"retryDelay": "900s"}]}}, True),
+        (429, {"error": {"details": [{"retryDelay": "17.5s"}]}}, False),  # per-minute throttle
+        (429, None, False),
+        (503, DAILY_429, False),
+    ],
+)
+def test_daily_quota_detection(status, body, expected):
+    assert llm.daily_quota_exhausted(ModelHTTPError(status, "m", body)) is expected
+
+
+def test_spent_daily_quota_is_not_retried_and_trips_the_provider():
+    sleeps, requests = [], []
+
+    def respond(messages, info):
+        requests.append(1)
+        raise ModelHTTPError(429, "m", DAILY_429)
+
+    p = llm.Provider(
+        name="fake:quota", model=FunctionModel(respond), min_interval=0.0, sleep=sleeps.append
+    )
+    with pytest.raises(llm.ExtractionError):
+        llm.extract("a", Thing, provider=p)
+    assert len(requests) == 1 and sleeps == [] and p.exhausted
+    with pytest.raises(llm.ExtractionError):  # later calls fail without a request
+        llm.extract("b", Thing, provider=p)
+    assert len(requests) == 1

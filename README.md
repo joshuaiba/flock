@@ -148,8 +148,8 @@ proposed again on the next run.
 
 ### How the resolver decides
 
-1. **Blocking** (`candidates.py`, no LLM). Company rows that share a UEI are
-   merged straight away without the agent. Other rows are paired when their
+1. **Blocking** (`candidates.py`, no LLM). Company rows that share a
+   well-formed 12-character UEI are merged straight away without the agent. Other rows are paired when their
    normalized names are similar (legal suffixes, punctuation and case
    stripped), or when one name is the other plus a division, the way DoD
    announcements write "Lockheed Martin Corp., Missiles and Fire Control".
@@ -159,7 +159,10 @@ proposed again on the next run.
    `search_usaspending_recipient` (parent/child links, former names),
    `get_org_awards` (what we already hold for an org), and
    `compare_addresses` (deterministic). It returns a `MergeDecision`:
-   `merge`, `separate` or `unsure`, a confidence, and evidence.
+   `merge`, `separate` or `unsure`, a confidence, and evidence. Evidence is
+   checked against what the tools returned in that run: a URL no tool
+   returned is dropped, and a confident decision with no tool-backed evidence
+   is capped at 0.89, so it goes to review instead of being applied.
 3. **Apply** (`apply.py`):
 
 | Decision | Confidence | Result |
@@ -203,7 +206,9 @@ uv run --env-file .env python -m pipeline.resolve undo 7
   non-match and not asked again.
 - **Undo** restores both rows from the snapshot and records the pair as a
   non-match, so the next run doesn't redo the merge. Undo newest first: it
-  refuses while a later merge still touches either row.
+  refuses, naming the merges to undo first, while a later merge touches
+  either row, one of the same edges, or a third organization they share. A
+  UEI or alias that a later load added to the surviving row is kept.
 
 `run` exits 2 when every pair sent to the agent failed. `review --accept`,
 `--reject` and `undo` exit 1 when the action is refused.
@@ -226,8 +231,22 @@ ORDER BY 1 DESC, 2;
 
 The resolver's SAM.gov and USAspending responses are cached in `http_cache`
 (30 days for answers, 1 hour for errors). SAM.gov documents no quota error,
-so the pipeline counts its own requests per UTC day from that table and stops
-calling SAM once `SAM_DAILY_QUOTA` is reached. Cache hits don't count.
+so the pipeline logs every request it sends in `http_requests`, counts them
+per UTC day, and stops calling SAM once `SAM_DAILY_QUOTA` is reached. Cache
+hits don't count.
+
+If Gemini reports that the daily quota is spent, calls stop at once instead
+of backing off, and a resolve pass ends early (`stopped` in its stats); the
+remaining pairs are proposed again next run. A free-tier key allowed 20
+requests a day per model when this was measured, and one resolver decision
+takes about 4, so the nightly needs a paid tier to get through extraction,
+classification and resolution.
+
+Measured on 2026-11-10 with `gemini-3.8-flash`, live SAM.gov and USAspending,
+two completed decisions: 2 and 6 model requests, 4 and 7 tool calls, 8,200
+and 25,400 tokens (about 15,500 input and 1,300 output tokens per decision on
+average). Multiply by your model's current price; two decisions is a small
+sample, so run `run --dry-run` on real data for a better figure.
 
 Logfire tracing is optional. Run `uv sync --group observability` and set
 `LOGFIRE_TOKEN`. Without the token nothing is configured or sent.
@@ -249,13 +268,10 @@ calls and tokens per decision. It never applies a decision.
 
 ### Known limitations
 
-- **Not yet run live.** The Gemini and SAM.gov paths are tested against
-  scripted models and fixtures only. The SAM.gov fixture is built from the
-  API documentation, not recorded; re-record it once a key exists
-  (`tests/fixtures/resolve/README.md`). The USAspending fixtures are real.
-- **No cost figure yet.** Scripted tests don't count the instructions or tool
-  schemas, so they understate tokens. A `run --dry-run` prints per-decision
-  averages; use that.
+- **Lightly run live.** Extraction, the classifier and three resolver pairs
+  have been run against the real Gemini, SAM.gov and USAspending APIs, on a
+  throwaway database. The SAM.gov test fixture is still built from the API
+  documentation, not recorded (`tests/fixtures/resolve/README.md`).
 - **Blocking is by the first word of the normalized name.** Duplicates whose
   names start differently ("Sikorsky Aircraft" vs "Lockheed Martin Sikorsky")
   are never proposed.

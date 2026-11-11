@@ -91,6 +91,7 @@ def run(
                    exceeded) or whose decision could not be applied, plus UEI
                    auto-merges that hit a database error
     skipped        pairs dropped because an earlier merge in this run made them stale
+    stopped        only present when the pass ended early (model daily quota spent)
     failures       [{input_ref, run_id, error}] for those
     requests, input_tokens, output_tokens, total_tokens, tool_calls
                    usage totals for this run
@@ -144,7 +145,7 @@ def run(
     if pairs:
         provider = provider or agent.default_provider()
         # max_retries is low on purpose: every retry is a request against the
-        # SAM.gov daily quota that http_cache cannot count.
+        # SAM.gov daily quota that the http_requests log cannot count.
         client = http or PoliteClient(min_interval=1.0, max_retries=1)
         try:
             deps = ResolveDeps.from_settings(conn, client)
@@ -170,6 +171,13 @@ def run(
                 if outcome.decision is None:
                     out["failed"] += 1
                     out["failures"].append(_failure(ref, outcome.run_id, outcome.error or ""))
+                    if provider.exhausted:
+                        # The model's daily quota is spent: every further pair
+                        # would fail the same way. Stop; they are re-proposed
+                        # next run.
+                        log.error("model quota exhausted; stopping the resolve pass")
+                        out["stopped"] = "model daily quota exhausted"
+                        break
                     continue
                 try:
                     action = apply.apply_decision(

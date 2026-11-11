@@ -30,7 +30,7 @@ What it writes to the database:
   runs, and the rows are deleted again in the same transaction, so nothing
   else ever sees them. The eval only calls the agent's `decide`. It never
   applies a decision, so it cannot merge anything.
-- `http_cache` rows are kept. That keeps the SAM.gov daily quota count honest
+- `http_cache` and `http_requests` rows are kept. That keeps the SAM.gov daily quota count honest
   and makes a second eval run cheap.
 - `agent_runs` rows are kept too, under `agent_name = 'resolver'`, so eval
   spend shows up in the cost audit. Their `input_ref` points at the deleted
