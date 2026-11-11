@@ -11,6 +11,8 @@ dependencies = [
     "pyyaml>=6.0",
     "pydantic-ai-slim[google]>=2.66.0",
     "pydantic-settings>=2.16.2",
+    "fastapi>=0.162.4",
+    "uvicorn>=0.30",
 ]
 
 [dependency-groups]

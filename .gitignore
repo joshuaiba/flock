@@ -5,9 +5,13 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 dist/
+Flock — UI Design Direction.pdf
 
 # Raw snapshots are kept out of git (multi-MB/day); CI uploads them as artifacts.
 data/raw/*
 !data/raw/.gitkeep
 data/inbox/*
 !data/inbox/.gitkeep
+
+# Embedded Postgres for local UI development (python -m pipeline.api.dev)
+data/dev-pg/
