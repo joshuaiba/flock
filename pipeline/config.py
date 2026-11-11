@@ -6,6 +6,11 @@ import yaml
 
 CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
 
+# Default Gemini model names (bare, no provider prefix). Override with the
+# EXTRACT_MODEL / RESOLVE_MODEL env vars; agent modules never hardcode a model.
+DEFAULT_EXTRACT_MODEL = "gemini-3.8-flash"
+DEFAULT_RESOLVE_MODEL = "gemini-3.8-flash"
+
 
 def load_yaml(name: str) -> dict:
     return yaml.safe_load((CONFIG_DIR / name).read_text())
