@@ -114,16 +114,17 @@ and a few other values are read straight from the process environment.
 
 `web/` is a Next.js site over a read-only API (`pipeline/api`). The whole
 product is one softly animated pastel painting, in the spirit of faded villa
-frescoes and Italian lake landscapes: a painted scene at the back, a
-murmuration of brushstroke swallows in the middle (one bird per recent award or
-open solicitation), and marble and text on top.
+frescoes and Italian lake landscapes: a painted lakeside scene at the back, a
+murmuration of painted swallows in the middle (one bird per recent award or
+open solicitation), and marble and text on top. All of the art comes from an
+illustration pack; nothing decorative is drawn in code.
 
 | Screen | Path | What it shows |
 | --- | --- | --- |
-| Landing | `/` | Painted hero, the live flock, the month's totals |
-| Graph explorer | `/graph` | Companies, agencies and solicitations as painted medallions on category washes; award edges in faded red, weight by dollars; search, category filters, 30 days / 90 days / 1 year |
-| Entity page | `/entity/<id>` | An organization's totals, path to production, awards, related entities, sources |
-| Field report | `/feed` | The week's digest as a letter, then every recent award and solicitation as a list |
+| Landing | `/` | The layered lake scene (sky, clouds, hills, shimmering water, boats, a leafy frame), the live flock, the month's totals |
+| Graph explorer | `/graph` | Companies, agencies and solicitations as painted medallions, one design per category; award edges in faded red, weight by dollars; search, category filters, 30 days / 90 days / 1 year |
+| Entity page | `/entity/<id>` | An organization under a fresco banner: totals, path to production, awards, related entities, sources |
+| Field report | `/feed` | The week's digest as a letter under a fresco header, then every recent award and solicitation as a list |
 
 Run it locally in two terminals:
 
@@ -152,6 +153,21 @@ The API has only `GET` routes and opens every connection read-only. Merge
 review and undo stay in the CLI. It counts only awards the classifier tagged
 as autonomy, so an unrelated contract from a source never reaches the site.
 
+### Signals
+
+`migrations/007_signals.sql` adds computed metrics as materialized views:
+funding totals, momentum against the prior period, new entrants, stage
+transitions, solicitation topic heat, largest awards, agency appetite and
+watchlist changes. Each view's definition is in the SQL comments. The API
+serves one endpoint per signal under `/api/signals/` (see `/api/docs`); every
+response carries `as_of`, the window, the source tables, and `coverage`, which
+says whether the data reaches back far enough to compare with the prior period.
+
+The views are refreshed by `python -m pipeline.signals`, the last step of the
+nightly workflow. The hero's 30-day figures and the field report's weekly
+figures read the same views, so pages cannot disagree. The API server does not
+refresh them: after loading data by hand, run the refresh.
+
 Things to know:
 
 - **Path to production is a text heuristic.** The schema has no stage column,
@@ -160,14 +176,22 @@ Things to know:
 - **No source loads solicitations yet.** The `opportunities` table is only
   filled by the sample data, so with real data the site shows awards only
   until a solicitation source is added.
-- **The landscapes are drawn in code** (`web/src/components/Landscape.tsx`),
-  as stand-ins for commissioned illustrations.
+- **The art is built from an illustration pack that is not in this repo.**
+  `web/public/art/` holds the resized `.webp` files the site serves. To
+  rebuild them from the pack: `uv run --with pillow python
+  web/scripts/build-art.py /path/to/flock-assets`. The script only resizes and
+  crops; it never redraws or recolors.
+- **The fresco is a real Roman wall painting.** It is the west wall of Room L
+  of the Villa of P. Fannius Synistor at Boscoreale, in The Metropolitan Museum
+  of Art (accession 03.14.4, marked Public Domain on
+  [its collection page](https://www.metmuseum.org/art/collection/search/247008),
+  checked 2026-11-11). The footer carries the credit line.
 - **The graph is laid out once and then stays put.** ForceAtlas2, then
   noverlap (`web/src/lib/graphLayout.ts`). In development,
   `/graph?stress=2000` loads a synthetic 2,000-node graph for profiling.
 - **Motion can be turned off.** The site follows the OS reduced-motion setting,
-  and the `still` link in the nav freezes the birds, the paintings and the
-  physics.
+  and the `still` link in the nav freezes the scene: the hero becomes a
+  still painting with a few birds held in a loose V.
 
 ## Where agents are used and why
 
