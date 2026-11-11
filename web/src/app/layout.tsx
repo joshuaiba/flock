@@ -23,16 +23,22 @@ export const metadata: Metadata = {
 };
 
 // Runs before first paint so day/night and the "still" preference never flash.
-const BOOT = `try{var d=document.documentElement,t=localStorage.getItem("flock.theme");d.dataset.theme=t?JSON.parse(t):matchMedia("(prefers-color-scheme: dark)").matches?"night":"day";if(JSON.parse(localStorage.getItem("flock.still")||"false"))d.setAttribute("data-still","")}catch(e){}`;
+const BOOT = `try{var d=document.documentElement,t=localStorage.getItem("flock.theme");t=t?JSON.parse(t):matchMedia("(prefers-color-scheme: dark)").matches?"dusk":"day";d.dataset.theme=t==="day"?"day":"dusk";if(JSON.parse(localStorage.getItem("flock.still")||"false"))d.setAttribute("data-still","")}catch(e){}`;
 
-// Three layers in a fixed order: painted ground (z-0, inside pages), the birds
-// (z-10, the flock canvas), marble and text (z-20 and up). Page wrappers must not
+// Layers in a fixed order: painted art (z 0-9, inside pages), the birds (z-10,
+// the flock canvas), the hero's foreground frame (z-12), paper grain (z-15),
+// then text and controls (z-20 and up). Page wrappers must not
 // create stacking contexts, or the flock could not pass between paint and text.
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${display.variable} ${serif.variable} ${caps.variable} antialiased`} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: BOOT }} />
+        {/* Without scripts nothing reveals the headings and garlands (see
+            Reveal.tsx), so show them from the start. */}
+        <noscript>
+          <style>{`.reveal{opacity:1;transform:none}`}</style>
+        </noscript>
       </head>
       <body className="min-h-svh">
         <Suspense fallback={null}>
@@ -41,6 +47,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <Suspense fallback={null}>
           <Flock />
         </Suspense>
+        <div className="grain" aria-hidden="true" />
         {children}
         <Suspense fallback={null}>
           <Chain />

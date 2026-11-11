@@ -1,0 +1,36 @@
+/* Footer: the terrace painting is a full-width background anchored to the
+   bottom. The links sit above it and reach only into the top of its empty sky.
+
+   --h        height of the painting (its native shape is 3:1)
+   --overlap  how much of the painting's top the text block may reach into.
+              The sky is plain across the full width for the top 24% and in the
+              middle 60% down to 48%; leaves start at the left edge at 24%. */
+.site-footer {
+  --h: clamp(220px, 33.34vw, 640px);
+  --overlap: 0.3;
+  position: relative;
+  padding-bottom: calc(var(--h) * (1 - var(--overlap)));
+}
+
+.site-footer-painting {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 0;
+  height: var(--h);
+  pointer-events: none;
+  /* Day: the sky is almost the page color, so a short fade is enough and the
+     arch keeps its top. */
+  -webkit-mask-image: var(--terrace-mask, linear-gradient(to bottom, transparent 0%, #000 20%));
+  mask-image: var(--terrace-mask, linear-gradient(to bottom, transparent 0%, #000 20%));
+}
+
+/* Dusk: the tinted sky is a mid tone, too light for the pale text, so the
+   fade is longer. The dusk mask is --terrace-mask, set in globals.css with the
+   other dusk tokens. */
+
+/* At least as tall as the overlap, so the painting never rises above the footer. */
+.site-footer-copy {
+  min-height: calc(var(--h) * var(--overlap));
+}

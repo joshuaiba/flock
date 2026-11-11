@@ -1,15 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { ViewTransition } from "react";
-import { entityIcon } from "@/lib/icons";
+import { ViewTransition, useSyncExternalStore } from "react";
+import { medallionFor } from "@/lib/art";
 import { useStore } from "@/lib/store";
-import { Icon } from "./Icon";
+import { MedallionImg } from "./Art";
 
-/** A marble medallion struck with an entity's engraved glyph. `morph` gives it
- *  the shared name that lets a clicked medallion grow into the entity page
- *  header; one already on the chain owns that name, so it is skipped here to
- *  keep names unique. */
+const never = () => () => {};
+
+/** An entity's painted medallion, picked by its category and kind. `morph`
+ *  gives it the shared name that lets a clicked medallion grow into the entity
+ *  page header; one already on the chain owns that name, so it is skipped here
+ *  to keep names unique. */
 export function Medallion({
   id,
   tag,
@@ -24,12 +26,25 @@ export function Medallion({
   morph?: boolean | "always";
 }) {
   const { isPinned } = useStore();
+  // False while the server's HTML is being hydrated: the watchlist is not known
+  // yet, and the chain may already be showing this same medallion under the
+  // shared name. The name is taken only once this component knows the pins.
+  const hydrated = useSyncExternalStore(never, () => true, () => false);
+  // The shadow follows the round edge of the art and grows with the medallion.
+  const drop = Math.max(3, Math.round(size * 0.06));
   const coin = (
-    <span className="marble coin" style={{ width: size, height: size }}>
-      <Icon name={entityIcon(tag, kind)} size={Math.round(size * 0.5)} weight={size > 80 ? 0.9 : 1.2} />
+    <span
+      className="block shrink-0 rounded-full"
+      style={{
+        width: size,
+        height: size,
+        filter: `drop-shadow(0 ${drop}px ${Math.round(drop * 1.4)}px rgb(40 30 22 / 0.3))`,
+      }}
+    >
+      <MedallionImg name={medallionFor(tag, kind)} size={size} />
     </span>
   );
-  if (!morph || (morph !== "always" && isPinned(id))) return coin;
+  if (!morph || !hydrated || (morph !== "always" && isPinned(id))) return coin;
   return (
     <ViewTransition name={`coin-${id}`} share="coin-morph">
       {coin}

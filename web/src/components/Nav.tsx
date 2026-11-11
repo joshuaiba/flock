@@ -10,7 +10,9 @@ const LINKS = [
   { href: "/#about", label: "about" },
 ];
 
-const ITEM = "rounded-full px-2.5 py-1 font-caps text-[0.68rem] uppercase tracking-[0.18em] transition-colors hover:text-ink";
+// Tighter on a phone, so the pill clears the wordmark beside it.
+const ITEM =
+  "rounded-full px-1.5 py-1 font-caps text-[0.68rem] uppercase tracking-[0.14em] transition-colors hover:text-ink sm:px-2.5 sm:tracking-[0.18em]";
 
 /** Minimal top-center nav on a marble pill: graph · feed · about · day/dusk. */
 export function Nav() {
@@ -47,9 +49,9 @@ export function Nav() {
           type="button"
           onClick={toggleTheme}
           className={`${ITEM} cursor-pointer text-muted`}
-          aria-label={`Switch to ${theme === "night" ? "day" : "dusk"}`}
+          aria-label={`Switch to ${theme === "dusk" ? "day" : "dusk"}`}
         >
-          {theme === "night" ? "day" : "dusk"}
+          {theme === "dusk" ? "day" : "dusk"}
         </button>
         <button
           type="button"

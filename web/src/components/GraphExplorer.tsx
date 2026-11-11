@@ -5,24 +5,29 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clientGet, type Graph, type GraphNode } from "@/lib/api";
+import { medallionFor, medallionForTag, medallionUrl, type MedallionName } from "@/lib/art";
 import { day, money, plural, truncate } from "@/lib/format";
 import { layoutGraph, stressGraph, type L, type N, type Scene } from "@/lib/graphLayout";
-import { entityIcon, iconPath, tagLabel, TAGS, washColor } from "@/lib/icons";
-import { drawBird, drawBloom, hexA, mix, readPalette, type Bloom } from "@/lib/paint";
+import { tagLabel, TAGS } from "@/lib/tags";
+import { drawBloom, readPalette, type Bloom } from "@/lib/paint";
+import { drawSwallow, loadSprites, SPRITE, type Sprites } from "@/lib/sprites";
 import { chainRing, useStore } from "@/lib/store";
+import { MedallionImg } from "./Art";
 import { Empty } from "./Empty";
-import { Icon } from "./Icon";
 import { PinButton } from "./PinButton";
 
-// The graph explorer, drawn as an old painted map. Nodes are medallions (soft
-// fill, thin sepia ring: solid for companies, double for agencies, dashed for
-// solicitations) with an engraved glyph. Award edges are tapered brushstrokes in
-// faded Pompeian red, weight by amount. Categories sit on watercolor washes.
+// The graph explorer. Nodes are the medallions from the illustration pack,
+// drawn as textures on one canvas and sized on a sqrt scale of dollars: the
+// column is an agency or office, the other five are companies by category, and
+// solicitations are the same medallions, small and faint. Award edges are
+// tapered brushstrokes in faded Pompeian red, weight by amount; every other
+// edge is a thin ink line. The ground is plain parchment with paper grain.
 //
 // The layout is computed once (lib/graphLayout.ts) and never moves on its own.
 // The camera is smooth: inertial panning, zoom toward the cursor, 500ms eased
-// moves when focusing. Rendering culls to the viewport and drops edge detail
-// when zoomed out, so large graphs stay fluid.
+// moves when focusing. Rendering culls to the viewport, draws each medallion
+// from a pre-scaled copy near its on-screen size, and drops edge detail when
+// zoomed out, so large graphs stay fluid.
 
 type View = { k: number; tx: number; ty: number };
 type Spring = { n: N; ox: number; oy: number; tx: number; ty: number; vx: number; vy: number };
@@ -34,6 +39,10 @@ type GBird = {
   dur: number;
   wait: number;
   phase: number;
+  /** seconds since it landed */
+  rest: number;
+  /** the way it was facing when it landed: 1 right, -1 left */
+  face: number;
 };
 
 const WINDOWS = [
@@ -42,10 +51,99 @@ const WINDOWS = [
   { days: 365, label: "1 year" },
 ];
 const MAX_K = 3.5;
+
+// Medallion textures. Each image is loaded once and pre-scaled to a ladder of
+// sizes, each half the one above. One strip per size holds all six medallions
+// side by side, so nodes drawn at the same size share a single texture. A node
+// is drawn from the smallest strip that covers its on-screen diameter in device
+// pixels: the full-size art is never resampled during a frame.
+const MEDALLIONS: MedallionName[] = ["column", "laurel", "wing", "anchor", "compass", "shield"];
+const CELL = Object.fromEntries(MEDALLIONS.map((name, i) => [name, i])) as Record<MedallionName, number>;
+const MIPS = [12, 24, 48, 96, 192, 384]; // cell sizes in device pixels; each must be half the next
+const SOURCE = 512; // which file the ladder is built from
+const PAD = 2; // transparent gutter around each cell, so neighbors never bleed
+const MIN_R = 2.5; // the smallest a medallion is drawn, in CSS pixels
+
+// Medallion opacity. Solicitations are fainter than everything else, and closed
+// ones fainter than open ones. At dusk the art is drawn as it is, a touch dimmer.
+const OPEN_ALPHA = 0.72;
+const CLOSED_ALPHA = 0.4;
+const DUSK_ALPHA = 0.9;
+const FADED = 0.2; // what non-neighbors dim to while a node is hovered or selected
+
+// Edge opacity at rest, before the crowding and hover adjustments.
+const INK_EDGE_ALPHA = 0.35;
+const AWARD_EDGE_ALPHA = 0.5;
+const INK_EDGE_WIDTH = 0.8;
+
+// The swallows that carry awards along edges.
+const BIRD_WIDTH = 26; // drawn width of a sprite cell, in CSS pixels
+const BIRD_ALPHA = 0.95;
+const BIRD_LIFT = 8; // how far above a medallion a bird comes to rest
+const BIRD_FADE = 1.2; // seconds a landed bird takes to fade
+
+type Atlas = { strips: CanvasImageSource[] };
+let atlasPending: Promise<Atlas> | null = null;
+
+/** Load the six medallions and build the strips (once, shared between visits). */
+function loadAtlas(): Promise<Atlas> {
+  atlasPending ??= Promise.all(
+    MEDALLIONS.map(
+      (name) =>
+        new Promise<HTMLImageElement | null>((resolve) => {
+          const img = new Image();
+          img.decoding = "async";
+          img.onload = () => resolve(img);
+          img.onerror = () => resolve(null);
+          img.src = medallionUrl(name, SOURCE);
+        }),
+    ),
+  ).then(async (images) => {
+    if (images.some((img) => !img)) atlasPending = null; // try again on the next visit
+    const canvases: HTMLCanvasElement[] = [];
+    for (let level = MIPS.length - 1; level >= 0; level--) {
+      const size = MIPS[level];
+      const step = size + PAD * 2;
+      const c = document.createElement("canvas");
+      c.width = step * MEDALLIONS.length;
+      c.height = step;
+      const g = c.getContext("2d")!;
+      g.imageSmoothingQuality = "high";
+      const above = canvases[level + 1];
+      images.forEach((img, i) => {
+        const x = i * step + PAD;
+        if (above) {
+          // an exact halving of the strip above: a clean box filter in every browser
+          const big = MIPS[level + 1];
+          g.drawImage(above, i * (big + PAD * 2) + PAD, PAD, big, big, x, PAD, size, size);
+        } else if (img) g.drawImage(img, x, PAD, size, size);
+        else {
+          // the file did not load: a blank plaster disc keeps the node on the map
+          g.fillStyle = "#ede4d3";
+          g.strokeStyle = "#7a6b5c";
+          g.lineWidth = size / 40;
+          g.beginPath();
+          g.arc(x + size / 2, PAD + size / 2, size * 0.47, 0, Math.PI * 2);
+          g.fill();
+          g.stroke();
+        }
+      });
+      canvases[level] = c;
+    }
+    // Bitmaps are immutable, so the browser uploads each strip to the GPU once.
+    const strips = await Promise.all(
+      canvases.map((c): Promise<CanvasImageSource> | CanvasImageSource =>
+        typeof createImageBitmap === "function" ? createImageBitmap(c).catch(() => c) : c,
+      ),
+    );
+    return { strips };
+  });
+  return atlasPending;
+}
+
 const EMPTY: Scene = {
   nodes: [],
   links: [],
-  washes: [],
   regions: [],
   near: new Map(),
   byId: new Map(),
@@ -81,6 +179,7 @@ export function GraphExplorer() {
     refilter: () => {},
   });
   const focused = useRef<string | null>(null);
+  const widened = useRef<string | null>(null); // the focus the window was last widened for
 
   ui.current.selected = selected;
   ui.current.tags = tags;
@@ -98,6 +197,12 @@ export function GraphExplorer() {
         const laid = await layoutGraph(g, () => alive);
         if (!laid || !alive) return;
         scene.current = laid;
+        // A selection that is not in the new graph would dim the whole map.
+        if (ui.current.selected && !laid.byId.has(ui.current.selected)) {
+          ui.current.selected = null;
+          setSelected(null);
+        }
+        ui.current.hover = null;
         setGraph(g);
         api.current.refilter();
         api.current.fit(false);
@@ -120,7 +225,12 @@ export function GraphExplorer() {
       setSelected(focus);
       ui.current.selected = focus;
       requestAnimationFrame(() => api.current.focusOn(focus, true));
-    } else if (days < 365) setDays(365); // older than the window: widen it once
+    } else if (days < 365 && widened.current !== focus) {
+      // older than the window: widen it once (once per focus, so a node that is
+      // never found does not hold the window at a year)
+      widened.current = focus;
+      setDays(365);
+    }
   }, [graph, ready, focus, days]);
 
   useEffect(() => {
@@ -135,9 +245,8 @@ export function GraphExplorer() {
     const tip = tipRef.current!;
     let palette = readPalette();
     let fonts = { serif: "serif", caps: "serif" };
-    let washes = new Map<string, HTMLCanvasElement>();
-    let fills = new Map<string, string>();
-    const glyphs = new Map<string, Path2D>();
+    let atlas: Atlas | null = null; // nothing is drawn until the medallions have loaded
+    let sprites: Sprites | null = null;
     let W = 0;
     let H = 0;
     let dpr = 1;
@@ -166,6 +275,8 @@ export function GraphExplorer() {
       dur: 1,
       wait: 1 + i * 1.4,
       phase: i,
+      rest: BIRD_FADE,
+      face: 1,
     }));
     let pointer: null | {
       node: N | null;
@@ -203,42 +314,8 @@ export function GraphExplorer() {
     /** Medallions grow with zoom, but more slowly than the space between them. */
     const zs = () => Math.min(Math.pow(view.k, 0.7), view.k * 1.45);
 
-    const wash = (tag: string) => {
-      let c = washes.get(tag);
-      if (c) return c;
-      c = document.createElement("canvas");
-      c.width = c.height = 128;
-      const g = c.getContext("2d")!;
-      const grad = g.createRadialGradient(64, 64, 6, 64, 64, 64);
-      const color = washColor(tag);
-      const a = palette.night ? 0.17 : 0.34;
-      grad.addColorStop(0, hexA(color, a));
-      grad.addColorStop(0.55, hexA(color, a * 0.55));
-      grad.addColorStop(0.85, hexA(color, a * 0.2));
-      grad.addColorStop(1, hexA(color, 0));
-      g.fillStyle = grad;
-      g.fillRect(0, 0, 128, 128);
-      washes.set(tag, c);
-      return c;
-    };
-    const fillOf = (n: N) => {
-      const key = n.kind === "opportunity" ? "opp" : (n.tag ?? "none");
-      let f = fills.get(key);
-      if (!f) {
-        f =
-          key === "opp"
-            ? palette.marble
-            : mix(palette.night ? palette.card : palette.marble, washColor(n.tag), palette.night ? 0.6 : 0.62);
-        fills.set(key, f);
-      }
-      return f;
-    };
-    const glyph = (n: N) => {
-      const name = entityIcon(n.tag, n.kind);
-      let p = glyphs.get(name);
-      if (!p) glyphs.set(name, (p = new Path2D(iconPath(name))));
-      return p;
-    };
+    /** A node's drawn radius in CSS pixels. */
+    const rad = (n: N, z: number) => Math.max(MIN_R, n.r * z);
 
     /** Rail and panel rectangles, so labels are never drawn underneath them. */
     const measure = () => {
@@ -320,7 +397,7 @@ export function GraphExplorer() {
       const k = Math.max(Math.max(fitK, 0.4), Math.min(1.35, aw / hx, ah / hy));
       moveTo({ k, tx: p.l + aw - n.x * k, ty: p.t + ah - n.y * k }, true);
       if (fly && ui.current.motion) {
-        birds[0] = { from: { x: -40, y: H * 0.25 }, fromNode: null, to: n, t: 0, dur: 1.6, wait: 0, phase: 0 };
+        birds[0] = { from: { x: -40, y: H * 0.25 }, fromNode: null, to: n, t: 0, dur: 1.6, wait: 0, phase: 0, rest: 0, face: 1 };
       } else if (fly) blooms.push({ x: n.x, y: n.y, t: 0 });
     };
 
@@ -439,12 +516,14 @@ export function GraphExplorer() {
       return moving || blooms.length > 0;
     };
 
-    // Reused per frame, so drawing thousands of edges allocates nothing.
+    // Reused per frame, so drawing thousands of edges and nodes allocates nothing.
     const eb: number[][] = Array.from({ length: 10 }, () => []);
+    const nb: N[][] = Array.from({ length: MIPS.length * 2 }, () => []);
+    const vis: N[] = [];
     const placed: number[] = [];
 
     const place = (x0: number, y0: number, x1: number, y1: number) => {
-      // labels stay clear of the border ornament
+      // labels keep a margin from the edge of the view and its hairline frame
       if (x0 < 30 || y0 < 30 || x1 > W - 30 || y1 > H - 26) return false;
       for (let i = 0; i < obstacles.length; i += 4)
         if (x0 < obstacles[i + 2] && x1 > obstacles[i] && y0 < obstacles[i + 3] && y1 > obstacles[i + 1]) return false;
@@ -462,24 +541,14 @@ export function GraphExplorer() {
       const fid = hover ?? selected; // the node whose neighborhood is lit
       const around = fid ? near.get(fid) : null;
       const lit = (n: N) => (fid ? n.id === fid || !!around?.has(n.id) : matches ? matches.has(n.id) : true);
-      const faded = 1 - 0.8 * dim; // non-neighbors dim to about 20%
+      const faded = 1 - (1 - FADED) * dim; // non-neighbors dim to about 20%
       const spacing = ctx as CanvasRenderingContext2D & { letterSpacing: string };
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, W, H);
-      wrap.style.backgroundPosition = `${view.tx % 96}px ${view.ty % 96}px`;
+      if (!atlas) return; // the map appears whole, once its medallions have loaded
 
-      // 1. Regions: watercolor washes, like provinces on an old painted map.
-      for (const w of scene.current.washes) {
-        const x = sx(w);
-        const y = sy(w);
-        const r = w.r * k;
-        if (x + r < 0 || x - r > W || y + r < 0 || y - r > H) continue;
-        if (ui.current.tags.size && !ui.current.tags.has(w.tag)) continue;
-        ctx.drawImage(wash(w.tag), x - r, y - r, r * 2, r * 2);
-      }
-
-      // 2. Edges. Buckets 0-2: awards lit, by weight; 3-5: awards faded;
+      // 1. Edges. Buckets 0-2: awards lit, by weight; 3-5: awards faded;
       //    6/7: other lit solid/dashed; 8/9: other faded solid/dashed.
       for (const b of eb) b.length = 0;
       let onScreen = 0;
@@ -506,9 +575,9 @@ export function GraphExplorer() {
         if (!list.length) continue;
         const award = b < 6;
         const on = award ? b < 3 : b < 8;
-        const rest = award ? 0.5 : 0.24;
+        const rest = award ? AWARD_EDGE_ALPHA : INK_EDGE_ALPHA;
         // hovered edges brighten; the others fade with the rest of the map
-        // a great many edges in view are drawn fainter, so they read as a wash, not a tangle
+        // a great many edges in view are drawn fainter, so they read as a haze, not a tangle
         const crowd = fid ? 1 : Math.min(1, Math.sqrt(900 / Math.max(onScreen, 1)));
         ctx.globalAlpha = on ? rest * crowd + (fid ? (award ? 0.38 : 0.26) * dim : 0) : rest * faded * crowd;
         ctx.beginPath();
@@ -540,7 +609,7 @@ export function GraphExplorer() {
             ctx.lineTo(sx(l.target), sy(l.target));
           }
           ctx.strokeStyle = award ? palette.pompeii : palette.ink;
-          ctx.lineWidth = award ? Math.max(0.5, (0.5 + (b % 3) * 0.9) * z) : 0.8;
+          ctx.lineWidth = award ? Math.max(0.5, (0.5 + (b % 3) * 0.9) * z) : INK_EDGE_WIDTH;
           ctx.setLineDash(!award && b % 2 === 1 ? [3, 4] : []);
           ctx.stroke();
         }
@@ -548,103 +617,71 @@ export function GraphExplorer() {
       ctx.setLineDash([]);
       ctx.globalAlpha = 1;
 
-      // 3. Blooms where a bird has landed.
+      // 2. Blooms where a bird has landed.
       blooms = blooms.filter((b) => drawBloom(ctx, { x: sx(b), y: sy(b), t: b.t, seed: (b.x + b.y) % 6.28 }, palette.terracotta));
 
-      // 4. Medallions. Two passes (faded, then lit), batched by fill and ring style.
-      const vis: N[] = [];
+      // 3. Medallions. Nodes in view are sorted into buckets by pre-scaled strip
+      //    (faded ones first, then lit), so each run of draws shares one texture.
+      const top = MIPS.length - 1;
+      for (const list of nb) list.length = 0;
+      vis.length = 0;
       for (const n of nodes) {
         if (hidden.has(n.id)) continue;
-        const x = sx(n), y = sy(n), r = n.r * z + 4;
-        if (x + r < 0 || x - r > W || y + r < 0 || y - r > H) continue;
+        const x = sx(n), y = sy(n), r = rad(n, z), m = r + 4;
+        if (x + m < 0 || x - m > W || y + m < 0 || y - m > H) continue;
         vis.push(n);
+        const px = r * 2 * dpr; // on-screen diameter in device pixels
+        let level = 0;
+        while (level < top && MIPS[level] < px) level++;
+        nb[(lit(n) ? MIPS.length : 0) + level].push(n);
       }
-      const TAU = Math.PI * 2;
-      for (const pass of [0, 1]) {
-        const group = vis.filter((n) => (lit(n) ? 1 : 0) === pass);
-        if (!group.length) continue;
-        const alpha = pass ? 1 : faded;
-        const byFill = new Map<string, N[]>();
-        for (const n of group) {
-          const f = fillOf(n);
-          let a = byFill.get(f);
-          if (!a) byFill.set(f, (a = []));
-          a.push(n);
+      const dusk = palette.night ? DUSK_ALPHA : 1;
+      for (let b = 0; b < nb.length; b++) {
+        const list = nb[b];
+        if (!list.length) continue;
+        const level = b % MIPS.length;
+        const strip = atlas.strips[level];
+        const size = MIPS[level];
+        const step = size + PAD * 2;
+        const base = (b < MIPS.length ? faded : 1) * dusk;
+        for (const n of list) {
+          const r = rad(n, z);
+          ctx.globalAlpha = n.kind === "opportunity" ? base * (n.open ? OPEN_ALPHA : CLOSED_ALPHA) : base;
+          ctx.drawImage(strip, CELL[n.medallion] * step + PAD, PAD, size, size, sx(n) - r, sy(n) - r, r * 2, r * 2);
         }
-        ctx.globalAlpha = alpha;
-        for (const [f, list] of byFill) {
-          ctx.fillStyle = f;
-          ctx.beginPath();
-          for (const n of list) {
-            const r = Math.max(2.2, n.r * z);
-            ctx.moveTo(sx(n) + r, sy(n));
-            ctx.arc(sx(n), sy(n), r, 0, TAU);
-          }
-          ctx.fill();
-        }
-        // rings: solid (company), double (agency, office), dashed (solicitation)
-        ctx.strokeStyle = palette.ink;
-        ctx.lineWidth = Math.max(0.7, Math.min(1.3, z));
-        ctx.globalAlpha = alpha * 0.78;
-        ctx.beginPath();
-        for (const n of group) {
-          if (n.kind === "opportunity") continue;
-          const r = Math.max(2.2, n.r * z);
-          ctx.moveTo(sx(n) + r, sy(n));
-          ctx.arc(sx(n), sy(n), r, 0, TAU);
-          if (n.org && r > 5) {
-            const inner = r - Math.max(2, r * 0.2);
-            ctx.moveTo(sx(n) + inner, sy(n));
-            ctx.arc(sx(n), sy(n), inner, 0, TAU);
-          }
-        }
-        ctx.stroke();
-        ctx.setLineDash([2.5, 2.5]);
-        ctx.beginPath();
-        for (const n of group) {
-          if (n.kind !== "opportunity") continue;
-          const r = Math.max(2.2, n.r * z);
-          ctx.moveTo(sx(n) + r, sy(n));
-          ctx.arc(sx(n), sy(n), r, 0, TAU);
-        }
-        ctx.stroke();
-        ctx.setLineDash([]);
       }
-      // engraved glyphs, once a medallion is large enough to carry one
-      let engraved = 0;
-      ctx.strokeStyle = palette.ink;
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      for (const n of vis) {
-        const r = n.r * z;
-        if (r < 9 || engraved > 180) continue;
-        engraved++;
-        const s = (r * (n.org ? 1.0 : 1.25)) / 24;
-        ctx.globalAlpha = (lit(n) ? 1 : faded) * 0.62;
-        ctx.setTransform(dpr * s, 0, 0, dpr * s, dpr * (sx(n) - 12 * s), dpr * (sy(n) - 12 * s));
-        ctx.lineWidth = 1.1 / s;
-        ctx.stroke(glyph(n));
-      }
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      // the hovered and selected medallions get a cypress ring
-      for (const id of [selected, hover]) {
+      // the selected and hovered medallions get a thin cypress ring
+      for (const id of hover === selected ? [selected] : [selected, hover]) {
         const n = id && scene.current.byId.get(id);
         if (!n || hidden.has(n.id)) continue;
         ctx.globalAlpha = 1;
         ctx.strokeStyle = palette.cypress;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.arc(sx(n), sy(n), Math.max(2.2, n.r * z) + 3, 0, TAU);
+        ctx.arc(sx(n), sy(n), rad(n, z) + 2.5, 0, Math.PI * 2);
         ctx.stroke();
       }
 
-      // 5. Swallows along award edges: money moving from agency to company.
-      if (ui.current.motion) {
+      // 4. Swallows along award edges: money moving from agency to company.
+      //    Without the sprites nothing flies, so nothing lands and blooms either.
+      if (ui.current.motion && sprites) {
         for (const b of birds) {
           if (b.wait > 0) {
             b.wait -= dt;
-            if (b.to && !hidden.has(b.to.id))
-              drawBird(ctx, sx(b.to), sy(b.to) - b.to.r * z - 5, -0.35, 0.02, 0.62, palette.ink, 0.75);
+            b.rest += dt;
+            // just landed: the bird holds a glide above the medallion and fades away
+            if (sprites && b.to && b.rest < BIRD_FADE && !hidden.has(b.to.id))
+              drawSwallow(ctx, sprites, {
+                x: sx(b.to),
+                y: sy(b.to) - rad(b.to, z) - BIRD_LIFT,
+                width: BIRD_WIDTH,
+                vx: b.face,
+                vy: 0,
+                frame: 0,
+                award: true,
+                glide: 0,
+                alpha: BIRD_ALPHA * (1 - b.rest / BIRD_FADE),
+              });
             if (b.wait <= 0) {
               let pick: L | null = null;
               for (let tries = 0; tries < 24 && links.length; tries++) {
@@ -669,33 +706,42 @@ export function GraphExplorer() {
           }
           if (!b.to) continue;
           b.t += dt / b.dur;
-          b.phase += dt * 10;
+          b.phase += dt * SPRITE.fps;
           const ax = b.fromNode ? sx(b.fromNode) : b.from.x;
           const ay = b.fromNode ? sy(b.fromNode) : b.from.y;
-          const bx = sx(b.to), by = sy(b.to) - b.to.r * z - 5;
+          const dx = sx(b.to) - ax;
+          const dy = sy(b.to) - rad(b.to, z) - BIRD_LIFT - ay;
           const t = Math.min(1, b.t);
           const e = t * t * (3 - 2 * t);
-          const len = Math.hypot(bx - ax, by - ay) || 1;
-          const arc = Math.sin(e * Math.PI) * Math.min(36, len * 0.16);
-          drawBird(
-            ctx,
-            ax + (bx - ax) * e + (-(by - ay) / len) * arc,
-            ay + (by - ay) * e + ((bx - ax) / len) * arc,
-            Math.atan2(by - ay, bx - ax) + Math.cos(e * Math.PI) * 0.3,
-            0.25 + 0.75 * Math.abs(Math.sin(b.phase)),
-            0.7,
-            palette.ink,
-            0.8,
-          );
+          const len = Math.hypot(dx, dy) || 1;
+          // the path bows to one side; the bird heads along its tangent
+          const bow = Math.min(36, len * 0.16);
+          const arc = Math.sin(e * Math.PI) * bow;
+          const turn = (Math.cos(e * Math.PI) * bow * Math.PI) / len;
+          const vx = dx - dy * turn;
+          const vy = dy + dx * turn;
+          b.face = vx < 0 ? -1 : 1;
+          if (sprites)
+            drawSwallow(ctx, sprites, {
+              x: ax + dx * e - (dy / len) * arc,
+              y: ay + dy * e + (dx / len) * arc,
+              width: BIRD_WIDTH,
+              vx,
+              vy,
+              frame: b.phase,
+              award: true,
+              alpha: BIRD_ALPHA,
+            });
           if (b.t >= 1) {
             blooms.push({ x: b.to.x, y: b.to.y, t: 0 }); // landed
             b.wait = 2.5 + Math.random() * 5;
+            b.rest = 0;
             b.fromNode = null;
           }
         }
       }
 
-      // 6. Labels. Region names first, then entity names by importance; a label
+      // 5. Labels. Category names first, then entity names by importance; a label
       //    is only drawn where it overlaps nothing already placed.
       placed.length = 0;
       // medallions are obstacles too: a name never sits on top of another node
@@ -722,14 +768,14 @@ export function GraphExplorer() {
       spacing.letterSpacing = "0px";
       ctx.font = `15.5px ${fonts.serif}`;
       // Density follows zoom: only the largest medallions are named from afar.
-      const minR = k < 0.4 ? 15 : k < 0.6 ? 11 : k < 0.95 ? 7.5 : 0;
+      const minR = k < 0.4 ? 17 : k < 0.6 ? 12.5 : k < 0.95 ? 8.5 : 0;
       let budget = 90;
       const label = (n: N, forced: boolean) => {
         if (budget <= 0) return;
         const text = truncate(n.name, forced ? 60 : 34);
         if (!n.labelWidth) n.labelWidth = ctx.measureText(truncate(n.name, 34)).width;
         const w = forced ? ctx.measureText(text).width : n.labelWidth;
-        const r = Math.max(2.2, n.r * z);
+        const r = rad(n, z);
         // below, above, right, then left of the medallion: the first spot that is free
         let x = sx(n);
         let y = sy(n) + r + 5;
@@ -924,8 +970,6 @@ export function GraphExplorer() {
     const onLeave = () => !pointer && setHover(null);
     const onTheme = () => {
       palette = readPalette();
-      washes = new Map();
-      fills = new Map();
       invalidate();
     };
     const readFonts = () => {
@@ -944,6 +988,14 @@ export function GraphExplorer() {
       readFonts();
       invalidate();
     });
+    loadAtlas().then((a) => {
+      atlas = a;
+      invalidate();
+    });
+    loadSprites().then(
+      (s) => (sprites = s),
+      () => {}, // without the sprites the graph simply has no birds
+    );
     canvas.addEventListener("pointerdown", onDown);
     canvas.addEventListener("pointermove", onMove);
     canvas.addEventListener("pointerup", onUp);
@@ -991,6 +1043,16 @@ export function GraphExplorer() {
     return [...TAGS.filter((t) => s.has(t)), ...[...s].filter((t) => !TAGS.includes(t)).sort()];
   }, [graph]);
 
+  // A category filter that the new window no longer offers is dropped, or it
+  // would hide the whole map with no pressed button to show why.
+  useEffect(() => {
+    if (!graph) return;
+    setTags((was) => {
+      const next = new Set([...was].filter((t) => present.includes(t)));
+      return next.size === was.size ? was : next;
+    });
+  }, [graph, present]);
+
   const hits = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q || !graph) return [];
@@ -1030,12 +1092,9 @@ export function GraphExplorer() {
   const caps = "font-caps text-[0.66rem] uppercase tracking-[0.14em]";
 
   return (
-    <div ref={wrapRef} className="graticule fixed inset-0 z-20 overflow-hidden bg-paper">
-      {/* A fine rule and laurel sprigs at the lower corners; labels keep clear of it. */}
-      <div aria-hidden className="pointer-events-none absolute inset-3 rounded-sm border border-hair text-muted">
-        <Icon name="company" size={30} className="absolute -bottom-2 -left-2 bg-paper opacity-70" />
-        <Icon name="company" size={30} className="absolute -bottom-2 -right-2 bg-paper opacity-70" />
-      </div>
+    <div ref={wrapRef} className="fixed inset-0 z-20 overflow-hidden bg-paper">
+      {/* Plain parchment. A hairline frame; labels keep clear of it. */}
+      <div aria-hidden="true" className="pointer-events-none absolute inset-3 rounded-sm border border-hair" />
       <canvas
         ref={canvasRef}
         tabIndex={0}
@@ -1045,6 +1104,8 @@ export function GraphExplorer() {
           ready ? "opacity-100" : "opacity-0"
         }`}
       />
+      {/* Paper grain: above the canvas, below the controls. */}
+      <div className="grain grain-local" aria-hidden="true" />
       <div
         ref={tipRef}
         className="fig paper-card pointer-events-none absolute left-0 top-0 whitespace-nowrap px-3 py-1 opacity-0 !shadow-none transition-opacity duration-150"
@@ -1073,8 +1134,7 @@ export function GraphExplorer() {
         className="absolute left-3 right-3 top-[4.5rem] flex flex-col gap-4 md:left-7 md:right-auto md:top-20 md:w-64"
       >
         <div>
-          <label className="marble flex w-full cursor-text items-center gap-2 rounded-full px-4 py-1.5">
-            <Icon name="gps-denied-nav" size={16} className="shrink-0 text-muted" />
+          <label className="marble flex w-full cursor-text items-center rounded-full px-4 py-1.5">
             <span className="sr-only">Search the graph</span>
             <input
               value={query}
@@ -1097,7 +1157,7 @@ export function GraphExplorer() {
                         onClick={() => select(h.id)}
                         className="flex w-full cursor-pointer items-center gap-2.5 rounded px-2 py-1 text-left hover:bg-hair"
                       >
-                        <Icon name={entityIcon(h.tag, h.kind)} size={18} className="shrink-0 text-cypress" />
+                        <MedallionImg name={medallionFor(h.tag, h.kind)} size={24} />
                         <span className="truncate">{h.name}</span>
                       </button>
                     </li>
@@ -1112,25 +1172,28 @@ export function GraphExplorer() {
 
         <div className="hidden md:block">
           <p className="label mb-2">Categories</p>
-          <div className="grid grid-cols-5 gap-2">
+          {/* Several categories share one medallion, so every filter carries its name. */}
+          <ul aria-label="Filter by category" className="marble max-h-[calc(100vh-21rem)] space-y-0.5 overflow-y-auto rounded-[1.25rem] p-1.5">
             {present.map((t) => (
-              <button
-                key={t}
-                type="button"
-                title={tagLabel(t)}
-                aria-label={tagLabel(t)}
-                aria-pressed={tags.has(t)}
-                onClick={() => toggleTag(t)}
-                className={`marble coin aspect-square cursor-pointer transition-transform duration-500 hover:-translate-y-0.5 ${
-                  tags.has(t) ? "!text-cypress outline outline-[1.5px] outline-offset-2 outline-cypress" : ""
-                }`}
-              >
-                <Icon name={t} fallback="opportunity" size={22} />
-              </button>
+              <li key={t}>
+                <button
+                  type="button"
+                  aria-pressed={tags.has(t)}
+                  onClick={() => toggleTag(t)}
+                  className={`flex w-full cursor-pointer items-center gap-2.5 rounded-full py-0.5 pl-0.5 pr-3 text-left text-[0.98rem] leading-tight transition-colors ${
+                    tags.has(t)
+                      ? "bg-sage/45 text-ink shadow-[inset_0_0_0_1.5px_var(--cypress)]"
+                      : "text-muted hover:bg-hair hover:text-ink"
+                  }`}
+                >
+                  <MedallionImg name={medallionForTag(t)} size={28} />
+                  <span className="min-w-0 truncate">{tagLabel(t)}</span>
+                </button>
+              </li>
             ))}
-          </div>
-          <p className="mt-2.5 min-h-[3em] text-[0.98rem] italic leading-snug text-muted">
-            {tags.size ? [...tags].map(tagLabel).join(", ") : "All categories"}
+          </ul>
+          <p className="mt-2 text-[0.98rem] italic leading-snug text-muted">
+            {tags.size ? `${tags.size} of ${present.length} shown` : "All categories"}
             {tags.size > 0 && (
               <button type="button" onClick={() => setTags(new Set())} className="ml-2 cursor-pointer not-italic underline">
                 clear
@@ -1160,18 +1223,20 @@ export function GraphExplorer() {
       </aside>
 
       {/* Legend and zoom */}
-      <div className="absolute bottom-7 left-12 hidden items-center gap-5 text-[0.95rem] italic text-muted md:flex">
+      <div className="absolute bottom-7 left-12 hidden max-w-[calc(100%-15rem)] flex-wrap items-center gap-x-5 gap-y-1 text-[0.95rem] italic text-muted md:flex">
         <span className="flex items-center gap-2">
-          <span className="h-3.5 w-3.5 rounded-full border border-ink/70 bg-marble" /> company
+          <MedallionImg name="column" size={22} /> agency
         </span>
         <span className="flex items-center gap-2">
-          <span className="grid h-4 w-4 place-items-center rounded-full border border-ink/70 bg-marble">
-            <span className="h-2 w-2 rounded-full border border-ink/70" />
+          <span className="flex -space-x-1.5">
+            <MedallionImg name="wing" size={22} />
+            <MedallionImg name="anchor" size={22} />
+            <MedallionImg name="laurel" size={22} />
           </span>
-          agency
+          company, by category
         </span>
         <span className="flex items-center gap-2">
-          <span className="h-3.5 w-3.5 rounded-full border border-dashed border-ink/70 bg-marble" /> solicitation
+          <MedallionImg name="laurel" size={14} className="opacity-60" /> solicitation
         </span>
         <span className="flex items-center gap-2">
           <span className="inline-block h-[3px] w-6 rounded-full bg-pompeii" /> dollars awarded
@@ -1203,7 +1268,7 @@ export function GraphExplorer() {
             className="paper-card absolute inset-x-3 bottom-16 max-h-[55vh] overflow-y-auto p-6 md:inset-x-auto md:bottom-auto md:right-7 md:top-48 md:max-h-[calc(100vh-15.5rem)] md:w-[22rem]"
           >
             <div className="flex items-start gap-3">
-              <Icon name={entityIcon(detail.node.tag, detail.node.kind)} size={30} className="mt-1 shrink-0 text-cypress" />
+              <MedallionImg name={medallionFor(detail.node.tag, detail.node.kind)} size={44} className="mt-0.5" />
               <div className="min-w-0">
                 <p className="label">{detail.node.kind === "opportunity" ? "solicitation" : detail.node.kind}</p>
                 <h2 className="mt-1 text-[1.6rem]">{detail.node.name}</h2>

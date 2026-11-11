@@ -9,7 +9,7 @@ import { useCallback, useMemo, useSyncExternalStore } from "react";
 export type Pin = { id: number; name: string; tag: string | null; kind: string };
 export const MAX_PINS = 5;
 
-type Persisted = { theme: "day" | "night"; still: boolean; pins: Pin[] };
+type Persisted = { theme: "day" | "dusk"; still: boolean; pins: Pin[] };
 const SERVER: Persisted = { theme: "day", still: false, pins: [] };
 
 let state = SERVER;
@@ -38,7 +38,7 @@ function snapshot(): Persisted {
     const root = document.documentElement;
     const pins = read<Pin[]>("flock.pins", []);
     state = {
-      theme: root.dataset.theme === "night" ? "night" : "day",
+      theme: root.dataset.theme === "dusk" ? "dusk" : "day",
       still: root.hasAttribute("data-still"),
       pins: Array.isArray(pins) ? pins.slice(0, MAX_PINS) : [],
     };
@@ -63,7 +63,7 @@ function subscribeReduced(l: () => void): () => void {
 
 function toggleTheme(): void {
   const root = document.documentElement;
-  const next = snapshot().theme === "night" ? "day" : "night";
+  const next = snapshot().theme === "dusk" ? "day" : "dusk";
   const apply = () => {
     root.dataset.theme = next;
     write("flock.theme", next);
@@ -72,8 +72,8 @@ function toggleTheme(): void {
   };
   const quiet = snapshot().still || window.matchMedia(REDUCED).matches;
   if (quiet || !document.startViewTransition) return apply();
-  root.classList.add("theme-sweep");
-  document.startViewTransition(apply).finished.finally(() => root.classList.remove("theme-sweep"));
+  root.classList.add("theme-fade");
+  document.startViewTransition(apply).finished.finally(() => root.classList.remove("theme-fade"));
 }
 
 function toggleStill(): void {

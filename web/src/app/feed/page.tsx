@@ -1,15 +1,20 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
+import { Cartouche, CornerVine, Fresco, GreekKey } from "@/components/Art";
 import { Empty } from "@/components/Empty";
 import { Footer } from "@/components/Footer";
-import { Landscape } from "@/components/Landscape";
 import { Letter } from "@/components/Letter";
 import { serverGet, type Digest, type RecentItem } from "@/lib/api";
 import { day, money, plural, truncate } from "@/lib/format";
-import { tagPhrase } from "@/lib/icons";
+import { tagPhrase } from "@/lib/tags";
 
 export const metadata: Metadata = { title: "Field report" };
+
+// Sizes of the art on the letter card, in px.
+const PLAQUE_WIDTH = 520; // the title cartouche; it shrinks to fit narrow screens
+const VINE = 150; // corner vines from the `sm` breakpoint up
+const VINE_SMALL = 96; // corner vines on phones
 
 function Entity({ id, name }: { id: number | null; name: string | null }) {
   if (!name) return <>an unnamed recipient</>;
@@ -100,13 +105,36 @@ async function Report() {
 
   return (
     <>
-      <article className="paper-card relative z-20 mx-auto max-w-2xl overflow-hidden" data-flock-avoid>
+      <article className="paper-card relative z-20 mx-auto max-w-2xl" data-flock-avoid>
+        {/* Top-left over the corner of the fresco; bottom-right beside the
+            sign-off, where the lines are short. */}
+        <CornerVine corner="tl" size={VINE} className="hidden sm:block" />
+        <CornerVine corner="tl" size={VINE_SMALL} className="sm:hidden" />
+        <CornerVine corner="br" size={VINE} className="hidden sm:block" />
+        <CornerVine corner="br" size={VINE_SMALL} className="sm:hidden" />
+
+        {/* Header panel: the Boscoreale wall, set inside the card's inner rule.
+            No text sits on it. The grain ties the photograph to the drawn art. */}
+        <div className="relative mx-[6px] mt-[6px]">
+          <Fresco variant="wall" eager className="h-56 sm:h-[272px]" />
+          <div className="grain grain-local fade-bottom" aria-hidden="true" />
+        </div>
+
         <Letter week={d.week_of}>
-          <div className="px-7 pt-10 sm:px-12 sm:pt-14">
-            <p className="label">
+          {/* The plaque rises a little into the faded foot of the fresco. Its
+              text scales with the plaque, which narrows on phones. */}
+          <div className="px-2 sm:px-12">
+            <Cartouche as="h1" width={PLAQUE_WIDTH} className="relative z-10 -mt-10 sm:-mt-14">
+              <span className="block text-[clamp(1.25rem,6vw,2.3rem)]">
+                Field report, week of {day(d.week_of, true)}
+              </span>
+            </Cartouche>
+          </div>
+          <div className="px-5 pb-12 sm:px-12 sm:pb-16">
+            <GreekKey className="fade-sides mx-auto mt-3 max-w-[400px] sm:max-w-none" />
+            <p className="label mt-4 text-center">
               {day(d.week_of, true)} to {day(d.through)}
             </p>
-            <h1 className="mt-2 text-4xl sm:text-5xl">Field report, week of {day(d.week_of, true)}</h1>
             <div className="fig mt-8 space-y-4 text-[1.12rem] leading-relaxed">
               {lines.map((line, i) => (
                 <p key={i} className="type-line" style={{ "--i": i } as React.CSSProperties}>
@@ -122,9 +150,6 @@ async function Report() {
             </p>
           </div>
         </Letter>
-        <div className="relative mt-2 h-44">
-          <Landscape seed={21} height={420} horizon={0.6} trees={14} sun={false} villa={false} className="fade-top absolute inset-0 h-full w-full" />
-        </div>
       </article>
 
       {recent && recent.length > 0 && (

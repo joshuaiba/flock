@@ -3,11 +3,11 @@
 import Matter from "matter-js";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, ViewTransition } from "react";
-import { entityIcon } from "@/lib/icons";
+import { medallionFor } from "@/lib/art";
 import { chainRing, MAX_PINS, useStore, type Pin } from "@/lib/store";
-import { Icon } from "./Icon";
+import { MedallionImg } from "./Art";
 
-// The watchlist: up to five marble medallions hanging from a fine gold chain
+// The watchlist: up to five painted medallions hanging from a fine gold chain
 // anchored top right. Real physics (Matter.js): the chain is a rope of small
 // links joined by distance constraints, medallions are clipped to its ring. Drag one and
 // it swings and collides; pull it well clear of the ring and let go, and it
@@ -292,7 +292,7 @@ export function Chain() {
         const coin = (
           <button
             type="button"
-            className="marble coin pointer-events-auto h-full w-full cursor-grab touch-none active:cursor-grabbing"
+            className="pointer-events-auto block h-full w-full cursor-grab touch-none select-none rounded-full p-0 shadow-[0_7px_14px_-7px_rgb(40_30_22/0.6)] active:cursor-grabbing"
             aria-label={`${p.name}. Open entity page. Press Delete to remove from watchlist.`}
             onPointerDown={(e) => sim.current?.grab(p.id, e)}
             onClick={(e) => {
@@ -303,7 +303,7 @@ export function Chain() {
               if (e.key === "Delete" || e.key === "Backspace") unpin(p.id);
             }}
           >
-            <Icon name={entityIcon(p.tag, p.kind)} size={28} />
+            <MedallionImg name={medallionFor(p.tag, p.kind)} size={R * 2} className="pointer-events-none" />
           </button>
         );
         return (

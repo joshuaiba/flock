@@ -1,28 +1,61 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
+import { Cartouche, CornerVine, Fresco } from "@/components/Art";
 import { Empty } from "@/components/Empty";
 import { FlightPath } from "@/components/FlightPath";
 import { Footer } from "@/components/Footer";
-import { Landscape } from "@/components/Landscape";
 import { Medallion, MedallionLink } from "@/components/Medallion";
 import { PinButton } from "@/components/PinButton";
 import { serverGet, type Org, type OrgAward } from "@/lib/api";
 import { day, dollars, money, plural, truncate } from "@/lib/format";
-import { tagLabel } from "@/lib/icons";
+import { tagLabel } from "@/lib/tags";
 
 export const metadata: Metadata = { title: "Specimen sheet" };
 
 const STAGE: Record<string, string> = { phase_1: "Phase I", phase_2: "Phase II", production: "Production" };
 
-function Section({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {
+// Sizes to tune by eye.
+const BANNER = "h-40 sm:h-[200px]"; // fresco strip: 160px, 200px from the sm breakpoint
+const CARTOUCHE = 360; // drawn width of a section-title plaque, px
+const VINE = 130; // drawn width of a card's corner vine, px
+// A card's padding keeps its content clear of the vines: at 130px a vine reaches
+// about 40px into the card at its corner (measured from the art's alpha).
+const CARD = "paper-card relative z-20 px-5 py-12 sm:px-10";
+
+/** A corner vine on a plaster card: stems along the card's edges, flower inside. */
+function Vine({ corner }: { corner: "tl" | "br" }) {
+  return <CornerVine corner={corner} size={VINE} />;
+}
+
+/** A section: its title in a cartouche, an optional note under the plaque, and
+ *  the content, on a plaster card with corner vines unless `card` is off.
+ *  Layers follow the layout: the plaque is art (under the grain), cards and
+ *  text sit at z-20. */
+function Section({
+  title,
+  note,
+  card = true,
+  children,
+}: {
+  title: string;
+  note?: string;
+  card?: boolean;
+  children: React.ReactNode;
+}) {
   return (
     <section className="mt-16">
-      <div className="flex items-baseline justify-between gap-4 border-b border-frame pb-2">
-        <h2 className="text-[2rem]">{title}</h2>
-        {note && <p className="fig text-muted">{note}</p>}
-      </div>
-      <div className="mt-5">{children}</div>
+      <Cartouche width={CARTOUCHE}>{title}</Cartouche>
+      {note && <p className="fig relative z-20 mt-1 text-center text-muted">{note}</p>}
+      {card ? (
+        <div className={`${CARD} mt-8`}>
+          <Vine corner="tl" />
+          <Vine corner="br" />
+          {children}
+        </div>
+      ) : (
+        <div className="relative z-20 mt-8">{children}</div>
+      )}
     </section>
   );
 }
@@ -89,34 +122,38 @@ async function Sheet({ params }: { params: Promise<{ id: string }> }) {
 
   return (
     <>
-      <header className="relative">
-        <Landscape
-          seed={org.id}
-          height={420}
-          horizon={0.52}
-          trees={18}
-          villa={org.kind !== "company"}
-          className="fade-edges absolute inset-x-0 top-0 z-0 h-60 w-full"
-        />
-        <div className="relative z-20 flex flex-col gap-5 pt-40 sm:flex-row sm:items-end sm:gap-7">
-          <Medallion id={org.id} tag={org.tag} kind={org.kind} size={112} morph="always" />
-          <div className="min-w-0 flex-1" data-flock-avoid>
-            <p className="label">{org.kind}</p>
-            <h1 className="mt-1 text-4xl sm:text-6xl">{org.name}</h1>
-            <p className="fig mt-3 text-muted">
-              {org.uei ? `UEI ${org.uei}` : "no UEI on record"}
-              {org.tags.map((t) => (
-                <span key={t.slug}> · {tagLabel(t.slug)}</span>
-              ))}
-            </p>
+      <header>
+        {/* The painted garland, as a strip. Nothing is written on it; the
+            medallion hangs over its lower edge. */}
+        <Fresco variant="band" eager className={`fade-sides z-0 w-full border-y border-frame ${BANNER}`} />
+        <div className="relative z-20 flex flex-col items-center text-center" data-flock-avoid>
+          <div className="-mt-14">
+            <Medallion id={org.id} tag={org.tag} kind={org.kind} size={112} morph="always" />
           </div>
-          {spotted && <p className="note shrink-0 -rotate-3 sm:pb-3">{spotted}</p>}
+          <p className="label mt-5">{org.kind}</p>
+          <h1 className="mt-1 text-4xl sm:text-6xl">{org.name}</h1>
+          <p className="fig mt-3 text-muted">
+            {org.uei ? `UEI ${org.uei}` : "no UEI on record"}
+            {org.tags.map((t) => (
+              <span key={t.slug}> · {tagLabel(t.slug)}</span>
+            ))}
+          </p>
+          {/* a margin note: under the header on a phone, beside the medallion otherwise */}
+          {spotted && (
+            <p className="note mt-3 -rotate-2 sm:absolute sm:left-[calc(50%+4.75rem)] sm:top-4 sm:mt-0 sm:-rotate-3 sm:whitespace-nowrap">
+              {spotted}
+            </p>
+          )}
+          <PinButton
+            entity={{ id: org.id, name: org.name, tag: org.tag, kind: org.kind }}
+            className="mt-6 justify-center"
+          />
         </div>
       </header>
 
-      <div className="relative z-20" data-flock-avoid>
-        <div className="mt-8 flex flex-wrap items-center gap-x-10 gap-y-4">
-          <dl className="fig flex flex-wrap gap-x-10 gap-y-3">
+      <div data-flock-avoid>
+        <div className="relative z-20 mt-8">
+          <dl className="fig flex flex-wrap justify-center gap-x-12 gap-y-4 border-y border-hair py-5 text-center">
             <div>
               <dt className="label">{company ? "Awarded" : "Obligated"}</dt>
               <dd className="mt-1 font-display text-3xl text-pompeii">{money(org.total)}</dd>
@@ -134,11 +171,12 @@ async function Sheet({ params }: { params: Promise<{ id: string }> }) {
               <dd className="mt-1 font-display text-3xl">{day(org.last_award)}</dd>
             </div>
           </dl>
-          <PinButton entity={{ id: org.id, name: org.name, tag: org.tag, kind: org.kind }} className="sm:ml-auto" />
+          {org.aliases.length > 0 && (
+            <p className="mx-auto mt-4 max-w-2xl text-center text-muted">
+              Also recorded as {org.aliases.slice(0, 6).join("; ")}.
+            </p>
+          )}
         </div>
-        {org.aliases.length > 0 && (
-          <p className="mt-4 text-muted">Also recorded as {org.aliases.slice(0, 6).join("; ")}.</p>
-        )}
 
         {org.path && (
           <Section title="Path to production" note="read from award descriptions">
@@ -151,7 +189,7 @@ async function Sheet({ params }: { params: Promise<{ id: string }> }) {
           note={org.award_count ? `${plural(org.award_count, "award")} · newest first` : undefined}
         >
           {org.awards.length === 0 ? (
-            <p className="text-muted">No autonomy awards on record yet.</p>
+            <p className="text-center text-muted">No autonomy awards on record yet.</p>
           ) : (
             <>
               <AwardRows awards={first} counterpart={company ? "From" : "To"} />
@@ -168,8 +206,8 @@ async function Sheet({ params }: { params: Promise<{ id: string }> }) {
         </Section>
 
         {(org.related.length > 0 || org.family.length > 0) && (
-          <Section title={company ? "Who pays them" : "Where the money goes"}>
-            <div className="flex flex-wrap gap-x-6 gap-y-8">
+          <Section title={company ? "Who pays them" : "Where the money goes"} card={false}>
+            <div className="flex flex-wrap justify-center gap-x-6 gap-y-8">
               {org.related.map((r) => (
                 <MedallionLink key={r.id} id={r.id} name={r.name} tag={null} kind={r.kind} note={money(r.total)} />
               ))}
@@ -223,7 +261,7 @@ async function Sheet({ params }: { params: Promise<{ id: string }> }) {
 export default function EntityPage({ params }: { params: Promise<{ id: string }> }) {
   return (
     <>
-      <main className="mx-auto max-w-5xl px-5 pt-16 sm:px-8" data-flock-column>
+      <main className="mx-auto max-w-5xl px-5 pt-20 sm:px-8" data-flock-column>
         <Suspense fallback={<div className="h-[70vh]" />}>
           <Sheet params={params} />
         </Suspense>

@@ -2,7 +2,8 @@ import Graph from "graphology";
 import forceAtlas2 from "graphology-layout-forceatlas2";
 import noverlap from "graphology-layout-noverlap";
 import type { Graph as ApiGraph, GraphEdge, GraphNode } from "./api";
-import { TAGS } from "./icons";
+import { medallionFor, type MedallionName } from "./art";
+import { TAGS } from "./tags";
 
 // Graph layout: ForceAtlas2 (strong repulsion, low gravity, linLog off,
 // Barnes-Hut for large graphs), then noverlap so no two nodes touch. It runs
@@ -14,6 +15,8 @@ export type N = GraphNode & {
   y: number;
   /** radius in world pixels: sqrt of dollars, clamped */
   r: number;
+  /** which medallion image the node is drawn with */
+  medallion: MedallionName;
   /** 0 = most money; label priority */
   rank: number;
   org: boolean;
@@ -21,24 +24,26 @@ export type N = GraphNode & {
   labelWidth: number;
 };
 export type L = Omit<GraphEdge, "source" | "target"> & { source: N; target: N; w: number };
-export type Wash = { x: number; y: number; r: number; tag: string };
 export type Scene = {
   nodes: N[];
   links: L[];
-  washes: Wash[];
+  /** one per category: where its name is written on the map */
   regions: { tag: string; x: number; y: number; top: number; n: number }[];
   near: Map<string, Set<string>>;
   byId: Map<string, N>;
   bounds: { x0: number; y0: number; x1: number; y1: number };
 };
 
-const R_MIN = 5;
-const R_MAX = 26;
+// Nodes are drawn as medallion images, so the smallest must still be large
+// enough for the art to read.
+const R_MIN = 7;
+const R_MAX = 30;
 
-/** Radius on a sqrt scale of dollars, so a few giants don't swamp the rest. */
+/** Radius on a sqrt scale of dollars, so a few giants don't swamp the rest.
+ *  Solicitations carry no dollars and stay at the smallest size. */
 export function radius(n: GraphNode): number {
   if (n.kind === "opportunity") return R_MIN;
-  return Math.max(R_MIN, Math.min(R_MAX, 4 + Math.sqrt(Math.max(n.total, 0) / 1e6) * 1.6));
+  return Math.max(R_MIN, Math.min(R_MAX, 5.5 + Math.sqrt(Math.max(n.total, 0) / 1e6) * 1.85));
 }
 
 const pause = () => new Promise<void>((r) => setTimeout(r, 0));
@@ -51,6 +56,7 @@ export async function layoutGraph(data: ApiGraph, alive: () => boolean): Promise
     x: 0,
     y: 0,
     r: radius(n),
+    medallion: medallionFor(n.tag, n.kind),
     rank: rank.get(n.id) ?? 0,
     org: n.kind === "agency" || n.kind === "office",
     nameLower: n.name.toLowerCase(),
@@ -163,19 +169,11 @@ export async function layoutGraph(data: ApiGraph, alive: () => boolean): Promise
     bounds.y1 = Math.max(bounds.y1, n.y + n.r);
   }
 
-  // Watercolor washes: one soft blob per occupied cell of a coarse grid, per
-  // category, so a region reads as one stain however many nodes it holds.
-  const CELL = 240;
-  const cells = new Map<string, { x: number; y: number; n: number; tag: string }>();
+  // Category regions: the centroid and top edge of each category's members,
+  // which is where the category's name is written.
   const regionAcc = new Map<string, { x: number; y: number; top: number; n: number }>();
   for (const n of nodes) {
     if (!n.tag || n.org) continue;
-    const key = `${n.tag}|${Math.floor(n.x / CELL)}|${Math.floor(n.y / CELL)}`;
-    const c = cells.get(key) ?? { x: 0, y: 0, n: 0, tag: n.tag };
-    c.x += n.x;
-    c.y += n.y;
-    c.n++;
-    cells.set(key, c);
     const r = regionAcc.get(n.tag) ?? { x: 0, y: 0, top: Infinity, n: 0 };
     r.x += n.x;
     r.y += n.y;
@@ -183,12 +181,6 @@ export async function layoutGraph(data: ApiGraph, alive: () => boolean): Promise
     r.n++;
     regionAcc.set(n.tag, r);
   }
-  const washes = [...cells.values()].map((c) => ({
-    x: c.x / c.n,
-    y: c.y / c.n,
-    r: 150 + 34 * Math.sqrt(c.n),
-    tag: c.tag,
-  }));
   const regions = [...regionAcc].map(([tag, r]) => ({ tag, x: r.x / r.n, y: r.y / r.n, top: r.top, n: r.n }));
 
   const near = new Map<string, Set<string>>();
@@ -198,7 +190,7 @@ export async function layoutGraph(data: ApiGraph, alive: () => boolean): Promise
     near.get(l.target.id)!.add(l.source.id);
   }
   nodes.sort((a, b) => a.rank - b.rank);
-  return { nodes, links, washes, regions, near, byId, bounds };
+  return { nodes, links, regions, near, byId, bounds };
 }
 
 /** A synthetic graph for profiling the renderer at scale (development only). */

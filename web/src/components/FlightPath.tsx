@@ -1,11 +1,13 @@
 import type { Stage } from "@/lib/api";
 import { day, money } from "@/lib/format";
-import { PaintedBird } from "./Icon";
+import { Art } from "./Art";
+
+const BIRD = 50; // width of the swallow, px
 
 /** Path to production: a flight path from solicitation through Phase I and
  *  Phase II to a production contract, drawn as an inked dashed line with a
- *  swallow at the furthest stage reached. Faint stretches are where the trail
- *  has no record. */
+ *  gliding swallow just above the furthest stage reached. Faint stretches are
+ *  where the trail has no record. It sits on a plaster card. */
 export function FlightPath({ stages }: { stages: Stage[] }) {
   const furthest = stages.reduce((best, s, i) => (s.reached ? i : best), -1);
   // A stretch is flown only when there is a record at both ends; the rest are gaps.
@@ -17,7 +19,15 @@ export function FlightPath({ stages }: { stages: Stage[] }) {
       {stages.map((s, i) => (
         <li key={s.key} className="flex flex-col items-center text-center">
           <div className="flex h-14 items-end justify-center" aria-hidden="true">
-            {i === furthest && <PaintedBird award size={46} flap={0.9} angle={-0.2} className="-mb-1" />}
+            {i === furthest && (
+              <Art
+                name="props/swallow-glide-2"
+                sizes={`${BIRD}px`}
+                tint={0}
+                className="mb-0.5"
+                style={{ width: BIRD, aspectRatio: "135 / 104" }}
+              />
+            )}
           </div>
           <div className="flex w-full items-center">
             <span className={seg(flown(i - 1), i === 0)} />
@@ -25,7 +35,7 @@ export function FlightPath({ stages }: { stages: Stage[] }) {
             <span
               className={`mx-1.5 h-4 w-4 shrink-0 rounded-full border ${
                 s.reached
-                  ? "border-ink bg-cypress shadow-[inset_0_0_0_2px_var(--paper)]"
+                  ? "border-ink bg-cypress shadow-[inset_0_0_0_2px_var(--card)]"
                   : i < furthest
                     ? "border-dashed border-muted"
                     : "border-frame"
@@ -33,7 +43,7 @@ export function FlightPath({ stages }: { stages: Stage[] }) {
             />
             <span className={seg(flown(i), i === stages.length - 1)} />
           </div>
-          <p className={`mt-3 font-display text-[1.35rem] leading-tight ${s.reached ? "" : "text-muted"}`}>{s.label}</p>
+          <p className={`mt-3 font-display text-[1.05rem] leading-tight sm:text-[1.35rem] ${s.reached ? "" : "text-muted"}`}>{s.label}</p>
           {s.reached ? (
             <p className="fig mt-1 text-muted">
               {day(s.date)}
