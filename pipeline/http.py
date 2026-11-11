@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import random
+import re
 import time
 from collections.abc import Callable
 from email.utils import parsedate_to_datetime
@@ -24,6 +25,17 @@ from pipeline import __version__
 log = logging.getLogger(__name__)
 
 RETRY_STATUSES = {429, 500, 502, 503, 504}
+
+# Query-string secrets (SAM.gov takes its key as ?api_key=). Kept local so this
+# module does not depend on pipeline.agents.
+_SECRET_PARAM = re.compile(
+    r"(?i)\b((?:api[_-]?key|key|token|access_token|secret|password)=)[^&\s\"'<>)]+"
+)
+
+
+def redact_url(text: object) -> str:
+    """`text` with the value of any key-like query parameter replaced."""
+    return _SECRET_PARAM.sub(r"\1REDACTED", str(text))
 
 
 def user_agent() -> str:
@@ -103,14 +115,22 @@ class PoliteClient:
                 if attempt == self.max_retries:
                     raise
                 delay = self._backoff(attempt)
-                log.warning("%s %s failed (%s); retrying in %.1fs", method, url, e, delay)
+                log.warning(
+                    "%s %s failed (%s); retrying in %.1fs",
+                    method,
+                    redact_url(url),
+                    redact_url(e),
+                    delay,
+                )
                 self._sleep(delay)
                 continue
             if resp.status_code not in RETRY_STATUSES or attempt == self.max_retries:
                 return resp
             delay = _retry_after_seconds(resp)
             delay = self._backoff(attempt) if delay is None else min(delay, self.backoff_cap)
-            log.warning("%s %s -> %s; retrying in %.1fs", method, url, resp.status_code, delay)
+            log.warning(
+                "%s %s -> %s; retrying in %.1fs", method, redact_url(url), resp.status_code, delay
+            )
             self._sleep(delay)
         raise AssertionError("unreachable")
 

@@ -13,7 +13,9 @@ from typing import Any, Literal, Self
 from pydantic import BaseModel, Field, model_validator
 
 EvidenceSource = Literal["sam", "usaspending", "db", "address", "names"]
-ToolStatus = Literal["ok", "not_found", "unavailable"]
+# "bad_query": the service rejected this particular query (try a different one);
+# "unavailable": the service itself cannot be used for the rest of this run.
+ToolStatus = Literal["ok", "not_found", "bad_query", "unavailable"]
 
 
 class CandidatePair(BaseModel):
@@ -74,7 +76,7 @@ class SamEntity(BaseModel):
     dba_name: str | None
     cage_code: str | None
     registration_status: str | None
-    address: str | None  # one line, ready for compare_addresses
+    address: str | None  # one line for compare_addresses; null if there is no street line
     state: str | None
     immediate_parent_uei: str | None
     immediate_parent_name: str | None
@@ -84,7 +86,7 @@ class SamEntity(BaseModel):
 
 class SamLookup(BaseModel):
     status: ToolStatus
-    detail: str | None = None  # why it is not_found / unavailable
+    detail: str | None = None  # why it is not_found / bad_query / unavailable
     source_url: str | None = None  # cite as Evidence.url; never contains the API key
     total_matches: int = 0
     entities: list[SamEntity] = Field(default_factory=list)
@@ -135,10 +137,12 @@ class OrgAwards(BaseModel):
 
 
 class AddressComparison(BaseModel):
+    # "unclear" whenever a street number or the city/state/ZIP is missing on either side.
     verdict: Literal["same", "same_building_different_unit", "different", "unclear"]
     similarity: float  # 0-1 over the normalized strings
     same_street: bool
     same_unit: bool | None  # null when neither address has a unit
+    same_city: bool | None  # null when either city is missing
     same_zip: bool | None  # null when either zip is missing
     same_state: bool | None  # null when either state is missing
     normalized_a: str

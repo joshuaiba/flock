@@ -1,9 +1,16 @@
 """Tools for the entity-resolution agent.
 
 All four are read-only with respect to the knowledge graph: they never touch
-organizations, awards, opportunities or edges. The only table they write is
-`http_cache` (see pipeline/resolve/http_cache.py). Merges are applied by
+organizations, awards, opportunities or edges. The only tables they write are
+`http_cache` and the `http_requests` log behind the daily quota (see
+pipeline/resolve/http_cache.py), through `deps.cache`. Merges are applied by
 apply.py, after the agent has returned.
+
+Failure handling: an upstream that is down, slow, redirecting in circles or
+returning something other than the documented shape yields a result with
+status "unavailable" (or "bad_query" for a rejected query), never an
+exception, so one bad response cannot end the agent run. ModelRetry is kept
+for arguments the model can fix.
 
 Docstrings are the tool descriptions the model sees, so they are written for
 the model. `TOOLS` is what the agent registers.
@@ -12,7 +19,7 @@ APIs (docs read 2026-11-09):
 - SAM.gov Entity Management API v4, https://open.gsa.gov/api/entity-api/
   GET /entity-information/v4/entities?ueiSAM=|legalBusinessName=&api_key=
   10 results per page; daily quota depends on the key type (10 or 1,000) and
-  no quota error is documented, so requests are counted in http_cache.
+  no quota error is documented, so requests are counted in http_requests.
 - USAspending, POST /api/v2/recipient/ and GET /api/v2/recipient/{id}/
   (api_contracts/contracts/v2/recipient*.md). No key.
 """
@@ -23,6 +30,8 @@ import logging
 import re
 
 import httpx
+import psycopg
+from pydantic import ValidationError
 from pydantic_ai import ModelRetry, RunContext, Tool
 
 from pipeline.agents.run_log import redact
@@ -48,43 +57,69 @@ USASPENDING_DETAIL_URL = "https://api.usaspending.gov/api/v2/recipient/{}/"
 USASPENDING_PAGE_URL = "https://www.usaspending.gov/recipient/{}/latest"
 USASPENDING_SEARCH_LIMIT = 5
 USASPENDING_MAX_DETAILS = 3  # so one tool call sends at most 1 + 3 requests
-AWARDS_MAX_LIMIT = 25
-DESCRIPTION_CHARS = 200
+# Tool results are re-sent to the model on every later request, so awards are
+# kept small: at most 10 awards x ~300 characters is under 1k tokens per call
+# (it was 25 x ~400, about 2.5k), leaving 8 tool calls well inside the 50k
+# token budget.
+AWARDS_DEFAULT_LIMIT = 5
+AWARDS_MAX_LIMIT = 10
+DESCRIPTION_CHARS = 120
 MAX_NAME_CHARS = 120
 
 _UEI = re.compile(r"^[A-Z0-9]{12}$")
 
 
 def _clean_name(name: str) -> str:
-    cleaned = " ".join(name.split())
+    """Whitespace-collapsed and upper-cased: both registries match names
+    case-insensitively, so "Sikorsky Aircraft" and "SIKORSKY AIRCRAFT" must be
+    one cache entry (and one request against the quota), not two."""
+    cleaned = " ".join(name.split()).upper()
     if not 3 <= len(cleaned) <= MAX_NAME_CHARS:
         raise ModelRetry(f"name must be 3-{MAX_NAME_CHARS} characters; got {len(cleaned)}")
     return cleaned
 
 
 def _one_line(*parts: str | None) -> str | None:
-    kept = [p.strip() for p in parts if p and p.strip()]
+    kept = [p.strip() for p in parts if isinstance(p, str) and p.strip()]
     return ", ".join(kept) or None
+
+
+def _address_line(line1, line2, city, state, zip_code) -> str | None:
+    """One-line address for compare_addresses, or None when there is no street
+    line: "STRATFORD, CT 06614" is a town, and two records in the same town
+    must not compare as the same address."""
+    if not (isinstance(line1, str) and line1.strip()):
+        return None
+    tail = " ".join(p for p in (state, zip_code) if isinstance(p, str) and p)
+    return _one_line(line1, line2, city, tail)
+
+
+def _dict(value) -> dict:
+    return value if isinstance(value, dict) else {}
 
 
 # --- SAM.gov -----------------------------------------------------------------
 
 
 def _sam_address(addr: dict | None) -> tuple[str | None, str | None]:
-    if not addr:
-        return None, None
+    addr = _dict(addr)
     state = addr.get("stateOrProvinceCode")
-    tail = " ".join(p for p in (state, addr.get("zipCode")) if p)
-    line = _one_line(addr.get("addressLine1"), addr.get("addressLine2"), addr.get("city"), tail)
+    line = _address_line(
+        addr.get("addressLine1"),
+        addr.get("addressLine2"),
+        addr.get("city"),
+        state,
+        addr.get("zipCode"),
+    )
     return line, state
 
 
 def _sam_entity(raw: dict) -> SamEntity:
-    reg = raw.get("entityRegistration") or {}
-    core = raw.get("coreData") or {}
-    hierarchy = core.get("entityHierarchyInformation") or {}
-    immediate = hierarchy.get("immediateParentEntity") or {}
-    ultimate = hierarchy.get("ultimateParentEntity") or {}
+    reg = _dict(raw.get("entityRegistration"))
+    core = _dict(raw.get("coreData"))
+    hierarchy = _dict(core.get("entityHierarchyInformation"))
+    immediate = _dict(hierarchy.get("immediateParentEntity"))
+    ultimate = _dict(hierarchy.get("ultimateParentEntity"))
     address, state = _sam_address(core.get("physicalAddress"))
     return SamEntity(
         uei=reg.get("ueiSAM"),
@@ -113,8 +148,13 @@ def lookup_sam_entity(
 
     Pass exactly one of `uei` or `name`. Prefer `uei` whenever one is known: it is an
     exact match, while `name` is a partial match that can return several entities.
-    Lookups are limited per day. If the result has status "unavailable", do not call
-    this tool again in this run; rely on the other tools.
+    Lookups are limited per day. Result status:
+    - "ok": `entities` holds the matches.
+    - "not_found": nothing is registered under that UEI or name.
+    - "bad_query": SAM.gov rejected this particular query (for example characters it
+      does not accept in a name). Other lookups still work: try the UEI, or a simpler name.
+    - "unavailable": SAM.gov cannot be used right now (no access, quota used up, or
+      down). Do not call this tool again in this run; rely on the other tools.
 
     Args:
         uei: 12-character SAM Unique Entity ID, e.g. "UTJWTSLMFNG4".
@@ -137,7 +177,7 @@ def lookup_sam_entity(
     source_url = str(httpx.URL(SAM_URL, params=query))
     try:
         resp = http_cache.cached_request(
-            deps.conn,
+            deps.cache,
             deps.http,
             "GET",
             SAM_URL,
@@ -147,22 +187,37 @@ def lookup_sam_entity(
         )
     except http_cache.QuotaExhausted:
         return SamLookup(status="unavailable", detail="SAM.gov daily quota exhausted.")
-    except httpx.TransportError as e:
-        log.warning("SAM.gov lookup failed: %s", redact(str(e)))
+    except (httpx.HTTPError, psycopg.Error) as e:
+        log.warning("SAM.gov lookup failed: %s: %s", type(e).__name__, redact(str(e)))
         return SamLookup(status="unavailable", detail="SAM.gov could not be reached.")
 
     if resp.status == 404:
         return SamLookup(status="not_found", detail="No SAM.gov registration matched.")
+    if resp.status == 400:
+        # A rejected query says nothing about the service: keep SAM usable.
+        return SamLookup(
+            status="bad_query",
+            detail="SAM.gov rejected this query (HTTP 400). Try the UEI or a simpler name.",
+        )
     if resp.status != 200 or not isinstance(resp.body, dict):
         return SamLookup(status="unavailable", detail=f"SAM.gov returned HTTP {resp.status}.")
     raw_entities = resp.body.get("entityData") or []
+    if not isinstance(raw_entities, list):
+        return SamLookup(status="unavailable", detail="SAM.gov returned an unexpected response.")
+    raw_entities = [e for e in raw_entities if isinstance(e, dict)]
     if not raw_entities:
         return SamLookup(status="not_found", detail="No SAM.gov registration matched.")
+    try:
+        entities = [_sam_entity(e) for e in raw_entities[:SAM_MAX_ENTITIES]]
+    except ValidationError as e:  # fields of an unexpected type
+        log.warning("SAM.gov response did not match the documented shape: %s", e)
+        return SamLookup(status="unavailable", detail="SAM.gov returned an unexpected response.")
+    total = resp.body.get("totalRecords")
     return SamLookup(
         status="ok",
         source_url=source_url,
-        total_matches=resp.body.get("totalRecords") or len(raw_entities),
-        entities=[_sam_entity(e) for e in raw_entities[:SAM_MAX_ENTITIES]],
+        total_matches=total if isinstance(total, int) and total else len(raw_entities),
+        entities=entities,
     )
 
 
@@ -170,22 +225,29 @@ def lookup_sam_entity(
 
 
 def _usaspending_detail(recipient: UsaspendingRecipient, detail: dict) -> None:
-    loc = detail.get("location") or {}
+    loc = _dict(detail.get("location"))
     state = loc.get("state_code")
-    tail = " ".join(p for p in (state, loc.get("zip")) if p)
-    recipient.alternate_names = list(detail.get("alternate_names") or [])[:8]
+    names = detail.get("alternate_names")
+    recipient.alternate_names = [n for n in names if isinstance(n, str)][:8] if names else []
     recipient.parent_name = detail.get("parent_name")
     recipient.parent_uei = detail.get("parent_uei")
     others = []
-    for p in detail.get("parents") or []:
+    parents = detail.get("parents")
+    for p in parents if isinstance(parents, list) else []:
+        if not isinstance(p, dict):
+            continue
         label = f"{p.get('parent_name')} ({p.get('parent_uei')})"
         if p.get("parent_uei") != recipient.parent_uei and label not in others:
             others.append(label)
     recipient.other_parents = others[:5]
-    recipient.address = _one_line(
-        loc.get("address_line1"), loc.get("address_line2"), loc.get("city_name"), tail
+    recipient.address = _address_line(
+        loc.get("address_line1"),
+        loc.get("address_line2"),
+        loc.get("city_name"),
+        state,
+        loc.get("zip"),
     )
-    recipient.state = state
+    recipient.state = state if isinstance(state, str) else None
 
 
 def search_usaspending_recipient(ctx: RunContext[ResolveDeps], name: str) -> UsaspendingSearch:
@@ -207,46 +269,60 @@ def search_usaspending_recipient(ctx: RunContext[ResolveDeps], name: str) -> Usa
     deps = ctx.deps
     try:
         search = http_cache.cached_request(
-            deps.conn,
+            deps.cache,
             deps.http,
             "POST",
             USASPENDING_SEARCH_URL,
             json_body={"keyword": keyword, "limit": USASPENDING_SEARCH_LIMIT, "award_type": "all"},
         )
-    except httpx.TransportError as e:
-        log.warning("USAspending search failed: %s", redact(str(e)))
+    except (httpx.HTTPError, psycopg.Error) as e:
+        log.warning("USAspending search failed: %s: %s", type(e).__name__, redact(str(e)))
         return UsaspendingSearch(status="unavailable", detail="USAspending could not be reached.")
     if search.status != 200 or not isinstance(search.body, dict):
         return UsaspendingSearch(
             status="unavailable", detail=f"USAspending returned HTTP {search.status}."
         )
     results = search.body.get("results") or []
+    if not isinstance(results, list):
+        return UsaspendingSearch(
+            status="unavailable", detail="USAspending returned an unexpected response."
+        )
+    # A row without an id cannot be cited or looked up; skip it rather than fail.
+    results = [r for r in results if isinstance(r, dict) and isinstance(r.get("id"), str)]
     if not results:
         return UsaspendingSearch(status="not_found", detail="No recipient matched.")
 
     recipients = []
     for i, r in enumerate(results[:USASPENDING_SEARCH_LIMIT]):
         level = r.get("recipient_level")
+        amount = r.get("amount")
         rec = UsaspendingRecipient(
             recipient_id=r["id"],
-            name=r.get("name") or "",
-            uei=r.get("uei"),
+            name=r.get("name") if isinstance(r.get("name"), str) else "",
+            uei=r.get("uei") if isinstance(r.get("uei"), str) else None,
             level=level if level in ("P", "C", "R") else None,
-            amount_12mo=r.get("amount"),
+            amount_12mo=amount if isinstance(amount, int | float) else None,
             url=USASPENDING_PAGE_URL.format(r["id"]),
         )
         if i < USASPENDING_MAX_DETAILS:
             try:
                 detail = http_cache.cached_request(
-                    deps.conn, deps.http, "GET", USASPENDING_DETAIL_URL.format(r["id"])
+                    deps.cache, deps.http, "GET", USASPENDING_DETAIL_URL.format(r["id"])
                 )
-            except httpx.TransportError as e:
-                log.warning("USAspending recipient detail failed: %s", redact(str(e)))
+            except (httpx.HTTPError, psycopg.Error) as e:
+                log.warning(
+                    "USAspending recipient detail failed: %s: %s", type(e).__name__, redact(str(e))
+                )
             else:
                 if detail.status == 200 and isinstance(detail.body, dict):
-                    _usaspending_detail(rec, detail.body)
+                    try:
+                        _usaspending_detail(rec, detail.body)
+                    except (TypeError, ValueError, AttributeError) as e:
+                        log.warning("USAspending recipient detail malformed: %s", e)
         recipients.append(rec)
-    total = (search.body.get("page_metadata") or {}).get("total") or len(results)
+    total = _dict(search.body.get("page_metadata")).get("total") or len(results)
+    if not isinstance(total, int):
+        total = len(results)
     return UsaspendingSearch(status="ok", total_matches=total, recipients=recipients)
 
 
@@ -273,33 +349,42 @@ LIMIT %(limit)s
 """
 
 
-def get_org_awards(ctx: RunContext[ResolveDeps], org_id: int, limit: int = 10) -> OrgAwards:
+def get_org_awards(ctx: RunContext[ResolveDeps], org_id: int, limit: int = 5) -> OrgAwards:
     """List contract awards already in our database for one organization.
 
     Shows what the organization has been awarded (date, amount, awarding agency,
     description). Compare the two candidates' awards: the same agencies, programs and
     products suggest one entity; unrelated lines of business suggest two.
+    `total_awards` and `total_amount` cover all of the organization's awards, not
+    just the ones listed.
 
     Args:
         org_id: Our organization id. Use the ids given for the pair under review.
-        limit: How many of the most recent awards to return (1-25).
+        limit: How many of the most recent awards to return (1-10).
     """
     conn = ctx.deps.conn
     limit = max(1, min(int(limit), AWARDS_MAX_LIMIT))
     canonical = org_id
     row = None
-    for _ in range(10):  # follow merged_into to the canonical row; bounded against cycles
-        row = conn.execute(
-            "SELECT id, canonical_name, uei, aliases, merged_into FROM organizations WHERE id = %s",
-            (canonical,),
-        ).fetchone()
-        if row is None or row[4] is None:
-            break
-        canonical = row[4]
+    # Read inside a savepoint: if a query fails, the caller's transaction (and
+    # the agent_runs row written after the run) stays usable.
+    with conn.transaction():
+        for _ in range(10):  # follow merged_into to the canonical row; bounded against cycles
+            row = conn.execute(
+                "SELECT id, canonical_name, uei, aliases, merged_into FROM organizations"
+                " WHERE id = %s",
+                (canonical,),
+            ).fetchone()
+            if row is None or row[4] is None:
+                break
+            canonical = row[4]
+        rows = (
+            conn.execute(_AWARDS_SQL, {"canonical": canonical, "limit": limit}).fetchall()
+            if row is not None
+            else []
+        )
     if row is None:
         raise ModelRetry(f"No organization with id {org_id}. Use an id from the pair.")
-
-    rows = conn.execute(_AWARDS_SQL, {"canonical": canonical, "limit": limit}).fetchall()
     awards = [
         OrgAward(
             award_id=r[0],
@@ -334,8 +419,11 @@ def compare_addresses(a: str, b: str) -> AddressComparison:
     Normalizes case, punctuation, street-suffix, directional and suite abbreviations
     and ZIP+4, then reports whether they are the same place. Use this instead of
     judging address strings yourself. Pass the `address` values returned by the other
-    tools. A shared address is supporting evidence, not proof: subsidiaries and
-    unrelated tenants can share a building.
+    tools, complete with street number, city, state and ZIP. The verdict is "same" only
+    when the numbered street line matches and the city/state or ZIP confirm the place;
+    it is "unclear" whenever either address is incomplete, and "unclear" is not
+    evidence either way. A shared address is supporting evidence, not proof:
+    subsidiaries and unrelated tenants can share a building.
 
     Args:
         a: First address on one line, e.g. "6900 Main Street, Stratford, CT 06614".

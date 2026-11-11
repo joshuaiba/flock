@@ -2,6 +2,7 @@ import json
 import logging
 
 import httpx
+import psycopg
 import pytest
 from pydantic import ValidationError
 from pydantic_ai import Agent, ModelRetry, RunContext
@@ -46,10 +47,13 @@ def upstream(seen, *, sam_status=200, sam_body=None):
     return httpx.MockTransport(handler)
 
 
-def make_ctx(db, seen=None, *, key=SAM_KEY, quota=10, transport=None):
+def make_ctx(db, seen=None, *, key=SAM_KEY, quota=10, transport=None, max_retries=0):
     seen = [] if seen is None else seen
     client = PoliteClient(
-        transport=transport or upstream(seen), sleep=lambda s: None, min_interval=0, max_retries=0
+        transport=transport or upstream(seen),
+        sleep=lambda s: None,
+        min_interval=0,
+        max_retries=max_retries,
     )
     deps = ResolveDeps(conn=db, http=client, sam_api_key=key, sam_daily_quota=quota)
     return RunContext(deps=deps, model=TestModel(), usage=RunUsage())
@@ -144,8 +148,12 @@ def test_sam_lookup_by_name_and_not_found(db):
     seen = []
     ctx = make_ctx(db, seen)
     assert tools.lookup_sam_entity(ctx, name="  Sikorsky   Aircraft ").status == "ok"
-    assert seen[0].url.params["legalBusinessName"] == "Sikorsky Aircraft"
+    assert seen[0].url.params["legalBusinessName"] == "SIKORSKY AIRCRAFT"
     assert "ueiSAM" not in seen[0].url.params
+    # Case and spacing variants are one cache entry and one request against the quota.
+    for variant in ("SIKORSKY AIRCRAFT", "sikorsky aircraft", "Sikorsky  Aircraft"):
+        assert tools.lookup_sam_entity(ctx, name=variant).status == "ok"
+    assert len(seen) == 1 and http_cache.requests_today(db, "api.sam.gov") == 1
 
     empty = upstream([], sam_body={"totalRecords": 0, "entityData": []})
     out = tools.lookup_sam_entity(make_ctx(db, transport=empty), name="No Such Company")
@@ -164,9 +172,94 @@ def test_sam_quota_exhaustion_counts_only_real_requests(db):
     assert len(seen) == 2
     # Already-cached lookups still work once the quota is gone.
     assert tools.lookup_sam_entity(ctx, uei="AAAAAAAAAAA2").status == "ok"
+    # A refused lookup sent nothing and logged nothing.
+    assert http_cache.requests_today(db, "api.sam.gov") == 2
     # Yesterday's requests don't count against today.
-    db.execute("UPDATE http_cache SET fetched_at = now() - interval '2 days'")
+    db.execute("UPDATE http_requests SET requested_at = now() - interval '2 days'")
     assert http_cache.requests_today(db, "api.sam.gov") == 0
+
+
+@pytest.mark.db
+def test_sam_quota_counts_every_request_not_cache_rows(db):
+    """Re-fetching one key (expired error entry) upserts its cache row in place;
+    each of those is still a request against the daily quota."""
+    seen = []
+    limited = upstream(seen, sam_status=429, sam_body={"error": "rate limited"})
+    ctx = make_ctx(db, seen, quota=3, transport=limited)
+    for _ in range(6):
+        out = tools.lookup_sam_entity(ctx, uei="UTJWTSLMFNG4")
+        assert out.status == "unavailable"
+        db.execute(
+            "UPDATE http_cache SET fetched_at = now() - interval '2 hours'"
+        )  # past ERROR_TTL
+    assert len(seen) == 3  # the 4th, 5th and 6th were refused before sending
+    assert "quota" in out.detail
+    assert http_cache.requests_today(db, "api.sam.gov") == 3
+    assert db.execute("SELECT count(*) FROM http_cache").fetchone()[0] == 1
+    assert db.execute("SELECT DISTINCT status FROM http_requests").fetchall() == [(429,)]
+
+
+@pytest.mark.db
+def test_quota_counts_attempts_that_end_in_transport_errors(db):
+    def boom(req):
+        raise httpx.ConnectError("connection refused")
+
+    ctx = make_ctx(db, quota=2, transport=httpx.MockTransport(boom))
+    for _ in range(3):
+        assert tools.lookup_sam_entity(ctx, uei="UTJWTSLMFNG4").status == "unavailable"
+    # Logged before sending, so the failed attempts count; the third was refused.
+    assert db.execute(
+        "SELECT count(*), count(status) FROM http_requests WHERE host = 'api.sam.gov'"
+    ).fetchone() == (2, 0)
+    assert db.execute("SELECT count(*) FROM http_cache").fetchone()[0] == 0
+
+
+@pytest.mark.db
+def test_request_log_survives_rollback_on_an_autocommit_cache_connection(db):
+    """With deps.cache_conn (what agent.decide sets up) the quota count is durable
+    even if the caller's transaction is rolled back, and the caller's transaction
+    is not committed by the tool."""
+    db.commit()
+    dsn = psycopg.conninfo.make_conninfo(db.info.dsn, password=db.info.password)
+    seen = []
+    ctx = make_ctx(db, seen)
+    with psycopg.connect(dsn, autocommit=True) as side:
+        ctx.deps.cache_conn = side
+        db.execute(
+            "INSERT INTO organizations (canonical_name, kind, source, source_id)"
+            " VALUES ('pending work', 'company', 't', 'p')"
+        )
+        assert tools.lookup_sam_entity(ctx, uei="UTJWTSLMFNG4").status == "ok"
+        db.rollback()
+    assert db.execute("SELECT count(*) FROM organizations").fetchone()[0] == 0  # not committed
+    assert http_cache.requests_today(db, "api.sam.gov") == 1
+    assert db.execute("SELECT count(*) FROM http_cache").fetchone()[0] == 1
+
+
+@pytest.mark.db
+def test_cache_and_request_rows_carry_wall_clock_time_not_transaction_start(db):
+    db.commit()
+    tx_start = db.execute("SELECT now()").fetchone()[0]  # opens the transaction
+    db.execute("SELECT pg_sleep(0.05)")
+    tools.lookup_sam_entity(make_ctx(db), uei="UTJWTSLMFNG4")
+    fetched, requested = db.execute(
+        "SELECT (SELECT fetched_at FROM http_cache), (SELECT requested_at FROM http_requests)"
+    ).fetchone()
+    assert fetched > tx_start and requested > tx_start
+
+
+@pytest.mark.db
+def test_http_requests_table_exists_with_index(db):
+    cols = {
+        r[0]
+        for r in db.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = 'http_requests'"
+        )
+    }
+    assert cols == {"id", "host", "cache_key", "status", "requested_at"}
+    assert db.execute(
+        "SELECT count(*) FROM pg_indexes WHERE indexname = 'http_requests_host_requested_idx'"
+    ).fetchone() == (1,)
 
 
 @pytest.mark.db
@@ -188,10 +281,57 @@ def test_sam_errors_are_unavailable_and_briefly_cached(db):
     # and the request counted against the quota.
     assert tools.lookup_sam_entity(ctx, uei="UTJWTSLMFNG4").status == "unavailable"
     assert len(seen) == 1 and http_cache.requests_today(db, "api.sam.gov") == 1
-    # After ERROR_TTL it is retried.
+    # After ERROR_TTL it is retried, and the retry is a second request against the quota.
     db.execute("UPDATE http_cache SET fetched_at = now() - interval '2 hours'")
     tools.lookup_sam_entity(ctx, uei="UTJWTSLMFNG4")
-    assert len(seen) == 2
+    assert len(seen) == 2 and http_cache.requests_today(db, "api.sam.gov") == 2
+
+
+@pytest.mark.db
+def test_sam_rejected_query_is_bad_query_not_unavailable(db):
+    """A 400 is about this query, not the service: the model may keep using SAM."""
+    seen = []
+    rejected = upstream(seen, sam_status=400, sam_body={"error": "invalid search parameter"})
+    ctx = make_ctx(db, seen, transport=rejected)
+    out = tools.lookup_sam_entity(ctx, name="ACME (HOLDINGS) & CO")
+    assert out.status == "bad_query" and "400" in out.detail and out.entities == []
+    for status in (401, 403, 429, 500, 503):
+        down = upstream([], sam_status=status, sam_body={"error": "x"})
+        out = tools.lookup_sam_entity(make_ctx(db, transport=down), uei=f"AAAAAAAAA{status}")
+        assert out.status == "unavailable", status
+
+
+@pytest.mark.db
+def test_html_200_is_not_cached_as_a_definitive_answer(db):
+    """A maintenance page served with status 200 must not block lookups for 30 days."""
+    seen = []
+    state = {"html": True}
+
+    def handler(req):
+        seen.append(req)
+        if state["html"]:
+            return httpx.Response(200, text="<html>Scheduled maintenance</html>")
+        if req.url.host == "api.sam.gov":
+            return httpx.Response(200, json=load("sam_entity_sikorsky.json"))
+        return httpx.Response(200, json=load("usaspending_search_sikorsky.json"))
+
+    ctx = make_ctx(db, seen, transport=httpx.MockTransport(handler))
+    assert tools.lookup_sam_entity(ctx, uei="UTJWTSLMFNG4").status == "unavailable"
+    assert tools.search_usaspending_recipient(ctx, "Sikorsky Aircraft").status == "unavailable"
+    assert db.execute("SELECT status, body FROM http_cache").fetchall() == [(200, None)] * 2
+    # A JSON 200 that is not an object (e.g. a bare list) is treated the same way.
+    assert not http_cache.is_definitive(200, ["x"]) and http_cache.is_definitive(200, {})
+    assert http_cache.is_definitive(404, None) and not http_cache.is_definitive(403, {})
+
+    state["html"] = False
+    # Within ERROR_TTL the short-lived entry is still served ...
+    assert tools.lookup_sam_entity(ctx, uei="UTJWTSLMFNG4").status == "unavailable"
+    n = len(seen)
+    # ... but a day later (well inside the 30-day TTL) the upstream is asked again.
+    db.execute("UPDATE http_cache SET fetched_at = now() - interval '1 day'")
+    assert tools.lookup_sam_entity(ctx, uei="UTJWTSLMFNG4").status == "ok"
+    assert tools.search_usaspending_recipient(ctx, "Sikorsky Aircraft").status == "ok"
+    assert len(seen) > n
 
 
 @pytest.mark.db
@@ -199,11 +339,92 @@ def test_sam_transport_error_is_unavailable_without_leaking_key(db, caplog):
     def boom(req):
         raise httpx.ConnectError(f"cannot connect to {req.url}")
 
-    ctx = make_ctx(db, transport=httpx.MockTransport(boom))
+    # max_retries=1 is what the runner uses: PoliteClient's retry warning must be
+    # redacted too, not only the tool's own log line.
+    ctx = make_ctx(db, transport=httpx.MockTransport(boom), max_retries=1)
     with caplog.at_level(logging.DEBUG):
         out = tools.lookup_sam_entity(ctx, uei="UTJWTSLMFNG4")
     assert out.status == "unavailable" and SAM_KEY not in caplog.text
+    assert any(r.name == "pipeline.http" and "retrying" in r.getMessage() for r in caplog.records)
+    assert "api_key=REDACTED" in caplog.text
     assert SAM_KEY not in out.model_dump_json()
+
+
+@pytest.mark.db
+@pytest.mark.parametrize(
+    "error",
+    [
+        httpx.TooManyRedirects("too many redirects"),
+        httpx.DecodingError("bad gzip"),
+        httpx.ReadTimeout("timed out"),
+    ],
+)
+def test_http_errors_of_any_kind_are_unavailable_not_exceptions(db, error):
+    def boom(req):
+        raise error
+
+    ctx = make_ctx(db, transport=httpx.MockTransport(boom))
+    assert tools.lookup_sam_entity(ctx, uei="UTJWTSLMFNG4").status == "unavailable"
+    assert tools.search_usaspending_recipient(ctx, "Sikorsky Aircraft").status == "unavailable"
+
+
+@pytest.mark.db
+def test_malformed_upstream_shapes_do_not_raise(db):
+    def sam(body):
+        return tools.lookup_sam_entity(
+            make_ctx(db, transport=upstream([], sam_body=body)), uei=sam.next_uei()
+        )
+
+    counter = iter(range(100))
+    sam.next_uei = lambda: f"BBBBBBBBBB{next(counter):02d}"
+    assert sam({"entityData": "oops"}).status == "unavailable"
+    assert sam({"entityData": ["not a dict"]}).status == "not_found"
+    assert sam({"entityData": [{"entityRegistration": {"ueiSAM": {"nested": 1}}}]}).status == (
+        "unavailable"
+    )
+    out = sam({"entityData": [{"entityRegistration": None, "coreData": "x"}]})
+    assert out.status == "ok" and out.entities[0].legal_name is None
+
+    def usa(results):
+        def handler(req):
+            if req.url.path == "/api/v2/recipient/":
+                return httpx.Response(200, json={"results": results})
+            return httpx.Response(200, json={"location": "nowhere", "parents": [1, None]})
+
+        ctx = make_ctx(db, transport=httpx.MockTransport(handler))
+        return tools.search_usaspending_recipient(ctx, f"Query {next(counter)}")
+
+    assert usa({"not": "a list"}).status == "unavailable"
+    # Rows without an id are skipped (this used to be a KeyError that ended the run).
+    out = usa([{"name": "NO ID CO"}, "junk", {"id": "abc-C", "name": "HAS ID CO", "amount": "x"}])
+    assert out.status == "ok" and [r.name for r in out.recipients] == ["HAS ID CO"]
+    assert out.recipients[0].amount_12mo is None and out.recipients[0].address is None
+    assert usa([{"name": "NO ID CO"}]).status == "not_found"
+
+
+def test_records_without_a_street_line_have_no_comparable_address():
+    """Two registrations in the same town must not look like the same address."""
+    line, state = tools._sam_address(
+        {"addressLine1": None, "city": "STRATFORD", "stateOrProvinceCode": "CT", "zipCode": "06614"}
+    )
+    assert line is None and state == "CT"
+    rec = tools.UsaspendingRecipient(
+        recipient_id="x", name="X", uei=None, level=None, amount_12mo=None, url="u"
+    )
+    tools._usaspending_detail(
+        rec,
+        {"location": {"address_line1": " ", "city_name": "STRATFORD", "state_code": "CT"}},
+    )
+    assert rec.address is None and rec.state == "CT"
+    full, _ = tools._sam_address(
+        {
+            "addressLine1": "6900 MAIN ST",
+            "city": "STRATFORD",
+            "stateOrProvinceCode": "CT",
+            "zipCode": "06614",
+        }
+    )
+    assert full == "6900 MAIN ST, STRATFORD, CT 06614"
 
 
 @pytest.mark.db
@@ -359,6 +580,16 @@ def test_get_org_awards_follows_merges_and_edges(db):
     assert len(tools.get_org_awards(ctx, canon, limit=-5).awards) == 1
     assert len(tools.get_org_awards(ctx, canon, limit=10_000).awards) == 3
 
+    # Context cost: a full page of long awards stays small, because every tool
+    # result is re-sent to the model on each later request.
+    for i in range(30):
+        _award(db, f"bulk{i}", recipient=canon, amount=1, signed="2024-01-01", desc="y" * 900)
+    before += 30
+    big = tools.get_org_awards(ctx, canon, limit=10_000)
+    assert len(big.awards) == tools.AWARDS_MAX_LIMIT == 10 and big.total_awards == 33
+    assert len(tools.get_org_awards(ctx, canon).awards) == tools.AWARDS_DEFAULT_LIMIT == 5
+    assert len(big.model_dump_json()) < 4000  # about 1k tokens
+
     empty = tools.get_org_awards(ctx, army)
     assert empty.total_awards == 0 and empty.awards == [] and empty.total_amount is None
 
@@ -386,7 +617,8 @@ def test_get_org_awards_follows_merges_and_edges(db):
             "same",
         ),
         ("P.O. Box 12, Dayton, OH 45402", "PO BOX 12, DAYTON, OH 45402", "same"),
-        ("100 Main St", "100 MAIN STREET", "same"),
+        # a bare street line names no place: Main St in which town?
+        ("100 Main St", "100 MAIN STREET", "unclear"),
         # one side omits its suite: not a conflict
         ("1 N Park Ave, Dayton, OH 45402", "1 N PARK AVE STE 200, DAYTON, OH 45402", "same"),
         # suite differences
@@ -414,9 +646,96 @@ def test_compare_addresses(a, b, verdict):
     assert 0 <= out.similarity <= 1
 
 
+@pytest.mark.parametrize(
+    "a,b,verdict",
+    [
+        # --- must never be a confident "same" (each of these used to be) ---
+        # no street line at all: two records in the same town
+        ("STRATFORD, CT 06614", "STRATFORD, CT 06614", "unclear"),
+        # same street line, different city, no ZIP to say otherwise
+        ("100 Main St, Springfield, IL", "100 Main St, Chicago, IL", "different"),
+        ("100 Main St, Springfield, MO 65801", "100 Main St, Kansas City, MO", "different"),
+        ("100 Main St Dayton OH", "100 Main St Columbus OH", "different"),
+        ("100 Main St, London, UK", "100 Main St, Dayton, OH 45402", "different"),
+        # one side has no place at all
+        ("100 Main St", "100 Main St, Dallas, TX 75001", "unclear"),
+        # unit first: the street is the next segment, and those differ
+        (
+            "Suite 200, 6900 Main St, Stratford, CT 06614",
+            "Suite 200, 10 Elm St, Stratford, CT 06614",
+            "different",
+        ),
+        (
+            "Bldg 7, 100 Main St, Dayton, OH 45402",
+            "Bldg 7, 5 Oak Rd, Dayton, OH 45402",
+            "different",
+        ),
+        # placeholders are not addresses
+        ("N/A", "N/A", "unclear"),
+        ("unknown", "unknown", "unclear"),
+        ("N/A", "100 Main St, Dayton, OH 45402", "unclear"),
+        # --- must not be a confident "different" (each of these used to be) ---
+        # "Washington" is the city here, not the state
+        ("100 Main St, Washington", "100 Main St, Washington, DC 20001", "unclear"),
+        # a 5-digit box or house number is not a ZIP
+        ("PO Box 12345, Dayton, OH", "PO Box 12345, Dayton, OH 45402", "same"),
+        (
+            "Lockheed Martin, 12345 Main St, Dallas, TX",
+            "12345 Main St, Dallas, TX 75001",
+            "same",
+        ),
+        # --- legitimately the same place ---
+        # leading zero of the ZIP lost in a numeric column
+        ("6900 MAIN ST, STRATFORD, CT 6614", "6900 Main St, Stratford, CT 06614", "same"),
+        # unit first on one side only
+        (
+            "Suite 200, 6900 Main St, Stratford, CT 06614",
+            "6900 Main St Ste 200, Stratford, CT 06614",
+            "same",
+        ),
+        # ZIPs match; a differently written city does not override that
+        (
+            "1 Lockheed Blvd, Ft Worth, TX 76108",
+            "One Lockheed Boulevard, Fort Worth, TX 76108",
+            "same",
+        ),
+        # --- still correctly different ---
+        ("PO Box 12, Dayton, OH 45402", "PO Box 99, Dayton, OH 45402", "different"),
+    ],
+)
+def test_compare_addresses_is_conservative(a, b, verdict):
+    out = tools.compare_addresses(a, b)
+    assert out.verdict == verdict, out
+    assert tools.compare_addresses(b, a).verdict == verdict  # symmetric
+
+
+def test_same_requires_numbered_street_and_confirmed_place():
+    out = tools.compare_addresses("100 Main St, Springfield, IL", "100 Main St, Chicago, IL")
+    assert out.same_street is True and out.same_city is False and out.same_state is True
+    town = tools.compare_addresses("STRATFORD, CT 06614", "STRATFORD, CT 06614")
+    assert town.same_street is False and town.same_zip is True and town.similarity == 1.0
+    p = addresses.parse("Suite 200, 6900 Main St, Stratford, CT 06614")
+    assert (p.street, p.street_number, p.unit, p.city) == (
+        "6900 MAIN ST",
+        "6900",
+        "200",
+        "STRATFORD",
+    )
+    assert addresses.parse("PO Box 12345, Dayton, OH").zip5 is None
+    assert addresses.parse("PO Box 12345, Dayton, OH").street_number == "12345"
+    assert addresses.parse("Lockheed Martin, 12345 Main St, Dallas, TX").zip5 is None
+    washington = addresses.parse("100 Main St, Washington")
+    assert washington.state is None and washington.city == "WASHINGTON"
+    assert addresses.parse("100 Main St, Seattle, Washington").state == "WA"
+    assert addresses.parse("100 Main St Dayton OH").city == "DAYTON"
+    assert addresses.parse("n/a").placeholder and addresses.parse("  ").placeholder
+    assert not addresses.parse("100 Main St").placeholder
+
+
 def test_address_parsing_details():
     p = addresses.parse("1 North Park Avenue, Suite 200, Dayton, Ohio 45402-1234, United States")
     assert (p.street, p.unit, p.state, p.zip5) == ("1 N PARK AVE", "200", "OH", "45402")
+    assert p.city == "DAYTON" and p.street_number == "1"
     assert p.normalized == "1 N PARK AVE, UNIT 200, DAYTON, OH, 45402"
     assert addresses.parse("12345 Oak Court").zip5 is None  # leading house number is not a ZIP
     assert addresses.parse("12 Oak Ct").state is None  # a court, not Connecticut
@@ -441,7 +760,10 @@ def test_tools_register_and_run_through_an_agent(db):
             return ModelResponse(
                 parts=[
                     ToolCallPart("get_org_awards", {"org_id": org, "limit": 3}),
-                    ToolCallPart("compare_addresses", {"a": "1 Main St", "b": "1 Main Street"}),
+                    ToolCallPart(
+                        "compare_addresses",
+                        {"a": "1 Main St, Dayton, OH 45402", "b": "1 Main Street, Dayton, Ohio"},
+                    ),
                     ToolCallPart("lookup_sam_entity", {"uei": "UTJWTSLMFNG4"}),
                     ToolCallPart("search_usaspending_recipient", {"name": "SIKORSKY AIRCRAFT"}),
                 ]

@@ -1,7 +1,7 @@
 import httpx
 import pytest
 
-from pipeline.http import PoliteClient, user_agent
+from pipeline.http import PoliteClient, redact_url, user_agent
 
 
 def make_client(handler, sleeps):
@@ -77,3 +77,29 @@ def test_throttles_same_host():
     c.get("https://a.gov/2")
     c.get("https://b.gov/1")
     assert len(sleeps) == 1 and 4.0 < sleeps[0] <= 5.0
+
+
+def test_retry_warnings_do_not_log_query_string_secrets(caplog):
+    """SAM.gov takes its key as ?api_key=; neither retry warning may print it."""
+    calls = []
+
+    def flaky(req):
+        calls.append(req)
+        if len(calls) == 1:
+            raise httpx.ConnectError(f"cannot connect to {req.url}")
+        return httpx.Response(503 if len(calls) == 2 else 200)
+
+    with caplog.at_level("WARNING", logger="pipeline.http"), make_client(flaky, []) as c:
+        resp = c.get("https://api.example.gov/x?api_key=sekret-123&q=acme&token=t0p")
+    assert resp.status_code == 200 and len(calls) == 3
+    assert "api_key=sekret-123" in str(calls[0].url)  # the request itself is untouched
+    warnings = [r.getMessage() for r in caplog.records if r.name == "pipeline.http"]
+    assert len(warnings) == 2 and all("retrying" in w for w in warnings)
+    assert "sekret-123" not in caplog.text and "t0p" not in caplog.text
+    assert "api_key=REDACTED" in caplog.text and "q=acme" in caplog.text
+
+
+def test_redact_url():
+    assert redact_url("https://x/y?a=1&api_key=abc&b=2") == "https://x/y?a=1&api_key=REDACTED&b=2"
+    assert redact_url("GET https://x/y?key=abc failed") == "GET https://x/y?key=REDACTED failed"
+    assert redact_url("https://x/y?q=monkey") == "https://x/y?q=monkey"
