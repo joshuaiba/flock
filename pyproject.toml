@@ -9,7 +9,6 @@ dependencies = [
     "pydantic>=2.7",
     "psycopg[binary]>=3.2",
     "pyyaml>=6.0",
-    "google-genai>=3.0",
     "pydantic-ai-slim[google]>=2.66.0",
     "pydantic-settings>=2.16.2",
 ]

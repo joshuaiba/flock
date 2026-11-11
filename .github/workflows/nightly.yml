@@ -26,7 +26,7 @@ jobs:
       BRIGHTDATA_ZONE: ${{ secrets.BRIGHTDATA_ZONE }}
       # Optional repository variables.
       FLOCK_CONTACT: ${{ vars.FLOCK_CONTACT }}
-      GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+      EXTRACT_MODEL: ${{ vars.EXTRACT_MODEL }}
       FLOCK_STATS_FILE: ${{ github.workspace }}/stats.jsonl
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

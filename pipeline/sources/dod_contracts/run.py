@@ -15,6 +15,7 @@ from collections import Counter
 from datetime import UTC, date, datetime
 
 from pipeline import raw, stats
+from pipeline.agents import run_log
 from pipeline.db import connect
 from pipeline.extract import llm
 from pipeline.extract.contract_announcement import INSTRUCTIONS, ContractAnnouncement
@@ -105,6 +106,7 @@ def extract_awards(lines: list[dict], existing: dict[str, tuple], counts: Counte
                         ContractAnnouncement,
                         instructions=INSTRUCTIONS,
                         provider=provider,
+                        input_ref=f"{fetch.SOURCE}:{source_id}",
                     )
                 except Exception as e:  # one bad paragraph shouldn't sink the day
                     log.error("extraction failed for %s: %s", source_id, e)
@@ -135,31 +137,40 @@ def main(argv: list[str] | None = None) -> int:
 
     counts: Counter = Counter()
     conn = None if args.no_load else connect()
-    skip = loaded_article_ids(conn) if conn else set()
+    try:
+        skip = loaded_article_ids(conn) if conn else set()
 
-    path = raw.snapshot_path(fetch.SOURCE, date.today())
-    if path.exists():
-        log.info("reusing existing snapshot %s", path)
-        lines = list(raw.read_snapshot(path))
-    else:
-        lines = fetch_lines(skip, args.max_articles, counts)
-        if lines:
-            raw.write_snapshot(fetch.SOURCE, date.today(), lines)
+        path = raw.snapshot_path(fetch.SOURCE, date.today())
+        if path.exists():
+            log.info("reusing existing snapshot %s", path)
+            lines = list(raw.read_snapshot(path))
+        else:
+            lines = fetch_lines(skip, args.max_articles, counts)
+            if lines:
+                raw.write_snapshot(fetch.SOURCE, date.today(), lines)
 
-    out: dict = {"snapshot": str(path) if lines else None, "articles": len(lines), **counts}
-    if conn:
-        existing = {
-            r[0]: r[1:]
-            for r in conn.execute(
-                "SELECT source_id, raw_text, extraction, extraction_model FROM awards"
-                " WHERE source = %s AND split_part(source_id, ':', 1) = ANY(%s)",
-                (fetch.SOURCE, [ln["article_id"] for ln in lines]),
-            )
-        }
-        awards = extract_awards(lines, existing, counts)
-        out.update(counts)
-        out.update(load_awards(conn, awards))
-        conn.close()
+        out: dict = {"snapshot": str(path) if lines else None, "articles": len(lines), **counts}
+        if conn:
+            existing = {
+                r[0]: r[1:]
+                for r in conn.execute(
+                    "SELECT source_id, raw_text, extraction, extraction_model FROM awards"
+                    " WHERE source = %s AND split_part(source_id, ':', 1) = ANY(%s)",
+                    (fetch.SOURCE, [ln["article_id"] for ln in lines]),
+                )
+            }
+            # The SELECTs above opened a transaction. End it, or everything below
+            # would only be savepoints inside it and be discarded on close():
+            # each agent_runs row and the load must commit on their own.
+            conn.commit()
+            with run_log.bind(conn):
+                awards = extract_awards(lines, existing, counts)
+            out.update(counts)
+            out.update(load_awards(conn, awards))
+            conn.commit()
+    finally:
+        if conn:
+            conn.close()
     stats.emit(fetch.SOURCE, out)
     blocked_everything = counts["articles.blocked"] and not lines
     return 2 if blocked_everything else 0

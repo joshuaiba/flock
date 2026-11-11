@@ -1,4 +1,4 @@
-"""Autonomy classifier: llm.extract over award/opportunity text.
+"""Autonomy classifier: a single-shot Pydantic AI agent over award/opportunity text.
 
     uv run python -m pipeline.extract.classifier [--limit N]
 
@@ -14,12 +14,15 @@ import argparse
 import hashlib
 import logging
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Literal
 
 import psycopg
 from pydantic import BaseModel, Field, create_model
+from pydantic_ai import Agent, ModelRetry
 
 from pipeline import config, stats
+from pipeline.agents import run_log
 from pipeline.db import connect
 from pipeline.extract import llm
 from pipeline.load.postgres import LoadStats
@@ -28,6 +31,7 @@ log = logging.getLogger(__name__)
 
 CLASSIFIER_VERSION = "v1"
 SOURCE = f"classifier:{CLASSIFIER_VERSION}"
+AGENT_NAME = "classifier"
 
 
 @dataclass(frozen=True)
@@ -42,7 +46,14 @@ def load_taxonomy() -> Taxonomy:
 
 
 def schema_for(tax: Taxonomy) -> type[BaseModel]:
-    slug = Literal[tuple(tax.tags)]  # constrains decoding to known slugs
+    """AutonomyClassification with `tags: list[TagSlug]`, TagSlug being a Literal
+    of the taxonomy's slugs (the seed of the tags table), so the model can't invent tags."""
+    return _schema_for(tuple(tax.tags))
+
+
+@lru_cache(maxsize=8)
+def _schema_for(slugs: tuple[str, ...]) -> type[BaseModel]:
+    slug = Literal[slugs]  # constrains decoding to known slugs
     return create_model(
         "AutonomyClassification",
         is_autonomy=(
@@ -77,9 +88,37 @@ Tags (choose all that apply, only when is_autonomy is true):
 {tag_lines}"""
 
 
-def classify(text: str, tax: Taxonomy | None = None, provider=None):
+def _check(output) -> None:
+    if not output.rationale.strip():
+        raise ModelRetry("rationale is empty; give one short sentence citing the deciding words")
+
+
+def agent_for(tax: Taxonomy) -> Agent:
+    """The classifier agent for this taxonomy (cached per tag set and description)."""
+    return _agent_for(tax.root, tuple(tax.tags.items()))
+
+
+@lru_cache(maxsize=8)
+def _agent_for(root: str, tags: tuple[tuple[str, str], ...]) -> Agent:
+    tax = Taxonomy(root=root, tags=dict(tags))
+    schema = schema_for(tax)
+    agent = llm.build_agent(schema, instructions=instructions(tax), name=AGENT_NAME)
+
+    @agent.output_validator
+    def _validate(output):
+        _check(output)
+        return output
+
+    return agent
+
+
+def classify(
+    text: str, tax: Taxonomy | None = None, provider=None, *, input_ref: str | None = None
+):
     tax = tax or load_taxonomy()
-    result = llm.extract(text, schema_for(tax), instructions=instructions(tax), provider=provider)
+    result = llm.run(
+        agent_for(tax), text, provider=provider, agent_name=AGENT_NAME, input_ref=input_ref
+    )
     if not result.is_autonomy:
         result.tags = []
     result.tags = sorted(set(result.tags))
@@ -180,11 +219,16 @@ def run(conn: psycopg.Connection, *, limit: int, provider=None, batch: int = 25)
     rows = conn.execute(CANDIDATES_SQL, {"source": SOURCE, "limit": limit}).fetchall()
     provider = provider or (llm.get_provider() if rows else None)
     out = {"candidates": len(rows), "positive": 0, "failed": 0}
+    conn.commit()  # end the read transaction so each batch below really commits
     for start in range(0, len(rows), batch):
-        with conn.transaction():  # commit per batch so partial progress survives
+        # Commit per batch so partial progress survives. Failures are caught
+        # inside the block, so their agent_runs rows are kept too.
+        with conn.transaction(), run_log.bind(conn):
             for entity_type, entity_id, text in rows[start : start + batch]:
                 try:
-                    result = classify(text, tax, provider=provider)
+                    result = classify(
+                        text, tax, provider=provider, input_ref=f"{entity_type}:{entity_id}"
+                    )
                 except Exception as e:
                     log.error("classify %s:%s failed: %s", entity_type, entity_id, e)
                     out["failed"] += 1

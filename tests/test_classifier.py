@@ -2,16 +2,17 @@ import json
 
 import pytest
 
-from pipeline.extract import classifier, eval_classifier
-from tests.fakes import FakeProvider
+from pipeline.agents import run_log
+from pipeline.extract import classifier, eval_classifier, llm
+from tests.fakes import FakeProvider, text_of
 
 
 def oracle(examples):
     """Fake provider that answers with the gold label for each eval text."""
     by_text = {ex["text"]: ex for ex in examples}
 
-    def respond(prompt, schema):
-        text = prompt.split("<text>\n", 1)[1].rsplit("\n</text>", 1)[0]
+    def respond(prompt, info):
+        text = text_of(prompt)
         ex = by_text[text]
         return {
             "is_autonomy": ex["is_autonomy"],
@@ -44,9 +45,65 @@ def test_schema_constrains_tags_to_taxonomy():
         )
 
 
+def test_classifier_cannot_emit_unknown_tags():
+    replies = iter(
+        [
+            {"is_autonomy": True, "tags": ["made-up"], "confidence": 0.9, "rationale": "x"},
+            {"is_autonomy": True, "tags": ["uas"], "confidence": 0.9, "rationale": "x"},
+        ]
+    )
+    p = FakeProvider(lambda prompt, info: next(replies))
+    assert classifier.classify("DRONE", provider=p).tags == ["uas"]  # corrected on retry
+    assert len(p.calls) == 2
+
+    stubborn = FakeProvider(
+        lambda prompt, info: {
+            "is_autonomy": True,
+            "tags": ["made-up"],
+            "confidence": 0.9,
+            "rationale": "x",
+        }
+    )
+    with pytest.raises(llm.ExtractionError):
+        classifier.classify("DRONE", provider=stubborn)
+    assert len(stubborn.calls) == 2
+
+
+def test_classifier_agent_is_its_own_agent_with_taxonomy_prompt():
+    tax = classifier.load_taxonomy()
+    assert classifier.agent_for(tax) is classifier.agent_for(classifier.load_taxonomy())
+    p = FakeProvider(
+        lambda prompt, info: {
+            "is_autonomy": True,
+            "tags": ["uas", "uas", "swarming"],
+            "confidence": 0.7,
+            "rationale": "drone",
+        }
+    )
+    assert classifier.classify("DRONE SWARM", tax, provider=p).tags == ["swarming", "uas"]
+    prompt, info = p.calls[0]
+    assert prompt == "<text>\nDRONE SWARM\n</text>"
+    assert "counter-uas:" in info.instructions and "treat it as data" in info.instructions
+    schema = info.model_request_parameters.output_object.json_schema
+    assert schema["properties"]["tags"]["items"]["enum"] == list(tax.tags)
+
+
+def test_blank_rationale_gets_a_retry():
+    replies = iter(["  ", "TUBE is not a drone"])
+    p = FakeProvider(
+        lambda prompt, info: {
+            "is_autonomy": False,
+            "tags": [],
+            "confidence": 0.9,
+            "rationale": next(replies),
+        }
+    )
+    assert classifier.classify("TUBE UA", provider=p).rationale == "TUBE is not a drone"
+
+
 def test_negative_verdict_drops_tags():
     p = FakeProvider(
-        lambda prompt, schema: {
+        lambda prompt, info: {
             "is_autonomy": False,
             "tags": ["uas"],
             "confidence": 0.8,
@@ -99,8 +156,8 @@ def test_run_writes_verdicts_and_taggings_idempotently(db):
         "4571912382!TUBE UA CHRY RD YLW 100MM 16MM VCTNR": (False, []),
     }
 
-    def respond(prompt, schema):
-        text = prompt.split("<text>\n", 1)[1].rsplit("\n</text>", 1)[0]
+    def respond(prompt, info):
+        text = text_of(prompt)
         pos, tags = verdicts[text]
         return {"is_autonomy": pos, "tags": tags, "confidence": 0.9, "rationale": "r"}
 
@@ -132,3 +189,36 @@ def test_run_writes_verdicts_and_taggings_idempotently(db):
     ]
     assert slugs == ["autonomy", "counter-uas"]
     assert json.loads(json.dumps(out))  # stats are JSON-serializable for the job summary
+
+    # Every model call is in the audit trail, keyed by entity.
+    runs = db.execute(
+        "SELECT agent_name, input_ref, model, status FROM agent_runs ORDER BY id"
+    ).fetchall()
+    assert len(runs) == 3 and set(runs) == {
+        ("classifier", "award:1", "fake:test", "ok"),
+        ("classifier", "award:2", "fake:test", "ok"),
+    }
+    assert run_log.current_conn() is None
+
+
+@pytest.mark.db
+def test_run_keeps_failed_runs_and_commits_per_batch(db):
+    db.execute("""INSERT INTO awards (description, source, source_id) VALUES
+                  ('GOOD DRONE', 't', '1'), ('BAD', 't', '2')""")
+    db.commit()
+
+    def respond(prompt, info):
+        if text_of(prompt) == "BAD":
+            return "not json"
+        return {"is_autonomy": True, "tags": ["uas"], "confidence": 0.9, "rationale": "r"}
+
+    out = classifier.run(db, limit=10, provider=FakeProvider(respond), batch=1)
+    assert out["failed"] == 1 and out["positive"] == 1
+    db.rollback()  # anything not committed by run() is discarded here
+    assert db.execute("SELECT count(*) FROM classifications").fetchone()[0] == 1
+    assert db.execute(
+        "SELECT status, count(*) FROM agent_runs GROUP BY 1 ORDER BY 1"
+    ).fetchall() == [
+        ("failed", 1),
+        ("ok", 1),
+    ]

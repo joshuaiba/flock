@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from typing import Literal
 
 from pydantic import BaseModel, Field
+from pydantic_ai import ModelRetry
+
+from pipeline.extract import llm
 
 
 class Awardee(BaseModel):
@@ -50,3 +54,39 @@ You extract structured data from one paragraph of a US Department of Defense dai
 contract announcement (contracts valued at $7.5 million or more). Copy names, numbers,
 and places as written; do not guess values that are not in the text. Use null when a
 field is not stated."""
+
+
+# --- output checks: obviously bad values get one ModelRetry -------------------
+
+# DoD PIIDs are 13 characters (N0042125F0043), often written with dashes
+# (FA8604-25-D-B001) and sometimes followed by an order or modification number.
+# Deliberately permissive: we only reject things that cannot be a contract
+# number at all ("N/A", "unknown", a phrase).
+_CONTRACT_NUMBER = re.compile(r"[A-Z0-9][A-Z0-9 /-]{6,48}[A-Z0-9]", re.I)
+
+
+def plausible_contract_number(value: str) -> bool:
+    v = value.strip()
+    return bool(_CONTRACT_NUMBER.fullmatch(v)) and sum(c.isdigit() for c in v) >= 4
+
+
+def check(output: ContractAnnouncement) -> None:
+    problems = []
+    if not output.awardees:
+        problems.append("awardees is empty; every announcement names at least one contractor")
+    if output.amount_usd is not None and output.amount_usd < 0:
+        problems.append(f"amount_usd is negative ({output.amount_usd}); dollar values are >= 0")
+    numbers = [("contract_number", output.contract_number)] + [
+        (f"awardees[{i}].contract_number", a.contract_number) for i, a in enumerate(output.awardees)
+    ]
+    for label, number in numbers:
+        if number is not None and not plausible_contract_number(number):
+            problems.append(
+                f"{label} {number!r} does not look like a contract number such as "
+                "FA8604-25-D-B001 or N0042125F0043; copy it exactly from the text, or use null"
+            )
+    if problems:
+        raise ModelRetry("; ".join(problems))
+
+
+llm.register_validator(ContractAnnouncement, check)

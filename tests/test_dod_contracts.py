@@ -2,6 +2,7 @@ from collections import Counter
 from datetime import date, datetime
 
 import httpx
+import psycopg
 import pytest
 
 from pipeline.extract.contract_announcement import ContractAnnouncement
@@ -9,7 +10,7 @@ from pipeline.http import PoliteClient
 from pipeline.load.postgres import load_awards
 from pipeline.sources.dod_contracts import fetch, normalize, run
 from tests.conftest import FIXTURES
-from tests.fakes import FakeProvider
+from tests.fakes import FakeProvider, text_of
 
 FIX = FIXTURES / "dod_contracts"
 JAN27 = (FIX / "article_4042540.html").read_text()
@@ -129,7 +130,7 @@ def test_unlocker_error_is_blocked():
         fetch.BrightDataUnlocker(client, "k", "z").fetch(ARTICLE.url)
 
 
-def fake_extraction(prompt, schema):
+def fake_extraction(prompt, info=None):
     if "Aktarius LLC" in prompt:  # multiple-award paragraph
         return {
             "awardees": [
@@ -154,14 +155,14 @@ def fake_extraction(prompt, schema):
             "completion_date": "2032-01-27",
             "is_modification": False,
         }
-    name = prompt.split("<text>\n", 1)[1].split(",", 1)[0]
+    name = text_of(prompt).split(",", 1)[0]
     return {
         "awardees": [
             {"contractor": name, "location": None, "contract_number": None, "small_business": False}
         ],
         "amount_usd": 1e7,
         "amount_type": "obligation",
-        "contract_number": "X-1",
+        "contract_number": "FA8604-25-D-B001",
         "awarding_office": None,
         "description": "Stuff.",
         "completion_date": None,
@@ -175,7 +176,7 @@ def _lines():
 
 def test_to_award_multi_awardee():
     para = normalize.split_paragraphs(JAN27)[2]
-    ext = ContractAnnouncement.model_validate(fake_extraction("<text>\nAktarius LLC, x", {}))
+    ext = ContractAnnouncement.model_validate(fake_extraction("<text>\nAktarius LLC, x\n</text>"))
     award = normalize.to_award(
         article_id="4042540",
         url=ARTICLE.url,
@@ -235,3 +236,25 @@ def test_inbox_picks_up_saved_pages(tmp_path, monkeypatch):
     assert [ln["article_id"] for ln in lines] == ["4042540"]
     assert lines[0]["announced_on"] == "2025-01-27" and lines[0]["via"] == "inbox"
     assert run.inbox_lines({"4042540"}) == []
+
+
+@pytest.mark.db
+def test_main_commits_awards_and_agent_runs(db, tmp_path, monkeypatch):
+    """main() must leave its rows committed: visible to a new connection afterwards."""
+    dsn = psycopg.conninfo.make_conninfo(db.info.dsn, password=db.info.password)
+    monkeypatch.setenv("FLOCK_RAW_DIR", str(tmp_path / "raw"))
+    monkeypatch.setattr(run, "connect", lambda: psycopg.connect(dsn))
+    monkeypatch.setattr(run, "fetch_lines", lambda skip, max_articles, counts: _lines())
+    monkeypatch.setattr(run.llm, "get_provider", lambda: FakeProvider(fake_extraction))
+
+    assert run.main([]) == 0
+
+    with psycopg.connect(dsn) as other:
+        assert other.execute("SELECT count(*) FROM awards").fetchone()[0] == 12
+        assert other.execute(
+            "SELECT count(*), count(DISTINCT input_ref) FROM agent_runs"
+            " WHERE agent_name = 'extract:ContractAnnouncement' AND status = 'ok'"
+        ).fetchone() == (12, 12)
+        assert other.execute("SELECT input_ref FROM agent_runs ORDER BY id LIMIT 1").fetchone() == (
+            "dod_contracts:4042540:0",
+        )

@@ -115,7 +115,7 @@ Repository **secrets**:
 | `BRIGHTDATA_API_KEY`, `BRIGHTDATA_ZONE` | no | Opt-in unlocker for war.gov article pages |
 
 Optional repository **variables**: `FLOCK_CONTACT` (appended to the
-User-Agent) and `GEMINI_MODEL`.
+User-Agent) and `EXTRACT_MODEL`.
 
 `.github/workflows/ci.yml` runs ruff and pytest against a Postgres service
 container on every push and PR.
