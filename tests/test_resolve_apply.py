@@ -1,7 +1,11 @@
+import threading
+import time
 from datetime import UTC, datetime
 
+import psycopg
 import pytest
 
+from pipeline.db import MIGRATIONS_DIR
 from pipeline.load.postgres import load_awards
 from pipeline.models import AwardRecord, OrgRef
 from pipeline.resolve import apply
@@ -430,3 +434,144 @@ def test_loader_skips_self_parent_edge_after_merge(db):
     assert count(db, "edges", "rel = 'part_of'") == 0
     load_awards(db, [rec])
     assert count(db, "edges", "rel = 'part_of'") == 0  # no Parent part_of Parent
+
+
+# --- undo safety and concurrency ----------------------------------------------------
+
+
+def test_undo_refuses_while_a_later_merge_moved_the_same_edge(db):
+    # A division and its parent both have duplicates: edge B part_of P is
+    # rewritten by both merges, so they must be undone newest first.
+    a, b = org(db, "LM Missiles"), org(db, "LM Missiles Inc")
+    p, q = org(db, "Lockheed"), org(db, "Lockheed Martin")
+    edge(db, "organization", b, "part_of", "organization", p)
+    start = dump(db)
+
+    m1 = apply.merge(db, a, b, confidence=1.0, source="review")
+    m2 = apply.merge(db, q, p, confidence=1.0, source="review")
+    assert db.execute("SELECT src_id, dst_id FROM edges").fetchall() == [(a, q)]
+
+    with pytest.raises(apply.MergeError, match=f"later merge.*{m2}"):
+        apply.undo(db, m1)
+    assert db.execute("SELECT src_id, dst_id FROM edges").fetchall() == [(a, q)]  # untouched
+
+    apply.undo(db, m2)
+    apply.undo(db, m1)
+    assert dump(db) == start
+
+
+def test_undo_refuses_while_a_third_org_it_refers_to_is_merged(db):
+    a, b, t, u = (org(db, n) for n in ("A co", "B co", "T co", "U co"))
+    left, right = sorted((b, t))
+    db.execute(
+        "INSERT INTO pending_merges (left_org_id, right_org_id, decision, confidence)"
+        " VALUES (%s, %s, 'unsure', 0.5)",
+        (left, right),
+    )
+    m1 = apply.merge(db, a, b, confidence=1.0, source="review")  # removes the open b/t question
+    m2 = apply.merge(db, u, t, confidence=1.0, source="review")  # t is gone
+    with pytest.raises(apply.MergeError, match=f"later merge.*{m2}"):
+        apply.undo(db, m1)  # would restore a question about the merged row t
+    apply.undo(db, m2)
+    apply.undo(db, m1)
+    assert count(db, "pending_merges", "reviewed_at IS NULL") == 1
+
+
+def test_unrelated_later_merge_does_not_block_undo(db):
+    a, b, c, d = (org(db, n) for n in ("A co", "B co", "C co", "D co"))
+    m1 = apply.merge(db, a, b, confidence=1.0, source="review")
+    apply.merge(db, c, d, confidence=1.0, source="review")
+    apply.undo(db, m1)
+    assert _org_row(db, b)[3] is None and _org_row(db, d)[3] == c
+
+
+def test_undo_keeps_later_updates_to_the_canonical_row(db):
+    when = datetime(2026, 11, 1, tzinfo=UTC)
+
+    def load(**extra):
+        ref = OrgRef(source="s", source_id="a", canonical_name="Acme Corp", kind="company", **extra)
+        load_awards(db, [AwardRecord(source="s", source_id="1", fetched_at=when, recipient=ref)])
+
+    load()
+    a = db.execute("SELECT id FROM organizations WHERE source_id = 'a'").fetchone()[0]
+    b = org(db, "ACME CORPORATION", aliases=["Acme Co"])
+    merge_id = apply.merge(db, a, b, confidence=1.0, source="review")
+    assert _org_row(db, a)[1:3] == (None, ["ACME CORPORATION", "Acme Co"])
+
+    # A nightly reload of A's own key brings a UEI and a new spelling.
+    load(uei="UE9QJD4KK1L6", aliases=["Acme Corp."])
+    apply.undo(db, merge_id)
+    assert _org_row(db, a)[1:3] == ("UE9QJD4KK1L6", ["Acme Corp."])
+
+
+def test_undo_takes_back_a_uei_the_merge_filled_unless_it_changed(db):
+    a, b = org(db, "Acme"), org(db, "Acme Inc", uei="AAAAAAAAAAAA")
+    m = apply.merge(db, a, b, confidence=1.0, source="review")
+    assert _org_row(db, a)[1] == "AAAAAAAAAAAA"
+    apply.undo(db, m)
+    assert _org_row(db, a)[1] is None and _org_row(db, b)[1] == "AAAAAAAAAAAA"
+
+    db.execute("DELETE FROM org_non_matches")
+    m = apply.merge(db, a, b, confidence=1.0, source="review")
+    db.execute("UPDATE organizations SET uei = 'CCCCCCCCCCCC' WHERE id = %s", (a,))
+    apply.undo(db, m)
+    assert _org_row(db, a)[1] == "CCCCCCCCCCCC"  # someone else's later value is kept
+
+
+def _waiting_on_lock(db) -> bool:
+    n = db.execute(
+        "SELECT count(*) FROM pg_stat_activity"
+        " WHERE datname = current_database() AND wait_event_type = 'Lock'"
+    ).fetchone()[0]
+    return n > 0
+
+
+def test_concurrent_opposite_merges_leave_one_live_row(db):
+    a, b = org(db, "A co"), org(db, "B co")
+    db.commit()
+    other = psycopg.connect(db.info.dsn, password=db.info.password)
+    errors: list[Exception] = []
+
+    def opposite():
+        try:
+            apply.merge(other, b, a, confidence=1.0, source="review")
+            other.commit()
+        except Exception as e:
+            errors.append(e)
+            other.rollback()
+
+    try:
+        # Hold the row locks, so the other session passes live_root (both rows
+        # live) and then blocks on FOR UPDATE inside merge().
+        db.execute("SELECT 1 FROM organizations WHERE id IN (%s, %s) FOR UPDATE", (a, b))
+        thread = threading.Thread(target=opposite)
+        thread.start()
+        deadline = time.monotonic() + 10
+        while not _waiting_on_lock(db) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        apply.merge(db, a, b, confidence=1.0, source="review")
+        db.commit()
+        thread.join(timeout=10)
+        assert not thread.is_alive()
+    finally:
+        other.close()
+
+    assert len(errors) == 1 and isinstance(errors[0], apply.MergeError)
+    assert "another session" in str(errors[0])
+    rows = db.execute("SELECT id, merged_into FROM organizations ORDER BY id").fetchall()
+    assert rows == [(a, None), (b, a)]
+    assert count(db, "org_merges", "undone_at IS NULL") == 1
+
+
+def test_an_org_cannot_be_merged_into_itself(db):
+    a = org(db, "A co")
+    db.commit()
+    with pytest.raises(psycopg.errors.CheckViolation):
+        db.execute("UPDATE organizations SET merged_into = id WHERE id = %s", (a,))
+    db.rollback()
+    # The guard migration can be re-applied by hand without error.
+    db.execute((MIGRATIONS_DIR / "005_org_merge_guards.sql").read_text())
+    n = db.execute(
+        "SELECT count(*) FROM pg_constraint WHERE conname = 'organizations_not_merged_into_self'"
+    ).fetchone()[0]
+    assert n == 1

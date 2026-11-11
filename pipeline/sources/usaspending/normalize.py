@@ -28,7 +28,8 @@ def _recipient(rec: dict) -> OrgRef | None:
     name = rec.get("Recipient Name")
     if not name:
         return None
-    uei = rec.get("Recipient UEI") or None
+    # Blank or padded UEIs must not reach the table: equal UEIs auto-merge rows.
+    uei = (rec.get("Recipient UEI") or "").strip().upper() or None
     # Prefer UEI (stable across systems); fall back to USAspending's recipient hash.
     key = f"uei:{uei}" if uei else f"recipient:{rec.get('recipient_id') or name}"
     return OrgRef(source=SOURCE, source_id=key, canonical_name=name, kind="company", uei=uei)

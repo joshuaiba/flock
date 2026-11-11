@@ -5,13 +5,21 @@ Two outputs, both over live company rows (kind = 'company', merged_into IS NULL)
 1. `uei_auto_merges`: rows sharing a UEI. The UEI is SAM.gov's unique entity
    id, so these are the same registered entity and are merged without asking
    the agent. Canonical row: the one USAspending loaded under its `uei:` key
-   (the most stable source id we have), else the lowest id.
+   (the most stable source id we have), else the lowest id. UEIs are compared
+   stripped and upper-cased, and only a well-formed UEI (12 letters/digits)
+   auto-merges: a blank or malformed value proves nothing, so such rows go
+   through the name path like any others.
 
 2. `name_pairs`: rows whose normalized names are similar enough to be worth
    the agent's time. Names are lower-cased, stripped of punctuation, legal
    suffixes (Inc, LLC, Corp, ...), "the" and "and"/"&". Rows are only compared
    within a block (same first token of the normalized name), which keeps the
-   work far below n². A pair's score is the best of:
+   work far below n². A block of more than MAX_BLOCK_SIZE rows ("general",
+   "american", "advanced") is not compared all-against-all; every row in it is
+   still compared with (a) the rows sharing its second token, (b) the rows
+   sharing a normalized name or alias, and (c) its NEIGHBOR_WINDOW nearest
+   neighbours in name order, which catches typos later in the name. A pair's
+   score is the best of:
      - difflib ratio of the two normalized names,
      - 1.0 if their name/alias sets overlap after normalization,
      - PREFIX_SCORE if one name's tokens are a prefix of the other's (two or
@@ -33,8 +41,10 @@ Signals handed to the agent with each pair:
                    this is null.
   shared_parent    true/false when both rows have part_of parents, else null
 
-Never re-proposed: pairs in org_non_matches, pairs with an open pending_merges
-row, and pairs a reviewer rejected.
+Never re-proposed: pairs in org_non_matches and pairs a reviewer rejected.
+A pair with an open pending_merges row is not sent to the agent again, but it
+is still auto-merged if the two rows turn out to share a UEI (the merge closes
+the open question).
 """
 
 from __future__ import annotations
@@ -42,7 +52,8 @@ from __future__ import annotations
 import logging
 import re
 from collections import defaultdict
-from dataclasses import dataclass
+from collections.abc import Iterable, Iterator
+from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 
 import psycopg
@@ -55,7 +66,8 @@ log = logging.getLogger(__name__)
 NAME_THRESHOLD = 0.88
 PREFIX_SCORE = 0.9
 PREFIX_MIN_TOKENS = 2
-MAX_BLOCK_SIZE = 400  # a block larger than this is truncated (lowest ids kept) and logged
+MAX_BLOCK_SIZE = 400  # larger blocks are sub-blocked instead of compared all-against-all
+NEIGHBOR_WINDOW = 25  # name-order neighbours compared within an oversized block
 MAX_ALIASES = 20
 
 LEGAL_SUFFIXES = frozenset(
@@ -67,6 +79,17 @@ LEGAL_SUFFIXES = frozenset(
 STOPWORDS = frozenset({"the", "and"})
 
 _NON_ALNUM = re.compile(r"[^a-z0-9]+")
+_UEI = re.compile(r"[A-Z0-9]{12}")
+
+
+def normalize_uei(uei: str | None) -> str | None:
+    """Stripped, upper-cased UEI; None for a missing or blank one."""
+    return (uei or "").strip().upper() or None
+
+
+def is_plausible_uei(uei: str | None) -> bool:
+    """A SAM.gov UEI is exactly 12 letters/digits. Anything else is not proof of identity."""
+    return bool(uei and _UEI.fullmatch(uei))
 
 
 def normalize_name(name: str) -> str:
@@ -85,11 +108,14 @@ def name_similarity(a: str, b: str) -> float:
     return round(SequenceMatcher(None, na, nb).ratio(), 3)
 
 
-def is_token_prefix(a: str, b: str) -> bool:
-    """True if one normalized name's tokens are a proper prefix of the other's."""
-    ta, tb = normalize_name(a).split(), normalize_name(b).split()
+def _tokens_prefix(ta: tuple[str, ...], tb: tuple[str, ...]) -> bool:
     short, long = (ta, tb) if len(ta) <= len(tb) else (tb, ta)
     return PREFIX_MIN_TOKENS <= len(short) < len(long) and long[: len(short)] == short
+
+
+def is_token_prefix(a: str, b: str) -> bool:
+    """True if one normalized name's tokens are a proper prefix of the other's."""
+    return _tokens_prefix(tuple(normalize_name(a).split()), tuple(normalize_name(b).split()))
 
 
 @dataclass(frozen=True)
@@ -109,15 +135,21 @@ class Candidates:
 class _Org:
     id: int
     name: str
-    uei: str | None
+    uei: str | None  # normalized (see normalize_uei)
     aliases: tuple[str, ...]
     source: str
     source_id: str
+    # Normalized once per row; pairs are compared many times.
+    norm: str = field(init=False, compare=False)
+    tokens: tuple[str, ...] = field(init=False, compare=False)
+    names: frozenset[str] = field(init=False, compare=False)
 
-    @property
-    def names(self) -> frozenset[str]:
-        out = {normalize_name(n) for n in (self.name, *self.aliases[:MAX_ALIASES])}
-        return frozenset(n for n in out if n)
+    def __post_init__(self):
+        norm = normalize_name(self.name)
+        names = {norm, *(normalize_name(a) for a in self.aliases[:MAX_ALIASES])}
+        object.__setattr__(self, "norm", norm)
+        object.__setattr__(self, "tokens", tuple(norm.split()))
+        object.__setattr__(self, "names", frozenset(n for n in names if n))
 
 
 def _live_companies(conn: psycopg.Connection) -> list[_Org]:
@@ -125,15 +157,18 @@ def _live_companies(conn: psycopg.Connection) -> list[_Org]:
         """SELECT id, canonical_name, uei, aliases, source, source_id FROM organizations
            WHERE kind = 'company' AND merged_into IS NULL ORDER BY id"""
     ).fetchall()
-    return [_Org(r[0], r[1], r[2] or None, tuple(r[3] or ()), r[4], r[5]) for r in rows]
+    return [_Org(r[0], r[1], normalize_uei(r[2]), tuple(r[3] or ()), r[4], r[5]) for r in rows]
 
 
-def _excluded_pairs(conn: psycopg.Connection) -> set[tuple[int, int]]:
+def _excluded_pairs(conn: psycopg.Connection, *, include_open: bool = True) -> set[tuple[int, int]]:
+    """Pairs already decided: non-matches and reviewer rejections, plus (unless
+    include_open is false) pairs with an open review question."""
     rows = conn.execute(
         """SELECT left_org_id, right_org_id FROM org_non_matches
            UNION
            SELECT left_org_id, right_org_id FROM pending_merges
-           WHERE reviewed_at IS NULL OR reviewer_action = 'rejected'"""
+           WHERE reviewer_action = 'rejected' OR (%s AND reviewed_at IS NULL)""",
+        (include_open,),
     ).fetchall()
     return {(r[0], r[1]) for r in rows}
 
@@ -143,12 +178,14 @@ def _pair_key(a: int, b: int) -> tuple[int, int]:
 
 
 def uei_auto_merges(conn: psycopg.Connection) -> list[AutoMerge]:
-    """(canonical, other) for every live company row sharing a UEI with another."""
-    excluded = _excluded_pairs(conn)
+    """(canonical, other) for every live company row sharing a well-formed UEI with another."""
+    # An open "unsure" question does not stand in the way of a shared UEI;
+    # a recorded non-match (incl. an undone merge) or a reviewer's "different" does.
+    excluded = _excluded_pairs(conn, include_open=False)
     by_uei: dict[str, list[_Org]] = defaultdict(list)
     for org in _live_companies(conn):
-        if org.uei:
-            by_uei[org.uei.strip().upper()].append(org)
+        if is_plausible_uei(org.uei):
+            by_uei[org.uei].append(org)
     out = []
     for uei in sorted(by_uei):
         group = by_uei[uei]
@@ -205,6 +242,79 @@ def _overlap(a: set | None, b: set | None) -> bool | None:
     return None if not a or not b else bool(a & b)
 
 
+def _all_pairs(orgs: list[_Org]) -> Iterator[tuple[_Org, _Org]]:
+    for i, left in enumerate(orgs):
+        for right in orgs[i + 1 :]:
+            yield left, right
+
+
+def _block_pairs(key: str, block: list[_Org]) -> Iterable[tuple[_Org, _Org]]:
+    """Pairs to compare within one first-token block, each as (lower id, higher id)."""
+    if len(block) <= MAX_BLOCK_SIZE:
+        return _all_pairs(block)
+    log.info("block %r has %d orgs; sub-blocking", key, len(block))
+    seen: set[tuple[int, int]] = set()
+    out: list[tuple[_Org, _Org]] = []
+
+    def add(a: _Org, b: _Org) -> None:
+        left, right = (a, b) if a.id < b.id else (b, a)
+        if (left.id, right.id) not in seen:
+            seen.add((left.id, right.id))
+            out.append((left, right))
+
+    groups: dict[tuple[str, str], list[_Org]] = defaultdict(list)
+    for org in block:  # block is in id order, so groups are too
+        groups["token", org.tokens[1] if len(org.tokens) > 1 else ""].append(org)
+        for name in org.names:
+            groups["name", name].append(org)
+    for group_key in sorted(groups):
+        group = groups[group_key]
+        if 1 < len(group) <= MAX_BLOCK_SIZE:
+            for a, b in _all_pairs(group):
+                add(a, b)
+        elif len(group) > MAX_BLOCK_SIZE:
+            log.warning(
+                "sub-block %r/%r has %d orgs; comparing name-order neighbours only",
+                key,
+                group_key[1],
+                len(group),
+            )
+    ordered = sorted(block, key=lambda o: (o.norm, o.id))
+    for i, a in enumerate(ordered):
+        for b in ordered[i + 1 : i + 1 + NEIGHBOR_WINDOW]:
+            add(a, b)
+    return out
+
+
+def _score(left: _Org, right: _Org, threshold: float) -> tuple[float, dict] | None:
+    """(score, signals) if the pair reaches `threshold`, else None."""
+    prefix = _tokens_prefix(left.tokens, right.tokens)
+    alias_overlap = bool(left.names & right.names)
+    matcher = SequenceMatcher(None, left.norm, right.norm)
+    if (
+        not prefix
+        and not alias_overlap
+        # Cheap upper bounds on ratio(): skip the expensive call when they rule the pair out.
+        # (Rounded like the score itself, so a pair exactly at the threshold survives.)
+        and (
+            round(matcher.real_quick_ratio(), 3) < threshold
+            or round(matcher.quick_ratio(), 3) < threshold
+        )
+    ):
+        return None
+    sim = round(matcher.ratio(), 3)
+    score = max(sim, 1.0 if alias_overlap else 0.0, PREFIX_SCORE if prefix else 0.0)
+    if score < threshold:
+        return None
+    signals = {
+        "name_similarity": sim,
+        "name_prefix": prefix,
+        "alias_overlap": alias_overlap,
+        "different_ueis": bool(left.uei and right.uei and left.uei != right.uei),
+    }
+    return score, signals
+
+
 def name_pairs(
     conn: psycopg.Connection, *, limit: int, threshold: float = NAME_THRESHOLD
 ) -> list[CandidatePair]:
@@ -214,38 +324,19 @@ def name_pairs(
     excluded = _excluded_pairs(conn)
     blocks: dict[str, list[_Org]] = defaultdict(list)
     for org in _live_companies(conn):
-        norm = normalize_name(org.name)
-        if norm:
-            blocks[norm.split()[0]].append(org)
+        if org.tokens:
+            blocks[org.tokens[0]].append(org)
 
     scored: list[tuple[float, _Org, _Org, dict]] = []
     for key in sorted(blocks):
-        block = blocks[key]
-        if len(block) > MAX_BLOCK_SIZE:
-            log.warning(
-                "block %r has %d orgs; comparing the first %d", key, len(block), MAX_BLOCK_SIZE
-            )
-            block = block[:MAX_BLOCK_SIZE]
-        for i, left in enumerate(block):
-            for right in block[i + 1 :]:
-                if (left.id, right.id) in excluded:
-                    continue
-                same_uei = left.uei and right.uei and left.uei.upper() == right.uei.upper()
-                if same_uei:
-                    continue  # handled by uei_auto_merges
-                sim = name_similarity(left.name, right.name)
-                prefix = is_token_prefix(left.name, right.name)
-                alias_overlap = bool(left.names & right.names)
-                score = max(sim, 1.0 if alias_overlap else 0.0, PREFIX_SCORE if prefix else 0.0)
-                if score < threshold:
-                    continue
-                signals = {
-                    "name_similarity": sim,
-                    "name_prefix": prefix,
-                    "alias_overlap": alias_overlap,
-                    "different_ueis": bool(left.uei and right.uei),
-                }
-                scored.append((score, left, right, signals))
+        for left, right in _block_pairs(key, blocks[key]):
+            if (left.id, right.id) in excluded:
+                continue
+            if left.uei == right.uei and is_plausible_uei(left.uei):
+                continue  # handled by uei_auto_merges
+            hit = _score(left, right, threshold)
+            if hit is not None:
+                scored.append((hit[0], left, right, hit[1]))
 
     scored.sort(key=lambda s: (-s[0], s[1].id, s[2].id))
     scored = scored[:limit]

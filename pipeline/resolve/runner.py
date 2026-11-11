@@ -2,10 +2,12 @@
 
     stats = runner.run(conn, limit=50, dry_run=False)
 
-Commits as it goes: after the UEI auto-merges, after every agent run (so the
+Commits as it goes: after every UEI auto-merge, after every agent run (so the
 agent_runs row, the http_cache rows and the SAM.gov quota count survive even
 when the run failed), and after every applied decision. A failed or
-over-budget run applies nothing for its pair.
+over-budget run applies nothing for its pair. One pair (or one auto-merge)
+going wrong, whatever the exception, is rolled back, counted in `failed` and
+listed in `failures`; the pass carries on with the next one.
 
 dry_run: the agent still runs (that is how cost per decision is measured) and
 agent_runs / http_cache rows are still written, but no merge, pending or
@@ -18,7 +20,7 @@ import logging
 
 import psycopg
 
-from pipeline.agents import tracing
+from pipeline.agents import run_log, tracing
 from pipeline.extract.llm import Provider
 from pipeline.http import PoliteClient
 from pipeline.resolve import agent, apply, candidates
@@ -49,6 +51,18 @@ def _usage(conn: psycopg.Connection, since_id: int) -> dict[str, int]:
     }
 
 
+def _failure(ref: str, run_id: int | None, error: str) -> dict:
+    return {"input_ref": ref, "run_id": run_id, "error": run_log.redact(error)[:ERROR_CHARS]}
+
+
+def _settle(conn: psycopg.Connection) -> None:
+    """Commit what can be committed (audit and cache rows); roll back a failed transaction."""
+    if conn.info.transaction_status == psycopg.pq.TransactionStatus.INERROR:
+        conn.rollback()
+    else:
+        conn.commit()
+
+
 def _both_live(conn: psycopg.Connection, a: int, b: int) -> bool:
     n = conn.execute(
         "SELECT count(*) FROM organizations WHERE id IN (%s, %s) AND merged_into IS NULL", (a, b)
@@ -73,8 +87,9 @@ def run(
     merged         agent decisions applied as merges
     non_matches    confident "separate" decisions recorded
     pending        decisions queued for human review this run
-    failed         pairs with no decision (model error, budget exceeded) or
-                   whose decision could not be applied
+    failed         pairs with no decision (model error, tool error, budget
+                   exceeded) or whose decision could not be applied, plus UEI
+                   auto-merges that hit a database error
     skipped        pairs dropped because an earlier merge in this run made them stale
     failures       [{input_ref, run_id, error}] for those
     requests, input_tokens, output_tokens, total_tokens, tool_calls
@@ -95,17 +110,32 @@ def run(
     }
     since_id = conn.execute("SELECT coalesce(max(id), 0) FROM agent_runs").fetchone()[0]
 
-    for auto in candidates.uei_auto_merges(conn):
+    autos = candidates.uei_auto_merges(conn)
+    conn.commit()  # end the read transaction, so each merge below is its own
+    for auto in autos:
         if not dry_run:
             try:
                 apply.merge(
                     conn, auto.canonical_org_id, auto.other_org_id, confidence=1.0, source="uei"
                 )
+                conn.commit()
             except apply.MergeError as e:  # e.g. already merged via another row in the group
+                conn.rollback()
                 log.warning("UEI auto-merge %s skipped: %s", auto, e)
                 continue
+            except psycopg.Error as e:  # e.g. a deadlock with a concurrent loader
+                conn.rollback()
+                log.error("UEI auto-merge %s failed: %s", auto, e)
+                out["failed"] += 1
+                out["failures"].append(
+                    _failure(
+                        f"org:{auto.canonical_org_id}:{auto.other_org_id}",
+                        None,
+                        f"UEI auto-merge failed: {type(e).__name__}: {e}",
+                    )
+                )
+                continue
         out["auto_merged"] += 1
-    conn.commit()
 
     pairs = candidates.name_pairs(conn, limit=limit)
     out["candidates"] = len(pairs)
@@ -127,33 +157,31 @@ def run(
                     continue
                 try:
                     outcome = agent.decide(pair, deps, provider=provider)
+                except Exception as e:  # not KeyboardInterrupt: a tool or driver bug
+                    # decide() turns agent errors into an Outcome; anything else
+                    # (a tool raising, a database error) must not sink the pass.
+                    log.exception("resolver crashed for %s", ref)
+                    _settle(conn)  # keeps the audit row unless the transaction is dead
+                    out["failed"] += 1
+                    out["failures"].append(_failure(ref, None, f"{type(e).__name__}: {e}"))
+                    continue
                 finally:
-                    conn.commit()  # keep the audit row, cache rows and quota count
+                    _settle(conn)  # keep the audit row, cache rows and quota count
                 if outcome.decision is None:
                     out["failed"] += 1
-                    out["failures"].append(
-                        {
-                            "input_ref": ref,
-                            "run_id": outcome.run_id,
-                            "error": (outcome.error or "")[:ERROR_CHARS],
-                        }
-                    )
+                    out["failures"].append(_failure(ref, outcome.run_id, outcome.error or ""))
                     continue
                 try:
                     action = apply.apply_decision(
                         conn, pair, outcome.decision, agent_run_id=outcome.run_id, dry_run=dry_run
                     )
                     conn.commit()
-                except (apply.MergeError, psycopg.Error) as e:
+                except Exception as e:
                     conn.rollback()
                     log.error("could not apply decision for %s: %s", ref, e)
                     out["failed"] += 1
                     out["failures"].append(
-                        {
-                            "input_ref": ref,
-                            "run_id": outcome.run_id,
-                            "error": f"apply failed: {e}"[:ERROR_CHARS],
-                        }
+                        _failure(ref, outcome.run_id, f"apply failed: {type(e).__name__}: {e}")
                     )
                     continue
                 out[

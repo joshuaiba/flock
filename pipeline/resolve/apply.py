@@ -24,10 +24,15 @@ What a merge does (one transaction):
   longer exists), and its org_non_matches are copied to the canonical row.
 - Everything changed is written to org_merges.snapshot.
 
-undo() restores exactly from that snapshot (edges come back with their
-original ids, source_ids and timestamps) and records the pair in
-org_non_matches so the nightly run does not immediately redo the merge. It
-refuses if a later, still-active merge touches either row: undo those first.
+undo() restores from that snapshot (edges come back with their original ids,
+source_ids and timestamps) and records the pair in org_non_matches so the
+nightly run does not immediately redo the merge. On the canonical row it
+removes only what the merge added (the merged row's names, and the UEI if the
+merge filled it and it is still that value), so a UEI or alias a later load
+wrote there is kept. It refuses while a later, still-active merge touches
+either row, changed one of the edges this merge moved, or merged away a third
+organization that this merge's edges, review questions or non-matches refer
+to: undo those first (newest first always works).
 Limitation: awards first loaded while the merge was active were attached to
 the canonical row; after an undo the next load of their source moves
 recipient_id back, but an `awarded_to` edge created in that window stays on
@@ -193,7 +198,9 @@ def merge(
     """Merge organization `other_id` into `canonical_id`; returns org_merges.id.
 
     Either id may itself already be merged: both are resolved to their live
-    rows first. Raises MergeError if they are (already) the same row.
+    rows first. Raises MergeError if they are (already) the same row, or if
+    another session merged one of them while this call waited for the row
+    locks (retry: the ids then resolve to the new live rows).
     """
     with conn.transaction():
         canonical = live_root(conn, canonical_id)
@@ -202,24 +209,42 @@ def merge(
             raise MergeError(
                 f"organizations {canonical_id} and {other_id} are already one row ({canonical})"
             )
+        # Lock both rows in id order (no deadlock between opposite merges), then
+        # re-check under the lock: live_root ran before it, and a concurrent
+        # merge may have committed in between.
         orgs = {
             r[0]: r
             for r in conn.execute(
-                "SELECT id, canonical_name, uei, aliases FROM organizations"
+                "SELECT id, canonical_name, uei, aliases, merged_into FROM organizations"
                 " WHERE id IN (%s, %s) ORDER BY id FOR UPDATE",
                 (canonical, other),
             ).fetchall()
         }
-        _, c_name, c_uei, c_aliases = orgs[canonical]
-        _, o_name, o_uei, o_aliases = orgs[other]
-
-        snapshot: dict = {
-            "version": 1,
-            "canonical": {"id": canonical, "uei": c_uei, "aliases": list(c_aliases)},
-            "merged": {"id": other},
-        }
+        stale = sorted(i for i, r in orgs.items() if r[4] is not None)
+        if stale or len(orgs) != 2:
+            raise MergeError(
+                f"organization(s) {', '.join(map(str, stale)) or '?'} were merged by another"
+                " session while this merge waited; nothing was changed, try again"
+            )
+        _, c_name, c_uei, c_aliases, _ = orgs[canonical]
+        _, o_name, o_uei, o_aliases, _ = orgs[other]
 
         aliases = sorted({*c_aliases, *o_aliases, o_name} - {c_name, ""})
+        uei_filled = o_uei if c_uei is None and o_uei is not None else None
+        snapshot: dict = {
+            "version": 2,
+            "canonical": {
+                "id": canonical,
+                # Before/after, so undo can tell "untouched since the merge"
+                # (restore exactly) from "updated since" (remove only our additions).
+                "uei": c_uei,
+                "aliases": list(c_aliases),
+                "aliases_after": aliases,
+                "aliases_added": sorted(set(aliases) - set(c_aliases)),
+                "uei_filled": uei_filled,
+            },
+            "merged": {"id": other},
+        }
         conn.execute(
             "UPDATE organizations SET aliases = %s, uei = COALESCE(uei, %s) WHERE id = %s",
             (aliases, o_uei, canonical),
@@ -317,17 +342,12 @@ def undo(conn: psycopg.Connection, merge_id: int) -> None:
         canonical, other, snap, undone_at = row
         if undone_at is not None:
             raise MergeError(f"merge {merge_id} was already undone at {undone_at:%Y-%m-%d %H:%M}")
-        later = _ids(
-            conn,
-            """SELECT id FROM org_merges
-               WHERE id > %s AND undone_at IS NULL
-                 AND (canonical_org_id = ANY(%s) OR merged_org_id = ANY(%s))""",
-            (merge_id, [canonical, other], [canonical, other]),
-        )
+        later = _blocking_merges(conn, merge_id, canonical, other, snap)
         if later:
             raise MergeError(
                 f"merge {merge_id} cannot be undone yet: later merge(s) "
-                f"{', '.join(map(str, later))} involve the same organizations; undo those first"
+                f"{', '.join(map(str, later))} involve the same organizations or edges;"
+                " undo those first"
             )
 
         conn.execute("UPDATE organizations SET merged_into = NULL WHERE id = %s", (other,))
@@ -335,10 +355,7 @@ def undo(conn: psycopg.Connection, merge_id: int) -> None:
             "UPDATE organizations SET merged_into = %s WHERE id = ANY(%s) AND merged_into = %s",
             (other, snap["rerooted"], canonical),
         )
-        conn.execute(
-            "UPDATE organizations SET aliases = %s, uei = %s WHERE id = %s",
-            (snap["canonical"]["aliases"], snap["canonical"]["uei"], canonical),
-        )
+        _restore_canonical(conn, canonical, snap["canonical"])
         conn.execute(
             "UPDATE awards SET recipient_id = %s WHERE id = ANY(%s) AND recipient_id = %s",
             (other, snap["awards_recipient"], canonical),
@@ -369,6 +386,66 @@ def undo(conn: psycopg.Connection, merge_id: int) -> None:
         conn.execute("UPDATE org_merges SET undone_at = now() WHERE id = %s", (merge_id,))
         _record_non_match(conn, canonical, other, None, f"merge {merge_id} was undone", None)
     log.info("undid merge %s (organization %s restored)", merge_id, other)
+
+
+def _snapshot_third_orgs(snap: dict, canonical: int, other: int) -> set[int]:
+    """Organizations, other than the merged pair, that restoring `snap` writes ids of."""
+    out: set[int] = set(snap["rerooted"])
+    for e in snap["edges"]:
+        for side in ("src", "dst"):
+            if e[f"{side}_type"] == "organization":
+                out.add(e[f"{side}_id"])
+    for p in snap["pending_merges"]:
+        out.update((p["left_org_id"], p["right_org_id"]))
+    for a, b in snap["non_matches_added"]:
+        out.update((a, b))
+    for nm in snap["non_matches_deleted"]:
+        out.update((nm["left_org_id"], nm["right_org_id"]))
+    return out - {canonical, other}
+
+
+def _blocking_merges(
+    conn: psycopg.Connection, merge_id: int, canonical: int, other: int, snap: dict
+) -> list[int]:
+    """Later active merges that must be undone before `merge_id` can be.
+
+    Restoring a snapshot puts rows back verbatim, so it is only right while
+    nothing it mentions has been rewritten since. A later merge blocks when it
+    (a) involves the canonical or merged row, (b) merged away a third
+    organization the snapshot refers to (an edge endpoint, the other side of a
+    review question or non-match), or (c) moved one of the same edges.
+    """
+    third = sorted(_snapshot_third_orgs(snap, canonical, other))
+    edge_ids = {e["id"] for e in snap["edges"]}
+    rows = conn.execute(
+        """SELECT id,
+                  canonical_org_id = ANY(%(pair)s) OR merged_org_id = ANY(%(pair)s)
+                      OR merged_org_id = ANY(%(third)s),
+                  ARRAY(SELECT (e->>'id')::bigint
+                        FROM jsonb_array_elements(snapshot->'edges') AS e)
+           FROM org_merges
+           WHERE id > %(id)s AND undone_at IS NULL ORDER BY id""",
+        {"id": merge_id, "pair": [canonical, other], "third": third},
+    ).fetchall()
+    return [mid for mid, involves, edges in rows if involves or edge_ids & set(edges)]
+
+
+def _restore_canonical(conn: psycopg.Connection, canonical: int, before: dict) -> None:
+    """Take back what the merge gave the canonical row, keeping later updates."""
+    uei, aliases = conn.execute(
+        "SELECT uei, aliases FROM organizations WHERE id = %s FOR UPDATE", (canonical,)
+    ).fetchone()
+    if list(aliases) == before["aliases_after"]:
+        new_aliases = before["aliases"]  # untouched since the merge: restore exactly
+    else:
+        added = set(before["aliases_added"])
+        new_aliases = [a for a in aliases if a not in added]
+    filled = before["uei_filled"]
+    new_uei = None if filled is not None and uei == filled else uei
+    conn.execute(
+        "UPDATE organizations SET aliases = %s, uei = %s WHERE id = %s",
+        (new_aliases, new_uei, canonical),
+    )
 
 
 def _record_non_match(conn, a: int, b: int, confidence, reasoning, agent_run_id) -> None:

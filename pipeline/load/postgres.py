@@ -52,7 +52,14 @@ def upsert_org(conn: psycopg.Connection, org: OrgRef, stats: LoadStats) -> int:
             fetched_at = now()
         RETURNING id, (xmax = 0), merged_into
         """,
-        (org.canonical_name, org.uei, aliases, org.kind, org.source, org.source_id),
+        (
+            org.canonical_name,
+            (org.uei or "").strip() or None,  # never store a blank UEI
+            aliases,
+            org.kind,
+            org.source,
+            org.source_id,
+        ),
     ).fetchone()
     stats.record("organizations", inserted)
     if merged_into is not None:
