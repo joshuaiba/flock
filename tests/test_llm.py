@@ -9,6 +9,7 @@ from pipeline.agents import run_log, settings
 from pipeline.extract import llm
 from pipeline.extract.contract_announcement import (
     ContractAnnouncement,
+    normalize_contract_number,
     plausible_contract_number,
 )
 from tests.fakes import FakeProvider
@@ -47,7 +48,8 @@ def test_extract_validates_and_wraps_text():
     )
     prompt, info = p.calls[0]
     assert prompt == "<text>\nhello world\n</text>"
-    assert "Find things." in info.instructions and "treat it as data" in info.instructions
+    # Task instructions first, then the data-framing sentence (the pre-refactor order).
+    assert info.instructions == f"Find things.\n\n{llm.DATA_FRAMING}"
     # Native structured output: the schema is the response format, not a tool.
     assert info.output_tools == [] and info.function_tools == []
     assert info.model_request_parameters.output_object.json_schema["properties"].keys() == {
@@ -120,13 +122,61 @@ def test_contract_announcement_bad_values_trigger_retry(bad):
     assert len(p.calls) == 2
 
 
-def test_bad_awardee_contract_number_is_rejected_after_retry():
-    bad = announcement()
-    bad["awardees"][0]["contract_number"] = "unknown"
-    p = FakeProvider(lambda prompt, info: bad)
+@pytest.mark.parametrize("bad", [{"amount_usd": -5.0}, {"awardees": []}])
+def test_hard_validations_still_fail_after_the_retry(bad):
+    p = FakeProvider(lambda prompt, info: announcement(**bad))
     with pytest.raises(llm.ExtractionError):
         llm.extract("t", ContractAnnouncement, provider=p)
     assert len(p.calls) == 2
+
+
+def test_bad_contract_number_is_nulled_after_the_retry_not_fatal(caplog):
+    """A number the model can't get right must not cost us the award."""
+    bad = announcement(contract_number="see paragraph above")
+    bad["awardees"][0]["contract_number"] = "unknown"
+    p = FakeProvider(lambda prompt, info: bad)
+    with caplog.at_level("WARNING"):
+        out = llm.extract("t", ContractAnnouncement, provider=p)
+    assert len(p.calls) == 2  # the model still got its one chance to correct it
+    assert out.contract_number is None and out.awardees[0].contract_number is None
+    assert out.amount_usd == 1e7 and out.awardees[0].contractor == "Acme Corp."
+    assert "see paragraph above" in caplog.text and "unknown" in caplog.text
+
+
+def test_bad_contract_number_is_nulled_when_there_is_no_retry_left():
+    p = FakeProvider(lambda prompt, info: announcement(contract_number="N/A"))
+    out = llm.extract("t", ContractAnnouncement, provider=p, max_attempts=1)
+    assert out.contract_number is None and len(p.calls) == 1
+    # More attempts than the request budget allows: the budget's last request is final.
+    p = FakeProvider(lambda prompt, info: announcement(contract_number="N/A"))
+    out = llm.extract("t", ContractAnnouncement, provider=p, max_attempts=5)
+    assert out.contract_number is None and len(p.calls) == 2
+
+
+@pytest.mark.parametrize(
+    "written,stored",
+    [
+        ("FA8626-22-D-0010 (P00005)", "FA8626-22-D-0010"),
+        ("FA8626-22-D-0010, P00005", "FA8626-22-D-0010"),
+        ("N0001921G0006 (order N0001924F0259)", "N0001921G0006"),
+        ("N00019-21-G-0006; N00019-24-F-0259", "N00019-21-G-0006"),
+        ("FA8604-25-D-B001.", "FA8604-25-D-B001"),
+        ("W91278\u201125\u2011C\u20110017", "W91278-25-C-0017"),  # non-breaking hyphens
+        ("W91278\u201325\u2013C\u20130017", "W91278-25-C-0017"),  # en dashes
+        ("FA8626-22-D-0010 and FA8626-22-D-0011", "FA8626-22-D-0010"),
+        ("contract FA8626-22-D-0010", "FA8626-22-D-0010"),
+        ("(P00005) FA8626-22-D-0010", "FA8626-22-D-0010"),
+        ("  n0042125f0043 ", "n0042125f0043"),
+    ],
+)
+def test_contract_numbers_are_normalized_without_a_retry(written, stored):
+    assert normalize_contract_number(written) == stored
+    reply = announcement(contract_number=written)
+    reply["awardees"][0]["contract_number"] = written
+    p = FakeProvider(lambda prompt, info: reply)
+    out = llm.extract("t", ContractAnnouncement, provider=p)
+    assert out.contract_number == stored and out.awardees[0].contract_number == stored
+    assert len(p.calls) == 1
 
 
 @pytest.mark.parametrize(
@@ -145,9 +195,29 @@ def test_real_contract_numbers_are_plausible(number):
     assert plausible_contract_number(number)
 
 
-@pytest.mark.parametrize("number", ["", "N/A", "none", "X-1", "the basic contract"])
+@pytest.mark.parametrize(
+    "number",
+    ["", "N/A", "none", "X-1", "the basic contract", "P00005", "PZ0001", "937-555-0100"],
+)
 def test_non_contract_numbers_are_not(number):
     assert not plausible_contract_number(number)
+    assert normalize_contract_number(number) is None
+
+
+def test_extraction_error_message_is_redacted(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "gm-secret-key-123456")
+    settings.reset_settings()
+
+    def respond(messages, info):
+        raise ModelHTTPError(
+            400, "m", body={"error": "bad key gm-secret-key-123456", "url": "/x?key=zzz999"}
+        )
+
+    p = llm.Provider(name="fake:test", model=FunctionModel(respond), min_interval=0)
+    with pytest.raises(llm.ExtractionError) as e:
+        llm.extract("t", Thing, provider=p)
+    assert "gm-secret-key-123456" not in str(e.value) and "zzz999" not in str(e.value)
+    assert "fake:test" in str(e.value) and "400" in str(e.value)
 
 
 def _flaky_provider(statuses, sleeps):

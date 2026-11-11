@@ -222,3 +222,18 @@ def test_run_keeps_failed_runs_and_commits_per_batch(db):
         ("failed", 1),
         ("ok", 1),
     ]
+
+
+def test_main_configures_tracing(monkeypatch):
+    import contextlib
+
+    from pipeline.agents import tracing
+
+    calls = []
+    monkeypatch.setattr(tracing, "configure_tracing", lambda: calls.append("tracing") or False)
+    monkeypatch.setattr(classifier, "connect", lambda: contextlib.nullcontext(object()))
+    monkeypatch.setattr(
+        classifier, "run", lambda conn, limit: calls.append("run") or {"candidates": 0}
+    )
+    classifier.main(["--limit", "1"])
+    assert calls == ["tracing", "run"]

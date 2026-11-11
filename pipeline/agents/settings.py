@@ -46,7 +46,8 @@ class Settings(BaseSettings):
     @field_validator(*SECRET_FIELDS, mode="before")
     @classmethod
     def _blank_secret_is_none(cls, v):
-        return None if isinstance(v, str) and not v.strip() else v
+        # Stripped: a key pasted with a trailing newline is an illegal header value.
+        return (v.strip() or None) if isinstance(v, str) else v
 
     @field_validator(
         "extract_model",

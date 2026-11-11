@@ -19,11 +19,13 @@ from __future__ import annotations
 
 import contextvars
 import logging
+import os
 import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import unquote, urlsplit
 
 import psycopg
 from psycopg.types.json import Jsonb
@@ -49,10 +51,47 @@ _last_run_id: contextvars.ContextVar[int | None] = contextvars.ContextVar(
     "agent_run_log_last_id", default=None
 )
 
-_SECRET_PARAM = re.compile(
-    r"(?i)\b((?:api[_-]?key|key|token|access_token|secret|password)=)[^&\s\"'<>]+"
+# Names that hold a secret, with any prefix: api_key, GEMINI_API_KEY, x-goog-api-key,
+# client_secret, refresh_token, db_password. Must end the name, so that counters
+# like input_tokens are left alone.
+_SECRET_NAME = r"[\w-]*(?:api[_-]?key|token|secret|password|passwd)"
+_NOT_IN_WORD = r"(?<![A-Za-z0-9_-])"
+# name=value (query strings, env dumps). A bare `key=` counts here too.
+_SECRET_ASSIGN = re.compile(
+    rf"(?i){_NOT_IN_WORD}((?:{_SECRET_NAME}|key)[\"']?\s*=\s*[\"']?)[^&\s\"'<>,;)]+"
 )
-_AUTH_HEADER = re.compile(r"(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}")
+# name: value (headers, JSON, dict reprs). Only for unambiguous names, and only
+# for token-like values, so prose such as "key: value pairs" or
+# "Unexpected token: }" is untouched. Quoted values may be short.
+_SECRET_COLON = re.compile(
+    rf"(?i){_NOT_IN_WORD}({_SECRET_NAME}[\"']?\s*:\s*)"
+    r"(?:([\"'])[^\"'\s]+\2|[A-Za-z0-9._~+/=-]{6,})"
+)
+# URL-encoded query strings nested inside another URL: key%3Dvalue%26...
+_SECRET_ENCODED = re.compile(
+    rf"(?i)(?:(?<=%3F)|(?<=%26)|(?<![A-Za-z0-9_-]))((?:{_SECRET_NAME}|key)%3D)"
+    r"(?:(?!%26)[^&\s\"'<>])+"
+)
+# scheme://user:password@host
+_URL_USERINFO = re.compile(r"(?<=://)([^/\s:@]+):[^/\s@]+@")
+# "Authorization: <anything>" of any length, and bare "Bearer <long token>".
+_AUTH_HEADER = re.compile(
+    r"(?i)\b(authorization[\"']?\s*[:=]\s*[\"']?(?:(?:bearer|basic)\s+)?)[^\s\"',;]+"
+)
+# The token must contain a digit, so "basic ordering agreement" is left alone.
+_AUTH_SCHEME = re.compile(
+    r"(?i)\b(bearer|basic)\s+(?!REDACTED)(?=[A-Za-z0-9._~+/=-]*\d)[A-Za-z0-9._~+/=-]{8,}"
+)
+
+# Secrets that live outside Settings but can show up in errors. Their literal
+# values are redacted wherever they appear.
+_ENV_SECRETS = ("BRIGHTDATA_API_KEY",)
+_ENV_DSNS = ("DATABASE_URL", "TEST_DATABASE_URL")
+# Placeholder passwords that are also ordinary words: replacing them everywhere
+# would mangle text ("postgresql://", "password authentication failed"). The
+# URL-userinfo rule still covers them where they actually appear in a DSN.
+_TRIVIAL = {"password", "postgres", "secret", "changeme", "admin", "flock", "test"}
+_MIN_LITERAL = 6
 
 
 @contextmanager
@@ -69,14 +108,42 @@ def current_conn() -> psycopg.Connection | None:
     return _conn.get()
 
 
+def _literal_secrets() -> list[str]:
+    """Known secret values: configured settings secrets, plus BRIGHTDATA_API_KEY
+    and the database password when present in the environment."""
+    values = list(get_settings().secret_values())
+    values += [os.environ.get(name, "").strip() for name in _ENV_SECRETS]
+    for name in _ENV_DSNS:
+        dsn = os.environ.get(name, "")
+        try:
+            password = urlsplit(dsn).password if "://" in dsn else None
+        except ValueError:
+            password = None
+        if password:
+            values += [password, unquote(password)]
+    usable = {v for v in values if len(v) >= _MIN_LITERAL and v.lower() not in _TRIVIAL}
+    return sorted(usable, key=len, reverse=True)  # longest first: one may contain another
+
+
 def redact(text: str) -> str:
-    """Strip API keys from a string or URL: key-like query params, auth headers,
-    and the literal value of every configured secret."""
-    out = _SECRET_PARAM.sub(rf"\1{REDACTED}", text)
-    out = _AUTH_HEADER.sub(rf"\1 {REDACTED}", out)
-    for secret in get_settings().secret_values():
-        if secret:
-            out = out.replace(secret, REDACTED)
+    """Strip secrets from a string or URL.
+
+    Covers the literal value of every known secret (see _literal_secrets), and
+    by shape: `name=value` and `name: value` for key/token/secret/password
+    names with any prefix (query params, headers, JSON), URL-encoded
+    `key%3D...`, `scheme://user:password@host`, and Authorization headers.
+    """
+    out = text
+    for secret in _literal_secrets():
+        out = out.replace(secret, REDACTED)
+    out = _URL_USERINFO.sub(rf"\1:{REDACTED}@", out)
+    out = _AUTH_HEADER.sub(rf"\1{REDACTED}", out)
+    out = _AUTH_SCHEME.sub(rf"\1 {REDACTED}", out)
+    out = _SECRET_ENCODED.sub(rf"\1{REDACTED}", out)
+    out = _SECRET_ASSIGN.sub(rf"\1{REDACTED}", out)
+    out = _SECRET_COLON.sub(
+        lambda m: f"{m.group(1)}{m.group(2) or ''}{REDACTED}{m.group(2) or ''}", out
+    )
     return out
 
 

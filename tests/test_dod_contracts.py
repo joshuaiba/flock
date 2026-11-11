@@ -258,3 +258,14 @@ def test_main_commits_awards_and_agent_runs(db, tmp_path, monkeypatch):
         assert other.execute("SELECT input_ref FROM agent_runs ORDER BY id LIMIT 1").fetchone() == (
             "dod_contracts:4042540:0",
         )
+
+
+def test_main_configures_tracing(tmp_path, monkeypatch):
+    from pipeline.agents import tracing
+
+    calls = []
+    monkeypatch.setattr(tracing, "configure_tracing", lambda: calls.append("tracing") or False)
+    monkeypatch.setenv("FLOCK_RAW_DIR", str(tmp_path / "raw"))
+    monkeypatch.setattr(run, "fetch_lines", lambda skip, max_articles, counts: [])
+    assert run.main(["--no-load"]) == 0
+    assert calls == ["tracing"]

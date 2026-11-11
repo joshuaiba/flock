@@ -172,6 +172,85 @@ def test_redact(monkeypatch):
     assert run_log.redact_value({"u": [url], "n": 1}) == {"u": [run_log.redact(url)], "n": 1}
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "GEMINI_API_KEY=otherkey999",
+        "sam_api_key=otherkey999",
+        "client_secret=otherkey999",
+        "refresh_token=otherkey999",
+        "x-goog-api-key: otherkey999",
+        "X-Api-Key: otherkey999",
+        '{"api_key": "otherkey999"}',
+        "{'access_token': 'otherkey999'}",
+        "postgresql://flock:otherkey999@db.example.org:5432/flock",
+        "https://example.org/cb?next=%2Fx%3Fkey%3Dotherkey999%26a%3D1",
+        "Authorization: Bearer otherkey999",
+        "Authorization: Bearer abc",
+        "authorization: abc123",
+        "password = otherkey999",
+    ],
+)
+def test_redact_covers_common_key_forms(text):
+    out = run_log.redact(text)
+    assert "otherkey999" not in out and run_log.REDACTED in out
+    assert "abc" not in out.replace("REDACTED", "")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "the tools return key: value pairs for each organization",
+        "Unexpected token: } at line 3",
+        "input_tokens=286 output_tokens=72 total_tokens=358",
+        "exceeded the total_tokens_limit of 50000 (total_tokens=50112)",
+        "The bearer of the contract is Acme Corp.",
+        "basic ordering agreement N0042124G0007",
+        "monkey=3 turkey=4",
+        "https://www.usaspending.gov/award/CONT_AWD_W15P7T26F0230_9700",
+        "email ops@example.org about the award",
+        "org:12:34 failed: UsageLimitExceeded",
+    ],
+)
+def test_redact_leaves_ordinary_text_alone(text):
+    assert run_log.redact(text) == text
+
+
+def test_redact_keeps_the_rest_of_a_url():
+    assert run_log.redact("https://u:hunter2pass@host/db?sslmode=require") == (
+        "https://u:REDACTED@host/db?sslmode=require"
+    )
+    assert run_log.redact("/x%3Fkey%3Dabc%26q%3D1") == "/x%3Fkey%3DREDACTED%26q%3D1"
+    assert run_log.redact('{"api_key": "abc", "q": "drone"}') == (
+        '{"api_key": "REDACTED", "q": "drone"}'
+    )
+
+
+def test_redact_literal_secrets_outside_settings(monkeypatch):
+    monkeypatch.setenv("BRIGHTDATA_API_KEY", "bd-9f8e7d6c5b4a")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://flock:s3cr3t-pg-pw@db.example.org/flock")
+    out = run_log.redact("unlocker said bd-9f8e7d6c5b4a; auth failed for s3cr3t-pg-pw")
+    assert "bd-9f8e7d6c5b4a" not in out and "s3cr3t-pg-pw" not in out
+
+
+def test_redact_ignores_trivial_database_passwords(monkeypatch):
+    # A placeholder password must not blank out an ordinary word everywhere.
+    monkeypatch.setenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/postgres")
+    assert run_log.redact("connect to postgres failed") == "connect to postgres failed"
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:password@localhost:5432/flock")
+    assert run_log.redact("password authentication failed") == "password authentication failed"
+
+
+def test_secrets_are_stripped_of_whitespace(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "  realkey123456\n")
+    monkeypatch.setenv("SAM_API_KEY", "\tsamkey123456 ")
+    settings.reset_settings()
+    s = settings.get_settings()
+    assert s.gemini_api_key.get_secret_value() == "realkey123456"
+    assert s.sam_api_key.get_secret_value() == "samkey123456"
+    assert "realkey123456" not in run_log.redact("header was realkey123456")
+
+
 def test_run_logged_without_connection_just_runs():
     result = run_log.run_logged(
         make_agent(), "hi", agent_name="t", input_ref="x", model_label="test", model=TestModel()

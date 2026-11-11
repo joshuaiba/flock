@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import date
 from typing import Literal
@@ -10,6 +11,8 @@ from pydantic import BaseModel, Field
 from pydantic_ai import ModelRetry
 
 from pipeline.extract import llm
+
+log = logging.getLogger(__name__)
 
 
 class Awardee(BaseModel):
@@ -56,35 +59,88 @@ and places as written; do not guess values that are not in the text. Use null wh
 field is not stated."""
 
 
-# --- output checks: obviously bad values get one ModelRetry -------------------
+# --- output checks ------------------------------------------------------------
+#
+# Hard checks (no awardees, a negative amount) get one ModelRetry and then fail
+# the extraction. Contract numbers are softer: they are normalized in place, the
+# model gets its one retry for a value with no contract number in it at all,
+# and if it still cannot produce one the field is nulled (with a warning) and
+# the rest of the award is kept. A malformed number must never cost an award.
 
-# DoD PIIDs are 13 characters (N0042125F0043), often written with dashes
-# (FA8604-25-D-B001) and sometimes followed by an order or modification number.
-# Deliberately permissive: we only reject things that cannot be a contract
-# number at all ("N/A", "unknown", a phrase).
-_CONTRACT_NUMBER = re.compile(r"[A-Z0-9][A-Z0-9 /-]{6,48}[A-Z0-9]", re.I)
+_DASHES = dict.fromkeys(
+    map(ord, "\u2010\u2011\u2012\u2013\u2014\u2015\u2212\ufe58\ufe63\uff0d"), "-"
+)
+# A run of letters/digits, optionally dash-separated: FA8604-25-D-B001,
+# N0042125F0043, GS-35F-0119Y.
+_TOKEN = re.compile(r"(?<![A-Za-z0-9-])[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*(?![A-Za-z0-9-])")
+
+
+def _piid_shaped(token: str) -> bool:
+    """Long enough to be a contract or order number (DoD PIIDs are 13 characters;
+    GSA schedule numbers are 10), with letters and at least four digits. Rules
+    out bare modification numbers (P00005), phone numbers and ordinary words."""
+    chars = token.replace("-", "")
+    return (
+        8 <= len(chars) <= 25
+        and sum(c.isdigit() for c in chars) >= 4
+        and any(c.isalpha() for c in chars)
+    )
+
+
+def normalize_contract_number(value: str) -> str | None:
+    """The first contract-number-shaped token in `value`, or None if there is none.
+
+    Models often return a combined string for a modification or an order:
+    "FA8626-22-D-0010 (P00005)", "N0001921G0006 (order N0001924F0259)". We keep
+    the first contract number as written (case and dashes preserved), after
+    mapping Unicode dashes to "-" and ignoring surrounding punctuation.
+    """
+    for m in _TOKEN.finditer(value.translate(_DASHES)):
+        if _piid_shaped(m.group()):
+            return m.group()
+    return None
 
 
 def plausible_contract_number(value: str) -> bool:
-    v = value.strip()
-    return bool(_CONTRACT_NUMBER.fullmatch(v)) and sum(c.isdigit() for c in v) >= 4
+    return normalize_contract_number(value) is not None
 
 
-def check(output: ContractAnnouncement) -> None:
+def check(output: ContractAnnouncement, final: bool = False) -> None:
+    """Output validator. `final` is true on the model's last attempt."""
     problems = []
     if not output.awardees:
         problems.append("awardees is empty; every announcement names at least one contractor")
     if output.amount_usd is not None and output.amount_usd < 0:
         problems.append(f"amount_usd is negative ({output.amount_usd}); dollar values are >= 0")
-    numbers = [("contract_number", output.contract_number)] + [
-        (f"awardees[{i}].contract_number", a.contract_number) for i, a in enumerate(output.awardees)
+
+    holders = [("contract_number", output)] + [
+        (f"awardees[{i}].contract_number", a) for i, a in enumerate(output.awardees)
     ]
-    for label, number in numbers:
-        if number is not None and not plausible_contract_number(number):
-            problems.append(
-                f"{label} {number!r} does not look like a contract number such as "
-                "FA8604-25-D-B001 or N0042125F0043; copy it exactly from the text, or use null"
+    unusable = []
+    for label, holder in holders:
+        if holder.contract_number is None:
+            continue
+        normalized = normalize_contract_number(holder.contract_number)
+        if normalized is None:
+            unusable.append((label, holder))
+        else:
+            holder.contract_number = normalized
+    # Give up on the numbers only when nothing else is wrong: if a hard check
+    # is failing too, the extraction fails anyway.
+    if unusable and final and not problems:
+        for label, holder in unusable:
+            log.warning(
+                "%s %r is not a contract number after a retry; storing null",
+                label,
+                holder.contract_number,
             )
+            holder.contract_number = None
+        unusable = []
+    for label, holder in unusable:
+        problems.append(
+            f"{label} {holder.contract_number!r} does not look like a contract number such as "
+            "FA8604-25-D-B001 or N0042125F0043; copy it exactly from the text, or use null"
+        )
     if problems:
         raise ModelRetry("; ".join(problems))
 

@@ -15,7 +15,7 @@ from collections import Counter
 from datetime import UTC, date, datetime
 
 from pipeline import raw, stats
-from pipeline.agents import run_log
+from pipeline.agents import run_log, tracing
 from pipeline.db import connect
 from pipeline.extract import llm
 from pipeline.extract.contract_announcement import INSTRUCTIONS, ContractAnnouncement
@@ -134,6 +134,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--no-load", action="store_true", help="fetch + snapshot only")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    tracing.configure_tracing()  # no-op unless LOGFIRE_TOKEN is set
 
     counts: Counter = Counter()
     conn = None if args.no_load else connect()

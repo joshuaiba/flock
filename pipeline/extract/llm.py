@@ -6,8 +6,10 @@
 `extract` builds (and caches) one Agent per schema whose output type is that
 schema. Invalid output, or an output validator raising ModelRetry, gives the
 model one chance to correct itself (`max_attempts=2`); after that the call
-raises ExtractionError. Every call is recorded by pipeline.agents.run_log when
-a database connection is bound.
+raises ExtractionError. A validator can instead degrade on the final attempt
+(see register_validator) so one bad field does not cost the whole record.
+Every call is recorded by pipeline.agents.run_log when a database connection
+is bound.
 
 A Provider is just a model plus the label stored with results. The default one
 is Gemini, named by EXTRACT_MODEL; tests inject one wrapping a FunctionModel
@@ -16,6 +18,7 @@ with set_provider() or the `provider=` argument.
 
 from __future__ import annotations
 
+import inspect
 import logging
 import random
 import time
@@ -24,7 +27,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic import BaseModel
-from pydantic_ai import Agent, NativeOutput
+from pydantic_ai import Agent, NativeOutput, RunContext
 from pydantic_ai.exceptions import AgentRunError, ModelHTTPError
 from pydantic_ai.models import Model
 
@@ -96,39 +99,69 @@ def get_provider() -> Provider:
 
 # --- output validators --------------------------------------------------------
 
-Validator = Callable[[Any], None]
-_validators: dict[type[BaseModel], list[Validator]] = {}
+Validator = Callable[..., None]
+_validators: dict[type[BaseModel], list[tuple[Validator, bool]]] = {}
 _agents: dict[type[BaseModel], Agent[None, Any]] = {}
 
 
-def register_validator[T: BaseModel](schema: type[T], fn: Callable[[T], None]) -> None:
-    """Add a check run on every `schema` output. `fn(output)` raises
-    pydantic_ai.ModelRetry (with a message for the model) on obviously bad values."""
-    _validators.setdefault(schema, []).append(fn)
+def register_validator[T: BaseModel](schema: type[T], fn: Validator) -> None:
+    """Add a check run on every `schema` output.
+
+    `fn(output)` raises pydantic_ai.ModelRetry (with a message for the model)
+    on obviously bad values. It may also fix the output in place.
+
+    `fn(output, final)` additionally learns whether this is the model's last
+    attempt (no output retry or request budget left). A check that would
+    rather lose one field than the whole record raises ModelRetry while
+    `final` is false and repairs or nulls the field once it is true.
+    """
+    takes_final = len(inspect.signature(fn).parameters) >= 2
+    _validators.setdefault(schema, []).append((fn, takes_final))
     _agents.pop(schema, None)
 
 
+def is_final_attempt(ctx: RunContext[Any]) -> bool:
+    """True if a ModelRetry raised now could not be answered: the output retry
+    budget is spent, or the run has used its last allowed request."""
+    limit = ctx.usage_limits.request_limit if ctx.usage_limits else None
+    return ctx.last_attempt or (limit is not None and ctx.usage.requests >= limit)
+
+
 def build_agent[T: BaseModel](
-    schema: type[T], *, instructions: str | None = None, name: str | None = None
+    schema: type[T],
+    *,
+    instructions: str | None = None,
+    name: str | None = None,
+    framing: bool = True,
 ) -> Agent[None, T]:
     """An Agent with no model bound (it is chosen per run) whose output is `schema`.
 
     Native structured output: Pydantic AI sends the schema as Gemini's
     response_json_schema, which is what the docs recommend for Gemini 3.
+
+    The data-framing sentence follows the task instructions. Pass
+    `framing=False` when the instructions are supplied per run and the caller
+    appends the framing itself (run-level instructions come after agent-level
+    ones, so baking the framing in here would put it first).
     """
     parts = [instructions.strip()] if instructions else []
-    parts.append(DATA_FRAMING)
+    if framing:
+        parts.append(DATA_FRAMING)
     agent: Agent[None, T] = Agent(
         output_type=NativeOutput(schema),
-        instructions="\n\n".join(parts),
+        instructions="\n\n".join(parts) or None,
         name=name or f"extract:{schema.__name__}",
         retries={"output": 1},
     )
 
     @agent.output_validator
-    def _check(output: T) -> T:
-        for fn in _validators.get(schema, ()):
-            fn(output)
+    def _check(ctx: RunContext[None], output: T) -> T:
+        final = is_final_attempt(ctx)
+        for fn, takes_final in _validators.get(schema, ()):
+            if takes_final:
+                fn(output, final)
+            else:
+                fn(output)
         return output
 
     return agent
@@ -136,7 +169,8 @@ def build_agent[T: BaseModel](
 
 def _agent_for[T: BaseModel](schema: type[T]) -> Agent[None, T]:
     if schema not in _agents:
-        _agents[schema] = build_agent(schema)
+        # Instructions differ per call, so they (and the framing) are passed per run.
+        _agents[schema] = build_agent(schema, framing=False)
     return _agents[schema]
 
 
@@ -171,7 +205,8 @@ def run[T: BaseModel](
             )
         )
     except AgentRunError as e:  # invalid output after retries, budget exceeded, API error
-        raise ExtractionError(f"{p.name} failed for {agent_name}: {e}") from e
+        # Redacted: provider errors can echo the request, and callers log this message.
+        raise ExtractionError(run_log.redact(f"{p.name} failed for {agent_name}: {e}")) from e
     return result.output
 
 
@@ -190,6 +225,7 @@ def extract[T: BaseModel](
         provider=provider,
         agent_name=f"extract:{schema.__name__}",
         input_ref=input_ref,
-        instructions=instructions.strip() if instructions else None,
+        # Task instructions first, then the framing sentence.
+        instructions="\n\n".join(([instructions.strip()] if instructions else []) + [DATA_FRAMING]),
         max_attempts=max_attempts,
     )

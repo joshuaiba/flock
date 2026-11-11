@@ -126,7 +126,9 @@ All LLM calls go through [Pydantic AI](https://ai.pydantic.dev/). Extraction
 and classification are not agentic: one request, and one retry if the output
 is invalid or a validator rejects it (a negative amount, a contract number
 that doesn't look like one, a blank rationale). After that the call fails and
-the record is skipped for the night.
+the record is skipped for the night. The one exception is a contract number:
+if the model still can't produce one after the retry, the field is stored as
+null with a warning and the rest of the award is kept.
 
 ### Budgets
 

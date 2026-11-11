@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field, create_model
 from pydantic_ai import Agent, ModelRetry
 
 from pipeline import config, stats
-from pipeline.agents import run_log
+from pipeline.agents import run_log, tracing
 from pipeline.db import connect
 from pipeline.extract import llm
 from pipeline.load.postgres import LoadStats
@@ -245,6 +245,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--limit", type=int, default=1000, help="max entities to classify this run")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    tracing.configure_tracing()  # no-op unless LOGFIRE_TOKEN is set
     with connect() as conn:
         stats.emit("classifier", run(conn, limit=args.limit))
 
