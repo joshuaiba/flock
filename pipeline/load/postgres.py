@@ -2,6 +2,12 @@
 
 Every upsert uses `RETURNING (xmax = 0)`, which is true only when the row was
 freshly inserted. That lets each run report how many rows were genuinely new.
+
+Entity resolution keeps a merged organization's row and points it at the
+surviving one (organizations.merged_into). upsert_org still upserts the row it
+finds by (source, source_id), then returns the live row's id, so awards and
+edges written by a reload land on the canonical organization instead of
+undoing the merge.
 """
 
 from __future__ import annotations
@@ -29,7 +35,7 @@ class LoadStats(Counter):
 def upsert_org(conn: psycopg.Connection, org: OrgRef, stats: LoadStats) -> int:
     parent_id = upsert_org(conn, org.parent, stats) if org.parent else None
     aliases = sorted({a for a in org.aliases if a and a != org.canonical_name})
-    org_id, inserted = conn.execute(
+    org_id, inserted, merged_into = conn.execute(
         """
         INSERT INTO organizations (canonical_name, uei, aliases, kind, source, source_id)
         VALUES (%s, %s, %s, %s, %s, %s)
@@ -44,18 +50,42 @@ def upsert_org(conn: psycopg.Connection, org: OrgRef, stats: LoadStats) -> int:
                 ORDER BY a
             ),
             fetched_at = now()
-        RETURNING id, (xmax = 0)
+        RETURNING id, (xmax = 0), merged_into
         """,
         (org.canonical_name, org.uei, aliases, org.kind, org.source, org.source_id),
     ).fetchone()
     stats.record("organizations", inserted)
-    if parent_id is not None:
+    if merged_into is not None:
+        org_id = _canonical_org(conn, merged_into, [org.canonical_name, *aliases])
+    if parent_id is not None and parent_id != org_id:
         upsert_edge(
             conn,
             ("organization", org_id, "part_of", "organization", parent_id),
             source=org.source,
             stats=stats,
         )
+    return org_id
+
+
+def _canonical_org(conn: psycopg.Connection, org_id: int, names: list[str]) -> int:
+    """Follow merged_into to the live row and remember `names` there as aliases."""
+    for _ in range(20):  # merges keep chains one hop long; bounded against cycles
+        nxt = conn.execute(
+            "SELECT merged_into FROM organizations WHERE id = %s", (org_id,)
+        ).fetchone()[0]
+        if nxt is None:
+            break
+        org_id = nxt
+    conn.execute(
+        """
+        UPDATE organizations SET aliases = ARRAY(
+            SELECT DISTINCT a FROM unnest(aliases || %(names)s::text[]) AS a
+            WHERE a <> canonical_name ORDER BY a
+        )
+        WHERE id = %(id)s AND NOT (%(names)s::text[] <@ (aliases || canonical_name))
+        """,
+        {"id": org_id, "names": [n for n in names if n]},
+    )
     return org_id
 
 
