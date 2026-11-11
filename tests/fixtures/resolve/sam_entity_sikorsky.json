@@ -1,0 +1,78 @@
+{
+  "totalRecords": 1,
+  "entityData": [
+    {
+      "entityRegistration": {
+        "samRegistered": "Yes",
+        "ueiSAM": "UTJWTSLMFNG4",
+        "entityEFTIndicator": null,
+        "cageCode": "78286",
+        "dodaac": null,
+        "legalBusinessName": "SIKORSKY AIRCRAFT CORPORATION",
+        "dbaName": "SIKORSKY, A LOCKHEED MARTIN COMPANY",
+        "purposeOfRegistrationCode": "Z2",
+        "purposeOfRegistrationDesc": "All Awards",
+        "registrationStatus": "Active",
+        "registrationDate": "2001-05-14",
+        "lastUpdateDate": "2026-06-02",
+        "registrationExpirationDate": "2027-06-01",
+        "ueiStatus": "Active",
+        "publicDisplayFlag": "Y"
+      },
+      "coreData": {
+        "entityHierarchyInformation": {
+          "immediateParentEntity": {
+            "ueiSAM": "ZFN2JJXBLZT3",
+            "legalBusinessName": "LOCKHEED MARTIN CORPORATION",
+            "physicalAddress": {
+              "addressLine1": "6801 ROCKLEDGE DR",
+              "addressLine2": null,
+              "city": "BETHESDA",
+              "stateOrProvinceCode": "MD",
+              "zipCode": "20817",
+              "zipCodePlus4": "1803",
+              "countryCode": "USA"
+            },
+            "phoneNumber": null
+          },
+          "intermediateParentEntities": [],
+          "ultimateParentEntity": {
+            "ueiSAM": "ZFN2JJXBLZT3",
+            "legalBusinessName": "LOCKHEED MARTIN CORPORATION",
+            "physicalAddress": {
+              "addressLine1": "6801 ROCKLEDGE DR",
+              "addressLine2": null,
+              "city": "BETHESDA",
+              "stateOrProvinceCode": "MD",
+              "zipCode": "20817",
+              "zipCodePlus4": "1803",
+              "countryCode": "USA"
+            },
+            "phoneNumber": null
+          }
+        },
+        "physicalAddress": {
+          "addressLine1": "6900 MAIN ST",
+          "addressLine2": null,
+          "city": "STRATFORD",
+          "stateOrProvinceCode": "CT",
+          "zipCode": "06614",
+          "zipCodePlus4": "1378",
+          "countryCode": "USA"
+        },
+        "mailingAddress": {
+          "addressLine1": "6900 MAIN ST",
+          "addressLine2": null,
+          "city": "STRATFORD",
+          "stateOrProvinceCode": "CT",
+          "zipCode": "06614",
+          "zipCodePlus4": "1378",
+          "countryCode": "USA"
+        }
+      }
+    }
+  ],
+  "links": {
+    "selfLink": "https://api.sam.gov/entity-information/v4/entities?ueiSAM=UTJWTSLMFNG4&includeSections=entityRegistration%2CcoreData&page=0&size=10"
+  }
+}
