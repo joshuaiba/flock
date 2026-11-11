@@ -1,0 +1,56 @@
+# Resolver eval set: hand-labeled organization pairs.
+#
+# TODO(joshua): the five pairs below are PLACEHOLDERS, written from general
+# knowledge of well-known contractors, not checked against SAM.gov or our
+# database. Replace them with ~20 real pairs taken from the organizations
+# table (pending_merges is a good place to find hard ones), fill in real UEIs,
+# and delete `todo: true` from each pair you have verified. The eval prints a
+# warning for as long as any pair is still marked todo.
+#
+# Fields
+#   id                  unique slug
+#   left / right        {name, uei}; uei may be null. Never invent a UEI.
+#   expected            merge | separate | unsure
+#   expected_canonical  left | right (optional; only for expected: merge)
+#   note                why this label is right
+#   todo                true while the pair is an unverified placeholder
+#
+# "merge" means the same legal entity under different spellings. A parent and
+# its subsidiary, or a joint venture and its partners, are "separate".
+pairs:
+  - id: spelling-suffix-variant
+    todo: true  # TODO: replace with a real pair + UEIs
+    left: {name: "LEIDOS, INC.", uei: null}  # TODO: real UEI
+    right: {name: "Leidos Inc", uei: null}
+    expected: merge
+    expected_canonical: left
+    note: Same company; differs only in case, punctuation and suffix spelling.
+
+  - id: division-name
+    todo: true  # TODO: replace with a real pair + UEIs
+    left: {name: "Lockheed Martin Corp.", uei: null}  # TODO: real UEI
+    right: {name: "Lockheed Martin Corp., Missiles and Fire Control", uei: null}
+    expected: merge
+    expected_canonical: left
+    note: A business unit written after the company name, as DoD announcements do; not a separate legal entity.
+
+  - id: parent-vs-subsidiary
+    todo: true  # TODO: replace with a real pair + UEIs
+    left: {name: "Lockheed Martin Corporation", uei: null}  # TODO: real UEI
+    right: {name: "Sikorsky Aircraft Corporation", uei: null}  # TODO: real UEI
+    expected: separate
+    note: Sikorsky is owned by Lockheed Martin but is its own registered entity with its own awards.
+
+  - id: joint-venture-vs-partner
+    todo: true  # TODO: replace with a real pair + UEIs
+    left: {name: "Sikorsky Aircraft Corporation", uei: null}  # TODO: real UEI
+    right: {name: "Boeing Sikorsky Aircraft Support", uei: null}  # TODO: real UEI
+    expected: separate
+    note: A joint venture carrying a partner's name is neither partner.
+
+  - id: rename-after-acquisition
+    todo: true  # TODO: replace with a real pair + UEIs; settle the label from SAM.gov
+    left: {name: "L3Harris Technologies, Inc.", uei: null}  # TODO: real UEI
+    right: {name: "Harris Corporation", uei: null}  # TODO: real UEI
+    expected: unsure
+    note: Hard case. Harris renamed itself L3Harris after the 2019 merger with L3; whether the two rows are one registration needs the SAM.gov record, so without UEIs the honest label is unsure.

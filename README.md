@@ -113,9 +113,18 @@ Repository **secrets**:
 | `DATABASE_URL` | yes | Postgres connection string |
 | `GEMINI_API_KEY` | yes | `llm.extract` (DoD extraction + classifier) |
 | `BRIGHTDATA_API_KEY`, `BRIGHTDATA_ZONE` | no | Opt-in unlocker for war.gov article pages |
+| `SAM_API_KEY` | no | SAM.gov Entity API lookups for the resolver; without it the agent uses USAspending and our own data |
+| `LOGFIRE_TOKEN` | no | Sends agent traces to Logfire; nothing is sent when unset |
 
-Optional repository **variables**: `FLOCK_CONTACT` (appended to the
-User-Agent) and `EXTRACT_MODEL`.
+Optional repository **variables**:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `FLOCK_CONTACT` | none | Appended to the User-Agent |
+| `EXTRACT_MODEL` | `gemini-3.8-flash` | Gemini model for extraction and the classifier |
+| `RESOLVE_MODEL` | `gemini-3.8-flash` | Gemini model for the resolver agent |
+| `RESOLVE_LIMIT` | `25` | Max organization pairs sent to the resolver per night |
+| `SAM_DAILY_QUOTA` | `10` | SAM.gov requests allowed per UTC day: 10 for a personal key with no role, 1000 with a role or a system account |
 
 `.github/workflows/ci.yml` runs ruff and pytest against a Postgres service
 container on every push and PR.

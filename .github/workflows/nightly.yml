@@ -27,6 +27,13 @@ jobs:
       # Optional repository variables.
       FLOCK_CONTACT: ${{ vars.FLOCK_CONTACT }}
       EXTRACT_MODEL: ${{ vars.EXTRACT_MODEL }}
+      RESOLVE_MODEL: ${{ vars.RESOLVE_MODEL }}
+      # Resolver: the SAM.gov key is optional (without it the agent works from
+      # USAspending and our own data). SAM_DAILY_QUOTA must match the key type.
+      SAM_API_KEY: ${{ secrets.SAM_API_KEY }}
+      SAM_DAILY_QUOTA: ${{ vars.SAM_DAILY_QUOTA }}
+      # Optional: agent traces go to Logfire only when this secret is set.
+      LOGFIRE_TOKEN: ${{ secrets.LOGFIRE_TOKEN }}
       FLOCK_STATS_FILE: ${{ github.workspace }}/stats.jsonl
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -34,7 +41,8 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
 
       - name: Install
-        run: uv sync --frozen --no-dev
+        # observability = logfire; it stays idle unless LOGFIRE_TOKEN is set.
+        run: uv sync --frozen --no-dev --group observability
 
       - name: Migrate
         run: uv run --no-sync python -m pipeline.db
@@ -56,12 +64,23 @@ jobs:
         continue-on-error: true
         run: uv run --no-sync python -m pipeline.extract.classifier
 
+      # Non-blocking: it is new and depends on optional SAM.gov access. Only
+      # high-confidence merges are applied; the rest wait in pending_merges
+      # for `python -m pipeline.resolve review`.
+      - name: Resolve organizations
+        id: resolve
+        continue-on-error: true
+        env:
+          RESOLVE_LIMIT: ${{ vars.RESOLVE_LIMIT || '25' }}
+        run: uv run --no-sync python -m pipeline.resolve run --limit "$RESOLVE_LIMIT"
+
       - name: Job summary
         if: always()
         env:
           OUTCOME_USASPENDING: ${{ steps.usaspending.outcome }}
           OUTCOME_DOD_CONTRACTS: ${{ steps.dod_contracts.outcome }}
           OUTCOME_CLASSIFIER: ${{ steps.classifier.outcome }}
+          OUTCOME_RESOLVE: ${{ steps.resolve.outcome }}
         run: uv run --no-sync python -m pipeline.report >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload raw snapshots
@@ -73,7 +92,8 @@ jobs:
           if-no-files-found: ignore
           retention-days: 90
 
-      # USAspending and the classifier are required; DoD announcements are not.
+      # USAspending and the classifier are required; DoD announcements and
+      # organization resolution are not.
       - name: Fail if a required step failed
         if: steps.usaspending.outcome == 'failure' || steps.classifier.outcome == 'failure'
         run: |

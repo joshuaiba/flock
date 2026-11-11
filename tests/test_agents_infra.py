@@ -62,6 +62,14 @@ def test_blank_values_fall_back(monkeypatch):
     assert s.extract_model == config.DEFAULT_EXTRACT_MODEL
 
 
+def test_blank_int_settings_fall_back(monkeypatch):
+    # Unset GitHub Actions variables arrive as "", which must not crash int fields.
+    monkeypatch.setenv("SAM_DAILY_QUOTA", "")
+    monkeypatch.setenv("RESOLVE_TOOL_CALLS_LIMIT", " ")
+    s = settings.Settings()
+    assert s.sam_daily_quota == 10 and s.resolve_tool_calls_limit == 8
+
+
 def test_secrets_are_not_in_repr(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "sekrit-gemini")
     monkeypatch.setenv("SAM_API_KEY", "sekrit-sam")

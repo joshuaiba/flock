@@ -48,9 +48,18 @@ class Settings(BaseSettings):
     def _blank_secret_is_none(cls, v):
         return None if isinstance(v, str) and not v.strip() else v
 
-    @field_validator("extract_model", "resolve_model", mode="before")
+    @field_validator(
+        "extract_model",
+        "resolve_model",
+        "extract_request_limit",
+        "resolve_request_limit",
+        "resolve_tool_calls_limit",
+        "resolve_total_tokens_limit",
+        "sam_daily_quota",
+        mode="before",
+    )
     @classmethod
-    def _blank_model_is_default(cls, v, info):
+    def _blank_is_default(cls, v, info):
         # GitHub Actions passes unset repo variables as empty strings.
         if isinstance(v, str) and not v.strip():
             return cls.model_fields[info.field_name].default

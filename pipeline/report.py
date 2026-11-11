@@ -12,8 +12,10 @@ import os
 import sys
 from pathlib import Path
 
-STEPS = ["usaspending", "dod_contracts", "classifier"]
+STEPS = ["usaspending", "dod_contracts", "classifier", "resolve"]
 TABLES = ["awards", "organizations", "edges", "classifications", "taggings"]
+MAX_FAILURES = 10
+ERROR_CHARS = 200
 ICON = {"success": "✅", "failure": "❌", "skipped": "⏭️", "cancelled": "🚫"}
 
 
@@ -38,6 +40,53 @@ def table_totals() -> dict[str, int] | None:
     except Exception as e:  # summary must never fail the job
         print(f"(could not read totals: {e})", file=sys.stderr)
         return None
+
+
+def _redact(text: str) -> str:
+    try:
+        from pipeline.agents.run_log import redact
+
+        return redact(text)
+    except Exception:  # summary must never fail the job
+        return "(error text withheld: redaction unavailable)"
+
+
+def render_resolve(r: dict) -> list[str]:
+    """Organization-resolution section: what the agent did and what it cost."""
+    dry = bool(r.get("dry_run"))
+    would = "would be " if dry else ""
+    agent_merged, auto = r.get("merged", 0), r.get("auto_merged", 0)
+    lines = [
+        "",
+        "### Organization resolution" + (" (dry run: nothing applied)" if dry else ""),
+        "",
+        "| Agent runs | Merges "
+        + ("(would be) " if dry else "applied ")
+        + "| Pending review | Non-matches | Failed runs | Tokens | Tool calls |",
+        "| ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        f"| {r.get('runs', 0)} | {agent_merged + auto} | {r.get('pending', 0)} "
+        f"| {r.get('non_matches', 0)} | {r.get('failed', 0)} | {r.get('total_tokens', 0)} "
+        f"| {r.get('tool_calls', 0)} |",
+        "",
+        f"- {r.get('candidates', 0)} candidate pairs sent to the agent"
+        + (f", {r['skipped']} skipped as stale" if r.get("skipped") else ""),
+        f"- Merges {would}applied: {agent_merged} by the agent, {auto} by exact UEI match",
+        f"- Pending review: {r.get('pending', 0)} {would}added this run, "
+        f"**{r.get('pending_total', 0)} open in total** "
+        "(`uv run python -m pipeline.resolve review`)",
+        f"- Tokens: {r.get('input_tokens', 0)} in + {r.get('output_tokens', 0)} out "
+        f"over {r.get('requests', 0)} model requests",
+    ]
+    failures = r.get("failures") or []
+    if failures:
+        lines += ["", f"**{len(failures)} failed runs** (nothing was applied for these):", ""]
+        for f in failures[:MAX_FAILURES]:
+            error = " ".join(_redact(str(f.get("error") or "")).split())[:ERROR_CHARS]
+            run = f" (agent_runs.id {f['run_id']})" if f.get("run_id") else ""
+            lines.append(f"- `{f.get('input_ref', '?')}`{run}: {error}")
+        if len(failures) > MAX_FAILURES:
+            lines.append(f"- … and {len(failures) - MAX_FAILURES} more (see `agent_runs`)")
+    return lines
 
 
 def render(stats: dict[str, dict], outcomes: dict[str, str], totals: dict | None) -> str:
@@ -79,6 +128,8 @@ def render(stats: dict[str, dict], outcomes: dict[str, str], totals: dict | None
         )
     if details:
         lines += ["", "### Details", "", *details]
+    if r := stats.get("resolve"):
+        lines += render_resolve(r)
     if totals:
         lines += [
             "",
