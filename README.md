@@ -77,11 +77,13 @@ pipeline/
   resolve/                                  entity resolution: blocking, agent, tools, apply, CLI
   agents/                                   shared agent infra: settings, budgets, run log, tracing
   load/                                     Postgres upserts
+  api/                                      read-only FastAPI service for the web UI, dev seed
   db.py                                     connection + migration runner
 scripts/eval_resolver.py                    manual resolver eval (live calls)
 data/raw/<source>/<YYYY-MM-DD>.jsonl        immutable raw snapshots
 migrations/                                 plain SQL, applied in order
 config/                                     keyword lists, taxonomy
+web/                                        Next.js site (landing, graph, entity pages, field report)
 tests/                                      unit tests on recorded fixtures
 .github/workflows/                          scheduled runs
 ```
@@ -107,6 +109,65 @@ and a few other values are read straight from the process environment.
 | `LOGFIRE_TOKEN` | tracing | Optional. Also needs `uv sync --group observability`. |
 
 `.env.example` lists the rest (budgets, `FLOCK_CONTACT`, Bright Data).
+
+## Web UI
+
+`web/` is a Next.js site over a read-only API (`pipeline/api`). The whole
+product is one softly animated pastel painting, in the spirit of faded villa
+frescoes and Italian lake landscapes: a painted scene at the back, a
+murmuration of brushstroke swallows in the middle (one bird per recent award or
+open solicitation), and marble and text on top.
+
+| Screen | Path | What it shows |
+| --- | --- | --- |
+| Landing | `/` | Painted hero, the live flock, the month's totals |
+| Graph explorer | `/graph` | Companies, agencies and solicitations as painted medallions on category washes; award edges in faded red, weight by dollars; search, category filters, 30 days / 90 days / 1 year |
+| Entity page | `/entity/<id>` | An organization's totals, path to production, awards, related entities, sources |
+| Field report | `/feed` | The week's digest as a letter, then every recent award and solicitation as a list |
+
+Run it locally in two terminals:
+
+```sh
+# 1. API on :8000, on an embedded Postgres with sample data. No keys, no tokens.
+uv run python -m pipeline.api.dev            # --reseed starts the sample data over
+
+# 2. Site on :3000
+cd web && pnpm install && pnpm dev
+```
+
+`pipeline.api.dev` ignores `DATABASE_URL` on purpose, so it can never touch a
+real database. The sample data is invented (`source = 'seed'`): made-up
+companies, real agency names, random amounts. The site says "sample data" while
+any of it is loaded.
+
+To serve real data, point the API at the pipeline's database and the site at
+the API:
+
+```sh
+uv run --env-file .env uvicorn pipeline.api.app:app --port 8000
+cd web && API_URL=http://127.0.0.1:8000 pnpm build && pnpm start
+```
+
+The API has only `GET` routes and opens every connection read-only. Merge
+review and undo stay in the CLI. It counts only awards the classifier tagged
+as autonomy, so an unrelated contract from a source never reaches the site.
+
+Things to know:
+
+- **Path to production is a text heuristic.** The schema has no stage column,
+  so stages are read from award descriptions ("Phase I", "Phase II",
+  production wording). See `_stage_of` in `pipeline/api/queries.py`.
+- **No source loads solicitations yet.** The `opportunities` table is only
+  filled by the sample data, so with real data the site shows awards only
+  until a solicitation source is added.
+- **The landscapes are drawn in code** (`web/src/components/Landscape.tsx`),
+  as stand-ins for commissioned illustrations.
+- **The graph is laid out once and then stays put.** ForceAtlas2, then
+  noverlap (`web/src/lib/graphLayout.ts`). In development,
+  `/graph?stress=2000` loads a synthetic 2,000-node graph for profiling.
+- **Motion can be turned off.** The site follows the OS reduced-motion setting,
+  and the `still` link in the nav freezes the birds, the paintings and the
+  physics.
 
 ## Where agents are used and why
 
