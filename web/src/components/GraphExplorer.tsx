@@ -70,10 +70,22 @@ function chromeMoved(): void {
 /** What the marks on the map mean. It lives in the map's corner, never under
  *  the rail, and folds to a button. */
 function Legend({ open, onOpen }: { open: boolean; onOpen: (open: boolean) => void }) {
+  // Folding replaces the button that was pressed: the keyboard's place moves
+  // to the one that takes its place.
+  const button = useRef<HTMLButtonElement>(null);
+  const pressed = useRef(false);
+  useEffect(() => {
+    if (pressed.current) button.current?.focus();
+    pressed.current = false;
+  }, [open]);
+  const toggle = () => {
+    pressed.current = true;
+    onOpen(!open);
+  };
   if (!open)
     return (
       <div className="graph-legend">
-        <button type="button" className="btn btn-sm graph-float" aria-expanded={false} onClick={() => onOpen(true)}>
+        <button ref={button} type="button" className="btn btn-sm graph-float" aria-expanded={false} onClick={toggle}>
           Legend
         </button>
       </div>
@@ -83,7 +95,7 @@ function Legend({ open, onOpen }: { open: boolean; onOpen: (open: boolean) => vo
       <section className="graph-legend-panel" aria-label="Legend">
         <div className="graph-legend-head">
           <span>Legend</span>
-          <button type="button" className="graph-icon-btn" aria-label="Hide the legend" aria-expanded={true} onClick={() => onOpen(false)}>
+          <button ref={button} type="button" className="graph-icon-btn" aria-label="Hide the legend" aria-expanded={true} onClick={toggle}>
             <CloseIcon size={12} />
           </button>
         </div>
