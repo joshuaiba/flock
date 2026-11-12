@@ -35,7 +35,7 @@ const TIP_ROOM = "5.5rem";
 export function AgencyBars({ bars }: { bars: AgencyBar[] }) {
   const [at, setAt] = useState<{ row: number; seg: number } | null>(null);
   return (
-    <ul>
+    <ul className="border-t border-frame">
       {bars.map((b, i) => {
         const open = at?.row === i ? b.segments[at.seg] : undefined;
         // where the open piece's middle sits along the bar, 0 to 1
@@ -43,20 +43,18 @@ export function AgencyBars({ bars }: { bars: AgencyBar[] }) {
         // and along the whole row, to keep the tooltip inside the panel
         const across = mid * b.frac * 0.8;
         return (
-          <li key={b.org.id} className="border-b border-hair py-3 first:pt-0 last:border-b-0">
+          <li key={b.org.id} className="border-b border-hair py-2.5">
             {/* On a phone the count drops to its own line, so the name keeps
                 the row: "Department of the Army" and "Department of the Air
                 Force" must not both be cut to "Department of…". */}
-            <div className="flex flex-wrap items-center justify-between gap-x-4">
-              <OrgLink org={b.org} size={24} />
-              {b.posted > 0 && (
-                <span className="fig shrink-0 text-[0.86rem] text-muted">{plural(b.posted, "solicitation")} posted</span>
-              )}
+            <div className="forum-name flex flex-wrap items-center justify-between gap-x-4">
+              <OrgLink org={b.org} size={22} />
+              {b.posted > 0 && <span className="ui shrink-0 text-muted">{plural(b.posted, "solicitation")} posted</span>}
             </div>
             {b.amount > 0 ? (
               <div className="flex items-center gap-2">
                 <div
-                  className="relative flex h-8 min-w-[6px] items-center gap-[2px] rounded-[4px]"
+                  className="relative flex h-7 min-w-[6px] items-center gap-[2px] rounded-[4px]"
                   style={{ width: `calc((100% - ${TIP_ROOM}) * ${b.frac.toFixed(4)})` }}
                   tabIndex={0}
                   role="img"
@@ -76,10 +74,10 @@ export function AgencyBars({ bars }: { bars: AgencyBar[] }) {
                 >
                   {b.segments.length === 0 ? (
                     // Dollars with no category behind them: one plain bar.
-                    <span className="block h-5 w-full rounded-r-[4px] bg-muted/50" />
+                    <span className="block h-4 w-full rounded-r-[4px] bg-muted/50" />
                   ) : (
                     b.segments.map((s, j) => (
-                      // The piece's hit area is the full 32px row; the mark is 20px.
+                      // The piece's hit area is the full 28px row; the mark is 16px.
                       <span
                         key={s.family}
                         className="flex h-full min-w-[3px] basis-0 items-center"
@@ -88,7 +86,7 @@ export function AgencyBars({ bars }: { bars: AgencyBar[] }) {
                         onPointerDown={() => setAt({ row: i, seg: j })}
                       >
                         <span
-                          className={`block h-5 w-full ${j === b.segments.length - 1 ? "rounded-r-[4px]" : ""}`}
+                          className={`block h-4 w-full ${j === b.segments.length - 1 ? "rounded-r-[4px]" : ""}`}
                           style={{
                             background: `var(--chart-${s.family})`,
                             // a fine ink outline keeps the palest washes visible on plaster
@@ -116,12 +114,12 @@ export function AgencyBars({ bars }: { bars: AgencyBar[] }) {
                     </div>
                   )}
                 </div>
-                <span className="fig shrink-0 text-pompeii">{money(b.amount)}</span>
+                <span className="forum-num shrink-0 text-pompeii">{money(b.amount)}</span>
               </div>
             ) : (
-              <p className="fig mt-1 text-[0.92rem] text-muted">no awards in this window</p>
+              <p className="ui mt-1 text-muted">no awards in this window</p>
             )}
-            {b.words && <p className="fig text-[0.86rem] leading-snug text-muted">{b.words}</p>}
+            {b.words && <p className="ui text-muted">{b.words}</p>}
           </li>
         );
       })}

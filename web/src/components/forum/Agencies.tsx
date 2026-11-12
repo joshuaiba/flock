@@ -95,7 +95,7 @@ export async function Agencies({ days, tag, className = "" }: PanelProps) {
         </>
       }
     >
-      <ul className="fig mb-4 flex flex-wrap gap-x-4 gap-y-1 text-[0.86rem] text-muted" aria-label="Category families">
+      <ul className="ui mb-3 flex flex-wrap gap-x-4 gap-y-1 text-muted" aria-label="Category families">
         {FAMILIES.map((f) => (
           <li key={f} className="inline-flex items-center gap-1.5">
             <span

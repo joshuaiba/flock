@@ -1,5 +1,5 @@
 import { SeriesChart } from "@/components/SeriesChart";
-import { Panel } from "@/components/Signals";
+import { Panel, signedPct } from "@/components/Signals";
 import { serverGet } from "@/lib/api";
 import { plural } from "@/lib/format";
 import { bucketLabels, pct, priorLabel, signalPath, type TopicPage, type TopicRow } from "@/lib/signals";
@@ -43,6 +43,19 @@ function reading(d: TopicPage, days: number, tag: string | null): string {
   return `${sentence(rising[0], days)} ${rising.length} of ${plural(d.items.length, "topic")} ${rising.length === 1 ? "is" : "are"} rising.`;
 }
 
+/** The column heads over a list of topics; they match the grid in forum.css. */
+function TopicHead({ comparable }: { comparable: boolean }) {
+  return (
+    <div className="forum-topic forum-cols" aria-hidden="true">
+      <span>Topic</span>
+      <span className="forum-topic-chart hidden sm:block">Posted over time</span>
+      <span className="text-right">Posted</span>
+      <span className="text-right">{comparable && "Prior"}</span>
+      <span className="text-right">{comparable && "Change"}</span>
+    </div>
+  );
+}
+
 function Topic({
   r,
   labels,
@@ -57,54 +70,52 @@ function Topic({
 }) {
   const name = tagLabel(r.category);
   return (
-    <li
-      aria-current={chosen ? "true" : undefined}
-      className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-5 gap-y-2 border-b border-hair py-3 last:border-b-0 sm:grid-cols-[10.5rem_minmax(0,1fr)_8.75rem]"
-    >
-      <div className="row-start-1 min-w-0 leading-tight">
-        <p>
+    <li aria-current={chosen ? "true" : undefined} className="forum-topic py-2">
+      <div className="min-w-0 leading-tight">
+        <p className="forum-name">
           {name}
           {chosen && <span className="label ml-2 whitespace-nowrap">selected</span>}
         </p>
-        <p className="fig mt-0.5 text-[0.86rem] text-muted">{r.open > 0 ? `${r.open} open now` : "none open now"}</p>
+        <p className="ui text-muted">{r.open > 0 ? `${r.open} open now` : "none open now"}</p>
       </div>
       {/* On a phone the sparkline takes its own line under the name and figures. */}
       <SeriesChart
-        className="col-span-2 row-start-2 sm:col-span-1 sm:col-start-2 sm:row-start-1"
+        className="forum-topic-chart"
         values={r.series}
         labels={labels}
         split={Math.floor(r.series.length / 2)}
         unit="posted"
         color="var(--cypress)"
-        height={40}
+        height={32}
         title={`${name}, solicitations posted`}
       />
-      <div className="fig row-start-1 text-right leading-tight sm:col-start-3">
-        {/* Two unbreakable halves: with large counts the prior figure drops to
-            its own line instead of running into the sparkline. */}
-        <p>
-          <span className="whitespace-nowrap">{r.posted.toLocaleString("en-US")} posted</span>
-          {comparable && (
-            <>
-              {" "}
-              <span className="whitespace-nowrap text-muted">· {r.prev_posted.toLocaleString("en-US")} prior</span>
-            </>
-          )}
-        </p>
+      <span className="forum-num text-right">
+        {r.posted.toLocaleString("en-US")}
+        <span className="sr-only"> posted</span>
+      </span>
+      <span className="forum-num text-right text-muted">
         {comparable && (
-          <p className="mt-0.5 whitespace-nowrap text-[0.86rem]">
-            {r.delta === 0 ? (
-              <span className="text-muted">– level</span>
-            ) : (
-              <>
-                <span aria-hidden="true">{r.delta > 0 ? "▲" : "▼"}</span>
-                <span className="sr-only">{r.delta > 0 ? "up" : "down"}</span>{" "}
-                {r.pct != null ? pct(r.pct) : `${Math.abs(r.delta)} ${r.delta > 0 ? "more" : "fewer"}`}
-              </>
-            )}
-          </p>
+          <>
+            {r.prev_posted.toLocaleString("en-US")}
+            <span className="sr-only"> in the prior period</span>
+          </>
         )}
-      </div>
+      </span>
+      <span className="forum-num text-right">
+        {comparable &&
+          (r.delta === 0 ? (
+            <span className="text-muted">level</span>
+          ) : r.pct != null ? (
+            signedPct(r.pct)
+          ) : (
+            // Too few postings before for a percentage: the count itself.
+            <>
+              {r.delta > 0 ? "+" : "−"}
+              {Math.abs(r.delta)}
+              <span className="sr-only"> {r.delta > 0 ? "more" : "fewer"}</span>
+            </>
+          ))}
+      </span>
     </li>
   );
 }
@@ -118,7 +129,7 @@ export async function HeatingUp({ days, tag, className = "" }: PanelProps) {
   ]);
   if (!d)
     return (
-      <Panel title="Heating up" vine className={className}>
+      <Panel title="Heating up" className={className}>
         <Down />
       </Panel>
     );
@@ -127,7 +138,6 @@ export async function HeatingUp({ days, tag, className = "" }: PanelProps) {
     return (
       <Panel
         title="Heating up"
-        vine
         className={className}
         note="Solicitations posted per category. Demand shows here before it shows as awards."
       >
@@ -150,7 +160,6 @@ export async function HeatingUp({ days, tag, className = "" }: PanelProps) {
   return (
     <Panel
       title="Heating up"
-      vine
       className={className}
       takeaway={reading(d, days, tag)}
       note={
@@ -161,17 +170,31 @@ export async function HeatingUp({ days, tag, className = "" }: PanelProps) {
         </>
       }
     >
-      {rising.length > 0 && (
-        <>
-          <h3 className="label">Rising</h3>
-          <ul className="mb-5">{rising.map(row)}</ul>
-        </>
-      )}
-      {rest.length > 0 && (
-        <>
-          {comparable && <h3 className="label">Level or falling</h3>}
-          <ul>{rest.map(row)}</ul>
-        </>
+      {/* Two lists side by side on a wide screen: what is rising, and the rest.
+          Without a full prior period there is one list, in two columns. */}
+      {comparable ? (
+        <div className="grid gap-x-12 gap-y-8 lg:grid-cols-2">
+          {rising.length > 0 && (
+            <div className="min-w-0">
+              <h3 className="font-serif text-[1.0625rem]">Rising</h3>
+              <div className="mt-2">
+                <TopicHead comparable />
+                <ul className="forum-rows">{rising.map(row)}</ul>
+              </div>
+            </div>
+          )}
+          {rest.length > 0 && (
+            <div className="min-w-0">
+              <h3 className="font-serif text-[1.0625rem]">Level or falling</h3>
+              <div className="mt-2">
+                <TopicHead comparable />
+                <ul className="forum-rows">{rest.map(row)}</ul>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <ul className="forum-rows grid gap-x-12 border-t border-frame lg:grid-cols-2">{rest.map(row)}</ul>
       )}
     </Panel>
   );

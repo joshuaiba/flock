@@ -28,7 +28,7 @@ export async function FundingByCategory({ days, tag, className = "" }: PanelProp
   const d = await serverGet<CategorySeries>(signalPath("categories/series", { window: days }));
   if (!d)
     return (
-      <Panel title="Funding by category" vine className={className}>
+      <Panel title="Funding by category" className={className}>
         <Down />
       </Panel>
     );
@@ -36,7 +36,7 @@ export async function FundingByCategory({ days, tag, className = "" }: PanelProp
   const items = d.items.filter((c) => c.amount > 0 || c.prev_amount > 0);
   if (items.length === 0)
     return (
-      <Panel title="Funding by category" vine className={className}>
+      <Panel title="Funding by category" className={className}>
         <NoRows>
           No awards on record in {lastLabel(days)} or in {priorLabel(days)}.
         </NoRows>
@@ -48,7 +48,6 @@ export async function FundingByCategory({ days, tag, className = "" }: PanelProp
   return (
     <Panel
       title="Funding by category"
-      vine
       className={className}
       takeaway={reading({ ...d, items }, days)}
       note={
@@ -62,28 +61,29 @@ export async function FundingByCategory({ days, tag, className = "" }: PanelProp
         </>
       }
     >
-      <ul className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-5">
+      <ul className="grid grid-cols-2 gap-x-8 gap-y-8 sm:grid-cols-3 lg:grid-cols-5">
         {items.map((c) => {
           const name = tagLabel(c.category);
           const chosen = c.category === tag;
           return (
             <li key={c.category} aria-current={chosen ? "true" : undefined} className="flex min-w-0 flex-col">
-              {/* two lines kept for the name, so the charts in a row line up */}
-              <h3 className="min-h-[2.3em] font-serif text-[1.02rem] leading-[1.15]">
+              {/* A long name may take two lines; the chart is pushed to the
+                  bottom of the tile, so the charts in a row still line up. */}
+              <h3 className="forum-name">
                 {name}
                 {chosen && <span className="label ml-2 whitespace-nowrap">selected</span>}
               </h3>
-              <p className="fig mt-1 text-pompeii">{money(c.amount)}</p>
-              <p className="min-h-[2.4em] leading-[1.2]">
+              <p className="mt-0.5 flex flex-wrap items-baseline gap-x-2.5">
+                <span className="forum-num text-pompeii">{money(c.amount)}</span>
                 <Delta cur={c.amount} prev={c.prev_amount} pct={c.pct} env={d} short />
               </p>
               <SeriesChart
-                className="mt-auto"
+                className="mt-auto pt-2"
                 values={c.series}
                 labels={labels}
                 split={Math.floor(n / 2)}
                 format="money"
-                height={60}
+                height={56}
                 title={`${name}, award dollars`}
               />
             </li>

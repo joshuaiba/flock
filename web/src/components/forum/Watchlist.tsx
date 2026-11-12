@@ -118,12 +118,12 @@ export function Watchlist({ className = "" }: { className?: string }) {
       ) : (
         <>
           {!data.since && (
-            <p className="mb-4 text-muted">
+            <p className="ui mb-3 max-w-[46rem] text-muted">
               This is your first visit from this browser, so there is nothing to compare with yet. New awards and stages
               will be listed from your next visit.
             </p>
           )}
-          <ul>
+          <ul className="forum-rows border-t border-frame">
             {data.items.map((w) => (
               <Watched key={w.org.id} w={w} since={data.since} />
             ))}
@@ -154,9 +154,11 @@ function Watched({ w, since }: { w: WatchRow; since: string | null }) {
         ? "last award today"
         : `last award ${plural(w.days_since_last, "day")} ago`;
   return (
-    <li className="border-b border-hair py-3.5 first:pt-0 last:border-b-0">
-      <OrgLink org={w.org} size={28} className="max-w-full" />
-      <p className="fig mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[0.92rem] text-muted">
+    <li className="py-2.5">
+      <div className="forum-name">
+        <OrgLink org={w.org} size={22} className="max-w-full" />
+      </div>
+      <p className="ui mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-muted">
         {w.rank == null ? (
           <span>not ranked in the last 90 days</span>
         ) : (
@@ -179,12 +181,12 @@ function Watched({ w, since }: { w: WatchRow; since: string | null }) {
         <span>{last}</span>
       </p>
       {since && (
-        <div className="mt-1.5 text-[0.98rem] leading-snug">
+        <div className="ui mt-1">
           {w.new_awards.length === 0 ? (
             <p className="text-muted">No new awards since your last visit.</p>
           ) : (
             <>
-              <p className="fig">
+              <p>
                 {capped ? `${AWARD_CAP} or more new awards` : plural(w.new_awards.length, "new award")}
                 {" · "}
                 <span className="text-pompeii">{money(w.new_amount)}</span>
@@ -192,7 +194,7 @@ function Watched({ w, since }: { w: WatchRow; since: string | null }) {
               </p>
               <ul className="mt-1 text-muted">
                 {w.new_awards.slice(0, 2).map((a) => (
-                  <li key={a.id} className="fig flex gap-2 text-[0.92rem]">
+                  <li key={a.id} className="flex gap-2">
                     {/* With the year: an award new to the record can carry an
                         old date (a late filing, a newly loaded source). */}
                     <span className="shrink-0 whitespace-nowrap">{day(a.day)}</span>
@@ -204,7 +206,7 @@ function Watched({ w, since }: { w: WatchRow; since: string | null }) {
             </>
           )}
           {w.new_stages.length > 0 && (
-            <p className="fig mt-1">
+            <p className="mt-1">
               New stage{w.new_stages.length === 1 ? "" : "s"} on record:{" "}
               {w.new_stages.map((s) => `${STAGE_LABEL[s.stage]}${s.day ? ` (${day(s.day)})` : ""}`).join(", ")}
             </p>

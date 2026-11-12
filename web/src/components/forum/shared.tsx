@@ -1,4 +1,3 @@
-import { SwallowVignette } from "@/components/Art";
 import { NoRows } from "@/components/Signals";
 import { money } from "@/lib/format";
 import { windowLabel } from "@/lib/signals";
@@ -47,15 +46,9 @@ export function Scroll({ label, children }: { label: string; children: React.Rea
   );
 }
 
-/** An empty state inside a panel: the swallow on its column beside a short
- *  message. Side by side when the panel is wide enough, stacked when not. */
+/** An empty state inside a section: one plain line saying what would appear
+ *  here. No illustration: the dashboard keeps its ornaments to the page's
+ *  edges. */
 export function PanelEmpty({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="@container py-4">
-      <div className="mx-auto flex w-fit max-w-full flex-col items-center gap-4 text-center @md:flex-row @md:gap-7 @md:text-left">
-        <SwallowVignette width={150} />
-        <p className="max-w-xs text-muted">{children}</p>
-      </div>
-    </div>
-  );
+  return <p className="forum-name max-w-md text-muted">{children}</p>;
 }

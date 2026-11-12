@@ -132,7 +132,8 @@ function Dot({ left, top, color, height }: { left: number; top: number; color: s
         top: top * height,
         transform: "translate(-50%, -50%)",
         background: color,
-        boxShadow: "0 0 0 2px var(--card)",
+        // a ring in the page's own color lifts the dot off the line
+        boxShadow: "0 0 0 2px var(--paper)",
       }}
     />
   );
