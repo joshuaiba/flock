@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { MAX_PINS, useStore, type Pin } from "@/lib/store";
 
-/** "Add to watchlist": pins an entity to the watchlist chain (up to five).
+/** "Add to watchlist": pins an entity to the watchlist (up to five), which the
+ *  Forum's watchlist panel reads and the top bar counts.
  *  Pinned, the button stays pressed and says what pressing it again does. */
 export function PinButton({ entity, small = false, className = "" }: { entity: Pin; small?: boolean; className?: string }) {
   const { pin, unpin, isPinned, pins } = useStore();

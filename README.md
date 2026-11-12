@@ -114,31 +114,32 @@ and a few other values are read straight from the process environment.
 
 ## Web UI
 
-`web/` is a Next.js site over a read-only API (`pipeline/api`). The whole
-product is one softly animated pastel painting, in the spirit of faded villa
-frescoes and Italian lake landscapes: a painted lakeside scene at the back, a
-murmuration of painted swallows in the middle (one bird per recent award or
-open solicitation), and text on top. The painting is at the edges: the landing
-page, page headers, the footer. The pages where people work (the Forum, the
-graph, an entity's sheet) are plain and quiet, with serif headings and names
-and a sans face for controls and figures. All of the art comes from an
-illustration pack; nothing decorative is drawn in code.
+`web/` is a Next.js site over a read-only API (`pipeline/api`). It is a
+near-black site in one color, with classical line engravings ghosted at the
+page edges and the data in plain, quiet UI. The only hue is one accent, and it
+always means dollars awarded: amounts, award edges in the graph, award birds.
+Serif (Cormorant Garamond, EB Garamond) is for identity and reading; every
+control, label and number is in Inter. Dark is the default; the Display menu
+has a paper mode (ink on a paper ground) and a switch for motion. All of the
+art comes from an engraving pack, in two tones; nothing decorative is drawn in
+code, and nothing in it moves except the swallows.
 
 | Screen | Path | What it shows |
 | --- | --- | --- |
-| Landing | `/` | The layered lake scene (sky, clouds, hills, shimmering water, boats, a leafy frame), the live flock, the month's totals, and the way into the Forum |
-| The Forum | `/forum` | The signals dashboard: funding, momentum, new entrants, stage transitions, topic heat, largest awards, agency appetite and watchlist changes, over 30 days, 90 days or 1 year, for all categories or one |
+| Landing | `/` | The headline, the engraved lakeside village along the bottom, the live flock in the open sky (award birds in the accent, solicitation birds in the text color), the month's totals, and the way into the Forum; then About, under a ghost of the Boscoreale fresco |
+| The Forum | `/forum` | The signals dashboard: the summary row, where the money went (award dollars by category family, as parts of a whole), momentum, stage transitions, topic heat, largest awards, funding by category, agency appetite and watchlist changes, over 30 days, 90 days or 1 year, for all categories or one. Engraved figures stand in the side margins on a wide window |
 | Leaderboards | `/forum/leaderboards` | The full rankings behind the Forum's panels |
-| Graph explorer | `/graph` | Companies, agencies and solicitations as painted medallions, one design per category; award edges in faded red, weight by dollars; search; filters for window (30 days / 90 days / 1 year / everything on record), category, agency, minimum dollars, node type and watchlist only. It opens in 3D (drag to orbit, click a node to fly to it, drag a node to move it) with a toggle to a flat view that keeps the filters and the selection |
-| Entity page | `/entity/<id>` | An organization under a fresco banner: totals, its signals for the last 90 days (momentum, rank, stage reached, time since the last award), path to production, awards, related entities, sources |
-| Field report | `/feed` | The week's digest as a letter under a fresco header, then every recent award and solicitation as a list |
+| Graph explorer | `/graph` | Companies as filled dots sized by dollars, agencies and offices as rings, solicitations as small diamonds; award edges in the accent, weight by dollars; search; filters for window (30 days / 90 days / 1 year / everything on record), category, agency, minimum dollars, node type and watchlist only. Selecting a node dims everything but its neighbors and opens a side card. It opens in 3D (drag to orbit, click a node to fly to it, drag a node to move it) with a toggle to a flat view that keeps the filters and the selection |
+| Entity page | `/entity/<id>` | An organization, its name as the hero: its signals for the last 90 days (dollars, rank, stage reached, the last award), path to production as one line with dates and the time between stages, awards, who pays it, sources |
+| Field report | `/feed` | The week's digest in a reading column, then every recent award and solicitation as a table |
 | About the numbers | `/about/numbers` | What each figure means, the tables it is computed from, how far back the record reaches, and what the numbers cannot tell you |
 
 Clicking a bird in the flock opens the page of the company that received that
 award; a solicitation bird opens the graph on its node. The flock lives in the
-landing page's hero only: it moves with the scene as the page scrolls, and over
-the last third of the hero's scroll the birds climb away and fade. No other
-page has birds.
+landing page's hero only: it scrolls with the scene, and over the last third of
+the hero's scroll the birds climb away and fade. No other page has birds. The
+watchlist (up to five organizations, kept in the browser) is a panel on the
+Forum; the top bar shows its count.
 
 Run it locally in two terminals:
 
@@ -205,18 +206,26 @@ Things to know:
 - **No source loads solicitations yet.** The `opportunities` table is only
   filled by the sample data, so with real data the site shows awards only
   until a solicitation source is added.
-- **The art is built from an illustration pack that is not in this repo.**
-  `web/public/art/` holds the resized `.webp` files the site serves. To
-  rebuild them from the pack: `uv run --with pillow python
-  web/scripts/build-art.py /path/to/flock-assets`. The script only resizes and
-  crops; it never redraws or recolors. The title plaque behind page titles
-  (`frame-d-*.png`) is copied as it is, because CSS `border-image` slices it in
-  the source's own pixels.
+- **The art is built from an engraving pack that is not in this repo.**
+  `web/public/art/` holds the resized `.webp` files the site serves, in two
+  folders: `on-dark/` (light lines, for the dark page) and `on-light/` (ink
+  lines, for paper). To rebuild them from the pack: `uv run --with pillow
+  python web/scripts/build-art.py /path/to/flock-engraving
+  /path/to/forum-additions/art/figures`. The script only resizes and crops; it
+  never redraws or recolors.
 - **The fresco is a real Roman wall painting.** It is the west wall of Room L
   of the Villa of P. Fannius Synistor at Boscoreale, in The Metropolitan Museum
   of Art (accession 03.14.4, marked Public Domain on
   [its collection page](https://www.metmuseum.org/art/collection/search/247008),
-  checked 2026-11-11). The footer carries the credit line.
+  checked 2026-11-11). The site shows it as a tonal ghost; the caption under it
+  on the landing page carries the credit line.
+- **The category families live in one place.** `config/taxonomy.yaml` groups
+  the ten category tags into five families (aerial, maritime, navigation,
+  counter-drone, and ground, software and command). The API reads them for
+  "Where the money went" (`money_by_family` on `/api/signals/overview`: each
+  award's dollars split evenly across its families, so the parts add up to the
+  Awarded figure) and lists them on `/api/signals/definitions`; the site keeps
+  no copy of the grouping.
 - **The graph is laid out once and then stays put.** The 3D view groups
   categories into constellations with `d3-force-3d`
   (`web/src/components/Graph3DLayout.ts`); the flat view uses ForceAtlas2, then

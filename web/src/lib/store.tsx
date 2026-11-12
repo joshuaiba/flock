@@ -127,6 +127,3 @@ export function useStore() {
   );
 }
 
-/** Where the watchlist chain's ring hangs, in viewport pixels. The graph uses it
- *  as the drop target when a node is dragged onto the chain. */
-export const chainRing = { x: 0, y: 0, ready: false };

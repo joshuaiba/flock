@@ -68,30 +68,6 @@ export function medallionForFamily(family: string | null | undefined): Medallion
   return BY_FAMILY[family ?? ""] ?? "laurel";
 }
 
-// ---- To be removed with the painted graph nodes and the old chart families ----
-// The painted design picked a medallion per category tag, and the graph drew
-// its nodes with them.
-const BY_TAG: Record<string, MedallionName> = {
-  uas: "wing",
-  swarming: "wing",
-  "collaborative-combat-aircraft": "wing",
-  "loitering-munitions": "wing",
-  maritime: "anchor",
-  "gps-denied-nav": "compass",
-  "counter-uas": "shield",
-};
-export function medallionFor(tag: string | null | undefined, kind: string): MedallionName {
-  if (kind === "agency" || kind === "office") return "column";
-  return BY_TAG[tag ?? ""] ?? "laurel";
-}
-export function medallionForTag(tag: string): MedallionName {
-  return BY_TAG[tag] ?? "laurel";
-}
-export function medallionUrl(name: MedallionName, _size?: number): string {
-  return `/art/on-dark/medallions/${name}-128.webp`;
-}
-// ---- end ----
-
 // The caption under the fresco. The wording follows the design's mockup and
 // is unverified: check it against the museum's record, and that the image is
 // marked Open Access, before this ships.

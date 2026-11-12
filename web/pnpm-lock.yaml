@@ -178,9 +178,6 @@ importers:
       graphology-layout-noverlap:
         specifier: ^0.4.2
         version: 0.4.2(graphology-types@0.24.8)
-      matter-js:
-        specifier: ^0.20.0
-        version: 0.20.0
       motion:
         specifier: ^14.11.1
         version: 14.11.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -203,9 +200,6 @@ importers:
       '@tailwindcss/turbopack':
         specifier: 4.3.3
         version: 4.3.3
-      '@types/matter-js':
-        specifier: ^0.20.2
-        version: 0.20.2
       '@types/node':
         specifier: ^20
         version: 20.19.43
@@ -579,9 +573,6 @@ packages:
   '@tweenjs/tween.js@25.0.0':
     resolution: {integrity: sha512-XKLA6syeBUaPzx4j3qwMqzzq+V4uo72BnlbOjmuljLrRqdsd3qnzvZZoxvMHZ23ndsRS4aufU6JOZYpCbU6T1A==}
 
-  '@types/matter-js@0.20.2':
-    resolution: {integrity: sha512-3PPKy3QxvZ89h9+wdBV2488I1JLVs7DEpIkPvgO8JC1mUdiVSO37ZIvVctOTD7hIq8OAL2gJ3ugGSuUip6DhCw==}
-
   '@types/node@20.19.43':
     resolution: {integrity: sha512-6oYBAi5ikg4Pl+kGsoYtawUMBT2zZMCvPNF7pVLnHZfd1zf38DRiWn/gT01RYCdUqkv7Fhr+C9ot4/tb+2sVvA==}
 
@@ -843,9 +834,6 @@ packages:
 
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
-
-  matter-js@0.20.0:
-    resolution: {integrity: sha512-iC9fYR7zVT3HppNnsFsp9XOoQdQN2tUyfaKg4CHLH8bN+j6GT4Gw7IH2rP0tflAebrHFw730RR3DkVSZRX8hwA==}
 
   meshoptimizer@1.1.1:
     resolution: {integrity: sha512-oRFNWJRDA/WTrVj7NWvqa5HqE1t9MYDj2VaWirQCzCCrAd2GHrqR/sQezCxiWATPNlKTcRaPRHPJwIRoPBAp5g==}
@@ -1282,8 +1270,6 @@ snapshots:
 
   '@tweenjs/tween.js@25.0.0': {}
 
-  '@types/matter-js@0.20.2': {}
-
   '@types/node@20.19.43':
     dependencies:
       undici-types: 6.21.0
@@ -1498,8 +1484,6 @@ snapshots:
   magic-string@0.30.21:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.6.0
-
-  matter-js@0.20.0: {}
 
   meshoptimizer@1.1.1: {}
 

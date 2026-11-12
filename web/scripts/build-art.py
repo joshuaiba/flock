@@ -79,7 +79,9 @@ def find(folder: Path, stem: str) -> Path:
     raise SystemExit(f"missing: {folder / stem}")
 
 
-def build(src: Path, out_stem: Path, widths: list[int], crop: tuple[int, int, int, int] | None) -> int:
+def build(
+    src: Path, out_stem: Path, widths: list[int], crop: tuple[int, int, int, int] | None
+) -> int:
     im = Image.open(src).convert("RGBA")
     if crop:
         im = im.crop(crop)
@@ -88,7 +90,9 @@ def build(src: Path, out_stem: Path, widths: list[int], crop: tuple[int, int, in
         w = min(w, im.width)  # never upscale
         out = out_stem.parent / f"{out_stem.name}-{w}.webp"
         out.parent.mkdir(parents=True, exist_ok=True)
-        resized = im if w == im.width else im.resize((w, round(im.height * w / im.width)), Image.LANCZOS)
+        resized = (
+            im if w == im.width else im.resize((w, round(im.height * w / im.width)), Image.LANCZOS)
+        )
         # exact=True keeps the flat color under transparent pixels, so a faded
         # edge never picks up a dark fringe when the browser scales the image.
         resized.save(out, "WEBP", quality=86, method=6, exact=True)
@@ -108,7 +112,9 @@ def main(pack: Path, figures: Path | None) -> None:
             total += build(find(pack / tone, src), OUT / tone / name, widths, crop)
         if figures:
             for name, widths in FIGURES:
-                total += build(find(figures, f"{name}-{tone}"), OUT / tone / "figures" / name, widths, None)
+                total += build(
+                    find(figures, f"{name}-{tone}"), OUT / tone / "figures" / name, widths, None
+                )
     print(f"total {total / 1e6:.1f} MB")
 
 
