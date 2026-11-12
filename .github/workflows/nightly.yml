@@ -6,6 +6,16 @@ on:
     # government hosts.
     - cron: "0 9 * * *"
   workflow_dispatch:
+    # Optional, for a manual backfill. Scheduled runs use the defaults.
+    inputs:
+      lookback_days:
+        description: "USAspending lookback in days (default 180; ~760 covers two full years for year-over-year signals)"
+        required: false
+        default: ""
+      classify_limit:
+        description: "Max awards the classifier tags this run (default 1000)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -17,7 +27,8 @@ concurrency:
 jobs:
   pipeline:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # Nightly runs take ~20 min; a manual backfill can take a couple of hours.
+    timeout-minutes: 240
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       # LLM steps: Claude by default. GEMINI_API_KEY is optional, needed only
@@ -61,7 +72,9 @@ jobs:
       - name: USAspending
         id: usaspending
         continue-on-error: true
-        run: uv run --no-sync python -m pipeline.sources.usaspending.run
+        env:
+          LOOKBACK_DAYS: ${{ inputs.lookback_days || '180' }}
+        run: uv run --no-sync python -m pipeline.sources.usaspending.run --lookback-days "$LOOKBACK_DAYS"
 
       # Non-blocking: war.gov returns 403 to non-browser clients unless the
       # Bright Data opt-in is configured. Exit code 2 = everything blocked.
@@ -73,7 +86,9 @@ jobs:
       - name: Autonomy classifier
         id: classifier
         continue-on-error: true
-        run: uv run --no-sync python -m pipeline.extract.classifier
+        env:
+          CLASSIFY_LIMIT: ${{ inputs.classify_limit || '1000' }}
+        run: uv run --no-sync python -m pipeline.extract.classifier --limit "$CLASSIFY_LIMIT"
 
       # Non-blocking: it is new and depends on optional SAM.gov access. Only
       # high-confidence merges are applied; the rest wait in pending_merges
