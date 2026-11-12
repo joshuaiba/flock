@@ -7,12 +7,16 @@ The agent only reads (tools.TOOLS) and returns a MergeDecision; apply.py is
 the one place a decision becomes a write. The model comes from RESOLVE_MODEL
 (pipeline.agents.settings) and the budget from budgets.resolver_limits().
 
-Output mode: the default tool output (the model "calls" a final_result tool
-with the MergeDecision). Gemini 3 can also combine native JSON output with
-function tools, but older Gemini models reject that combination outright
-(pydantic_ai GoogleModel: "does not support NativeOutput and function tools at
-the same time"), and RESOLVE_MODEL is operator-configurable. Tool output works
-on every tool-capable model, so a model change cannot break the resolver.
+Output mode: left to Pydantic AI (`output_type=MergeDecision`, no explicit
+NativeOutput or ToolOutput), which picks per model. On Claude it sends the
+schema as native JSON output next to the function tools (checked on Haiku 5.5
+and Sonnet 5.5 with pydantic-ai 2.66), because forcing a final_result tool
+call would switch the model's thinking off. On Gemini it uses tool output (the
+model "calls" a final_result tool with the MergeDecision). Asking for
+NativeOutput explicitly is the one thing to avoid: Gemini models before 3
+reject it together with function tools (GoogleModel: "does not support
+NativeOutput and function tools at the same time"), and RESOLVE_MODEL is
+operator-configurable.
 
 What "merge" means here: the two rows are the same legal entity under
 different spellings or sources (including a DBA, a former name, or a division
@@ -273,7 +277,7 @@ class Outcome:
 
 
 def default_provider() -> Provider:
-    """The Gemini model named by RESOLVE_MODEL, paced and retried like extraction."""
+    """The model named by RESOLVE_MODEL, paced and retried like extraction."""
     name = settings.get_settings().resolve_model
     return Provider(name=settings.model_label(name), model=settings.build_model(name))
 

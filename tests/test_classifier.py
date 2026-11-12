@@ -69,6 +69,34 @@ def test_classifier_cannot_emit_unknown_tags():
     assert len(stubborn.calls) == 2
 
 
+def test_tag_slugs_stay_an_enum_in_the_schema_claude_is_sent():
+    """Claude gets the schema as a strict JSON schema (output_config.format). The
+    Literal of tag slugs has to survive Anthropic's schema transform as an enum,
+    or nothing would constrain the tags. Nothing is sent: this only prepares the
+    request the way AnthropicModel would."""
+    from pydantic_ai.models import ModelRequestParameters
+    from pydantic_ai.models.anthropic import AnthropicModel
+    from pydantic_ai.output import OutputObjectDefinition
+    from pydantic_ai.providers.anthropic import AnthropicProvider
+
+    tax = classifier.load_taxonomy()
+    schema = classifier.schema_for(tax)
+    model = AnthropicModel("claude-haiku-5-5", provider=AnthropicProvider(api_key="not-a-key"))
+    assert model.profile.get("supports_json_schema_output")  # NativeOutput is supported
+    _, params = model.prepare_request(
+        None,
+        ModelRequestParameters(
+            output_mode="native",
+            output_object=OutputObjectDefinition(json_schema=schema.model_json_schema()),
+            allow_text_output=False,
+        ),
+    )
+    sent = params.output_object.json_schema
+    assert params.output_object.strict is True
+    assert sent["properties"]["tags"]["items"]["enum"] == list(tax.tags)
+    assert sent["additionalProperties"] is False
+
+
 def test_classifier_agent_is_its_own_agent_with_taxonomy_prompt():
     tax = classifier.load_taxonomy()
     assert classifier.agent_for(tax) is classifier.agent_for(classifier.load_taxonomy())

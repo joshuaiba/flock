@@ -12,8 +12,9 @@ Every call is recorded by pipeline.agents.run_log when a database connection
 is bound.
 
 A Provider is just a model plus the label stored with results. The default one
-is Gemini, named by EXTRACT_MODEL; tests inject one wrapping a FunctionModel
-with set_provider() or the `provider=` argument.
+is the model named by EXTRACT_MODEL (Claude or Gemini, by its prefix); tests
+inject one wrapping a FunctionModel with set_provider() or the `provider=`
+argument.
 """
 
 from __future__ import annotations
@@ -171,8 +172,13 @@ def build_agent[T: BaseModel](
 ) -> Agent[None, T]:
     """An Agent with no model bound (it is chosen per run) whose output is `schema`.
 
-    Native structured output: Pydantic AI sends the schema as Gemini's
-    response_json_schema, which is what the docs recommend for Gemini 3.
+    Native structured output on both providers. For Gemini, Pydantic AI sends
+    the schema as response_json_schema. For Claude it sends it as
+    output_config.format (a strict JSON schema, so decoding is constrained to
+    it: a Literal becomes an `enum`); the installed pydantic-ai lists every
+    current Claude model as supporting that, Haiku 5.5 included. Numeric bounds
+    (ge/le) are not part of Claude's grammar: they travel in the field
+    description and are enforced here by Pydantic, with the usual one retry.
 
     The data-framing sentence follows the task instructions. Pass
     `framing=False` when the instructions are supplied per run and the caller
