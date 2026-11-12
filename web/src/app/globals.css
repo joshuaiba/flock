@@ -238,6 +238,16 @@
     box-shadow: 0 12px 28px -18px rgb(40 30 22 / 0.55);
   }
 
+  /* The top bar: a flat strip of page color, so its words stay readable over
+     the painting and over a page scrolling under it. */
+  .site-nav {
+    border: 1px solid var(--hair);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--paper) 84%, transparent);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+  }
+
   /* ---- Controls: one family, in the interface face ---- */
 
   /* A button says what it does in plain words. */
@@ -705,8 +715,8 @@ html.theme-fade::view-transition-new(root) {
   animation-timing-function: var(--ease-out);
 }
 
-/* Reduced motion (the OS setting, or the "still" toggle): every scene is a
-   still composition and all ambient animation is off. */
+/* Reduced motion (the OS setting, or Motion: Off in the Display menu): every
+   scene is a still composition and all ambient animation is off. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

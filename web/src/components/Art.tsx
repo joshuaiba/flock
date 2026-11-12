@@ -109,8 +109,11 @@ export function CornerVine({
   );
 }
 
-/** Cartouche: a painted plaque behind a section title. The text sits centered
- *  in the plaque and is always sepia, because the plaque is always pale. */
+/** Cartouche: a painted plaque behind a title. The text sits centered in the
+ *  plaque and is always sepia, because the plaque is always pale. It is kept
+ *  for one place, the About header on the landing page, under the fresco.
+ *  Page titles everywhere else use the line-art title plaque (.title-plaque
+ *  in globals.css). */
 export function Cartouche({
   children,
   as: Tag = "h2",

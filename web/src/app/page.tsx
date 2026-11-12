@@ -23,19 +23,18 @@ async function FooterWithData() {
   return <Footer sample={s?.sample} />;
 }
 
+// The three things Flock follows, in the order the money moves. The titles
+// carry the structure; the columns are set apart by hairlines and nothing else.
 const ABOUT = [
   {
-    label: "01 · demand",
     title: "What the Pentagon asks for",
     body: "Solicitations, broad agency announcements and research topics say what the services want before a dollar moves. Flock sorts each one into an autonomy category: swarming, counter-drone, maritime, navigation without GPS, and the rest.",
   },
   {
-    label: "02 · supply",
     title: "Who gets paid",
     body: "Contract awards from USAspending and the Department's daily announcements, tied to the companies behind them. When one company appears under several spellings, the records are merged, so the money adds up.",
   },
   {
-    label: "03 · the path to production",
     title: "Whether it reaches production",
     body: "Most research never leaves the lab. Flock follows each company from its first solicitation through Phase I and Phase II to a production contract, and shows where the trail goes cold.",
   },
@@ -51,9 +50,12 @@ export default function Home() {
           <Stats />
         </Suspense>
         {/* The way in: the Forum is where a visit starts after the hero. */}
-        <p className="mt-6">
-          <Link href="/forum" className="marble pill">
-            enter the forum →
+        <p className="mt-7 flex flex-wrap items-center gap-2.5">
+          <Link href="/forum" className="btn btn-primary">
+            Enter the Forum
+          </Link>
+          <Link href="/graph" className="btn">
+            Open the graph
           </Link>
         </p>
       </Hero>
@@ -67,7 +69,7 @@ export default function Home() {
           About
         </Cartouche>
 
-        <div className="relative z-20 mx-auto mt-8 max-w-2xl px-6 text-center sm:px-0" data-flock-avoid>
+        <div className="relative z-20 mx-auto mt-8 max-w-2xl px-6 text-center sm:px-0">
           <p className="font-display text-[2rem] font-medium leading-[1.1] text-balance sm:text-[2.6rem]">
             A painted map of defense funding for drones and autonomy.
           </p>
@@ -77,28 +79,28 @@ export default function Home() {
           </p>
         </div>
 
-        <Garland className="mt-14 sm:mt-20" />
-
-        <div className="mt-14 grid gap-12 px-6 sm:mt-20 sm:px-0 md:grid-cols-3 md:gap-10">
+        <div className="relative z-20 mx-6 mt-16 grid border-t border-frame sm:mx-0 sm:mt-24 md:grid-cols-3">
           {ABOUT.map((a) => (
-            <div key={a.label} className="relative z-20 mx-auto max-w-md md:max-w-none" data-flock-avoid>
-              <p className="label">{a.label}</p>
-              <h3 className="mt-2 text-3xl">{a.title}</h3>
-              <p className="mt-3">{a.body}</p>
+            <div
+              key={a.title}
+              className="border-b border-hair py-8 md:border-b-0 md:border-l md:px-8 md:py-10 md:first:border-l-0 md:first:pl-0 md:last:pr-0"
+            >
+              <h3 className="text-[1.75rem]">{a.title}</h3>
+              <p className="mt-3 text-[1.0625rem] leading-[1.6] text-muted">{a.body}</p>
             </div>
           ))}
         </div>
 
-        <div className="relative z-20 mt-14 flex flex-wrap justify-center gap-3 px-6 sm:mt-20 sm:px-0">
+        <div className="relative z-20 mt-12 flex flex-wrap items-center justify-center gap-2.5 px-6 sm:mt-16 sm:px-0">
           {/* The Forum leads; the graph and the letter follow. */}
-          <Link href="/forum" className="marble pill">
-            enter the forum →
+          <Link href="/forum" className="btn btn-primary">
+            Enter the Forum
           </Link>
-          <Link href="/graph" className="marble pill">
-            open the graph
+          <Link href="/graph" className="btn">
+            Open the graph
           </Link>
-          <Link href="/feed" className="marble pill">
-            read this week&rsquo;s field report
+          <Link href="/feed" className="btn">
+            Read this week&rsquo;s field report
           </Link>
         </div>
       </section>
