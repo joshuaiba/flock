@@ -625,6 +625,10 @@
     letter-spacing: 0;
     font-variant-numeric: tabular-nums lining-nums;
   }
+  /* a numeric column's head is a head first: the same size as the others */
+  .ledger th.num {
+    font-size: 0.75rem;
+  }
   .ledger th a,
   .ledger th button {
     color: inherit;

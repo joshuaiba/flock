@@ -73,12 +73,6 @@
   font-size: 1rem;
 }
 
-/* A numeric column's head is a head first: the same size as the others.
-   (.ledger .num in globals.css would set it at the figures' size.) */
-.ledger th.num {
-  font-size: 0.75rem;
-}
-
 /* A leaderboard's table: every cell is in the interface face (ranks, dates,
    counts, category names); organization names keep the serif (.forum-name). */
 .forum-ledger td {
