@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field, create_model
 from pydantic_ai import Agent, ModelRetry
 
 from pipeline import config, stats
-from pipeline.agents import run_log, tracing
+from pipeline.agents import costs, run_log, tracing
 from pipeline.db import connect
 from pipeline.extract import llm
 from pipeline.load.postgres import LoadStats
@@ -212,6 +212,16 @@ def write_verdict(
 
 
 def run(conn: psycopg.Connection, *, limit: int, provider=None, batch: int = 25) -> dict:
+    """Classify up to `limit` candidates. Returns JSON-serializable stats.
+
+    `over_budget` is set (and nothing is classified) when the month's LLM
+    budget is spent; `stopped` when the model ran out of quota or credit
+    part-way. Neither is an error: the candidates are still there next run.
+    """
+    blocked = costs.over_budget(conn)
+    conn.commit()  # end the guard's read transaction
+    if blocked:
+        return {"candidates": 0, "positive": 0, "failed": 0, "over_budget": blocked}
     tax = load_taxonomy()
     st = LoadStats()
     with conn.transaction():

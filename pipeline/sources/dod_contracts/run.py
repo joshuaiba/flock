@@ -15,7 +15,7 @@ from collections import Counter
 from datetime import UTC, date, datetime
 
 from pipeline import raw, stats
-from pipeline.agents import run_log, tracing
+from pipeline.agents import costs, run_log, tracing
 from pipeline.db import connect
 from pipeline.extract import llm
 from pipeline.extract.contract_announcement import INSTRUCTIONS, ContractAnnouncement
@@ -173,6 +173,13 @@ def main(argv: list[str] | None = None) -> int:
 
         out: dict = {"snapshot": str(path) if lines else None, "articles": len(lines), **counts}
         if conn:
+            blocked = costs.over_budget(conn)
+            conn.commit()  # end the guard's read transaction
+        if conn and blocked:
+            # The snapshot is kept; nothing is extracted or loaded, so these
+            # articles are not marked loaded and a later run picks them up.
+            out["over_budget"] = blocked
+        elif conn:
             existing = {
                 r[0]: r[1:]
                 for r in conn.execute(
@@ -188,6 +195,8 @@ def main(argv: list[str] | None = None) -> int:
             with run_log.bind(conn):
                 awards = extract_awards(lines, existing, counts)
             out.update(counts)
+            if counts["extractions.stopped"]:
+                out["stopped"] = f"model {llm.get_provider().exhausted_reason}"
             out.update(load_awards(conn, awards))
             conn.commit()
     finally:

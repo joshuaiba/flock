@@ -1,8 +1,11 @@
+import contextlib
 import json
+from datetime import UTC, datetime
 
 import pytest
 
 from pipeline.agents import run_log
+from pipeline.agents import settings as agent_settings
 from pipeline.extract import classifier, eval_classifier, llm
 from tests.fakes import FakeProvider, text_of
 
@@ -288,6 +291,43 @@ def test_run_stops_when_the_model_is_out_of_credit(db):
     assert db.execute("SELECT status, count(*) FROM agent_runs GROUP BY 1").fetchall() == [
         ("failed", 1)
     ]
+
+
+@pytest.mark.db
+def test_run_is_skipped_cleanly_when_over_the_monthly_budget(db, monkeypatch, capsys):
+    from tests.test_costs import SONNET, spend
+
+    db.execute("INSERT INTO awards (description, source, source_id) VALUES ('DRONE', 't', '1')")
+    db.commit()
+    spend(db, "resolver", SONNET, 1_000_000, 0, at=datetime.now(UTC))  # $2 this month
+    monkeypatch.setenv("MONTHLY_LLM_BUDGET_USD", "2")
+    agent_settings.reset_settings()
+
+    p = FakeProvider(lambda prompt, info: pytest.fail("the model must not be called"))
+    out = classifier.run(db, limit=10, provider=p)
+    assert out["over_budget"].startswith("monthly LLM budget reached")
+    assert out["candidates"] == 0 and out["failed"] == 0 and p.calls == []
+    assert db.execute("SELECT count(*) FROM classifications").fetchone()[0] == 0
+
+    # main() exits normally (the CI step succeeds) and the reason reaches the job summary.
+    monkeypatch.setattr(classifier, "connect", lambda: contextlib.nullcontext(db))
+    assert classifier.main([]) is None
+    emitted = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert emitted["step"] == "classifier" and "budget $2.00" in emitted["over_budget"]
+
+    # With budget left, the same call classifies.
+    monkeypatch.setenv("MONTHLY_LLM_BUDGET_USD", "3")
+    agent_settings.reset_settings()
+    ok = FakeProvider(
+        lambda prompt, info: {
+            "is_autonomy": True,
+            "tags": ["uas"],
+            "confidence": 0.9,
+            "rationale": "drone",
+        }
+    )
+    out = classifier.run(db, limit=10, provider=ok)
+    assert out["candidates"] == 1 and "over_budget" not in out
 
 
 def test_main_configures_tracing(monkeypatch):

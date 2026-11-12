@@ -123,6 +123,36 @@ def test_run_exits_2_when_every_agent_run_failed(db, capsys, monkeypatch):
     assert count(db, "org_merges") == 0 and merged_into(db, mfc) is None
 
 
+def test_run_over_the_monthly_budget_skips_the_agent_and_exits_0(db, capsys, monkeypatch):
+    from datetime import UTC, datetime
+
+    from tests.test_costs import SONNET, spend
+
+    org(db, "Skydio Inc")
+    org(db, "Skydio, Inc.")
+    twin_a = org(db, "Shield AI Inc", uei="UEI000000001")
+    twin_b = org(db, "Shield AI", uei="UEI000000001")
+    db.commit()
+    spend(db, "classifier", SONNET, 1_000_000, 0, at=datetime.now(UTC))  # $2 this month
+    monkeypatch.setenv("MONTHLY_LLM_BUDGET_USD", "1.5")
+    agent_settings.reset_settings()
+
+    def model(messages, info):
+        raise AssertionError("the model must not be called over budget")
+
+    code, _, err = run_cli(db, ["run"], model=model)
+    assert code == 0  # skipped, not failed: the nightly step stays green
+    assert "agent not run: monthly LLM budget reached" in err
+    assert "pairs sent to the agent: 0" in err
+    st = json.loads(capsys.readouterr().out)
+    assert st["candidates"] == 0 and st["failed"] == 0 and st["runs"] == 0
+    assert "budget $1.50" in st["over_budget"]
+    # UEI auto-merges need no model, so they still happen.
+    assert st["auto_merged"] == 1
+    assert {merged_into(db, twin_a), merged_into(db, twin_b)} != {None}
+    assert count(db, "pending_merges") == 0
+
+
 def test_run_with_nothing_to_do_exits_0_without_a_model(db, capsys):
     code, _, err = run_cli(db, ["run"])
     assert code == 0 and "pairs sent to the agent: 0" in err and "per decision" not in err

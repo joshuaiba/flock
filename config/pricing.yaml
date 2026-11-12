@@ -1,0 +1,14 @@
+# USD per million tokens, keyed by the model label stored in agent_runs.model
+# ("<provider>:<model>", see pipeline/agents/settings.py). Used only to
+# estimate spend (pipeline/agents/costs.py): the job summary's cost table and
+# the MONTHLY_LLM_BUDGET_USD guard. Update it when prices or models change.
+#
+# A model that is not listed here is counted as $0 and named in the job summary.
+models:
+  # Anthropic list prices for prompts up to 100K tokens; ours are far smaller.
+  anthropic:claude-haiku-5-5: {input: 0.10, output: 0.50}
+  anthropic:claude-sonnet-5-5: {input: 2.00, output: 10.00}
+  # Gemini is the fallback and is billed to a different account than the
+  # Anthropic credit the budget protects, so it counts as $0. Put its real
+  # rates here if Gemini runs should count toward the budget as well.
+  gemini:gemini-3.8-flash: {input: 0.00, output: 0.00}

@@ -20,7 +20,7 @@ import logging
 
 import psycopg
 
-from pipeline.agents import run_log, tracing
+from pipeline.agents import costs, run_log, tracing
 from pipeline.extract.llm import Provider
 from pipeline.http import PoliteClient
 from pipeline.resolve import agent, apply, candidates
@@ -91,6 +91,9 @@ def run(
                    exceeded) or whose decision could not be applied, plus UEI
                    auto-merges that hit a database error
     skipped        pairs dropped because an earlier merge in this run made them stale
+    over_budget    only present when the agent was not run because the month's
+                   LLM budget is spent (pipeline.agents.costs); UEI auto-merges
+                   still happen
     stopped        only present when the pass ended early: the model's daily
                    quota (Gemini) or credit (Anthropic) is spent
     failures       [{input_ref, run_id, error}] for those
@@ -139,7 +142,12 @@ def run(
                 continue
         out["auto_merged"] += 1
 
-    pairs = candidates.name_pairs(conn, limit=limit)
+    # UEI auto-merges above need no model. The agent does, so the budget is
+    # checked here; over budget, no pairs are proposed and none are lost.
+    blocked = costs.over_budget(conn)
+    if blocked:
+        out["over_budget"] = blocked
+    pairs = [] if blocked else candidates.name_pairs(conn, limit=limit)
     out["candidates"] = len(pairs)
     conn.commit()
 

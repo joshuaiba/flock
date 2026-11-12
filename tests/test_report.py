@@ -102,3 +102,84 @@ def test_render_resolve_missing_stats_and_many_failures():
     many = [{"input_ref": f"org:1:{i}", "run_id": None, "error": "x" * 500} for i in range(12)]
     md = report.render({"resolve": {**RESOLVE, "failures": many}}, {}, None)
     assert "… and 2 more" in md and "x" * 201 not in md
+
+
+# --- LLM usage, cost and budget ------------------------------------------------
+
+
+def agent_usage(agent, tokens_in, tokens_out, cost, unpriced=()):
+    return {
+        "agent": agent,
+        "runs": 1,
+        "requests": 1,
+        "input_tokens": tokens_in,
+        "output_tokens": tokens_out,
+        "cost_usd": cost,
+        "unpriced": list(unpriced),
+    }
+
+
+USAGE = {
+    "run": [agent_usage("classifier", 40_000, 6_000, 0.007)],
+    "month": [
+        agent_usage("classifier", 1_200_000, 180_000, 0.21),
+        agent_usage("resolver", 3_100_000, 260_000, 0.44, unpriced=["fake:test"]),
+    ],
+    "month_start": "2026-11-01",
+    "budget_usd": 90.0,
+}
+
+
+def test_render_usage_per_agent_for_the_run_and_the_month():
+    md = report.render({}, {}, None, USAGE)
+    assert "### LLM usage and estimated cost" in md
+    assert "| classifier | 40,000 | 6,000 | $0.0070 | 1,200,000 | 180,000 | $0.2100 |" in md
+    # No resolver runs tonight, but it has spend this month.
+    assert "| resolver | 0 | 0 | $0.0000 | 3,100,000 | 260,000 | $0.4400 |" in md
+    assert "| **Total** | 40,000 | 6,000 | $0.0070 | 4,300,000 | 440,000 | $0.6500 |" in md
+    assert (
+        "since 2026-11-01): **$0.6500** of the $90.00 budget (`MONTHLY_LLM_BUDGET_USD`), 1%" in md
+    )
+    assert "No price in `config/pricing.yaml` for `fake:test`: counted as $0." in md
+    assert "Budget reached" not in md
+
+
+def test_render_usage_without_a_run_start_and_over_budget():
+    md = report.render({}, {}, None, {**USAGE, "run": None, "budget_usd": 0.5})
+    assert "| classifier | – | – | – | 1,200,000 | 180,000 | $0.2100 |" in md
+    assert "**Budget reached.**" in md and "FLOCK_RUN_STARTED_AT" in md
+    assert "LLM usage" not in report.render({}, {}, None)  # no database: no section
+
+
+def test_render_reports_budget_skips_and_early_stops():
+    reason = "monthly LLM budget reached: an estimated $90.12 spent since 2026-11-01 UTC"
+    stats = {
+        "classifier": {"candidates": 0, "positive": 0, "failed": 0, "over_budget": reason},
+        "dod_contracts": {
+            "articles": 2,
+            "extractions.new": 3,
+            "extractions.failed": 1,
+            "extractions.stopped": 1,
+            "stopped": "model credit balance too low",
+        },
+        "resolve": {**RESOLVE, "candidates": 0, "over_budget": reason},
+    }
+    outcomes = {"classifier": "success", "dod_contracts": "success", "resolve": "success"}
+    md = report.render(stats, outcomes, None)
+    assert "| classifier | ✅ success |" in md  # a skip is not a failure
+    assert f"0 failed; ⏭️ skipped: {reason}" in md
+    assert "1 failed; 🛑 stopped early: model credit balance too low" in md
+    assert f"- ⏭️ Agent not run: {reason}" in md
+    stopped = report.render({"resolve": {**RESOLVE, "stopped": "model billing error"}}, {}, None)
+    assert "🛑 Stopped early: model billing error" in stopped
+
+
+def test_run_started_reads_the_workflow_timestamp(monkeypatch):
+    from datetime import UTC, datetime
+
+    monkeypatch.delenv("FLOCK_RUN_STARTED_AT", raising=False)
+    assert report.run_started() is None
+    monkeypatch.setenv("FLOCK_RUN_STARTED_AT", "2026-11-11T09:00:03Z")
+    assert report.run_started() == datetime(2026, 11, 11, 9, 0, 3, tzinfo=UTC)
+    monkeypatch.setenv("FLOCK_RUN_STARTED_AT", "yesterday")
+    assert report.run_started() is None  # a bad value must not break the summary

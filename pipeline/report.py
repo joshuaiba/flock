@@ -3,6 +3,11 @@
     FLOCK_STATS_FILE=stats.jsonl python -m pipeline.report >> "$GITHUB_STEP_SUMMARY"
 
 Step outcomes come from env vars OUTCOME_<STEP> (success/failure/skipped).
+
+With DATABASE_URL set it also prints tokens and estimated dollars per agent
+(pipeline.agents.costs): month to date, and for this run when
+FLOCK_RUN_STARTED_AT holds the time the run began (ISO 8601, set by the
+workflow's first step).
 """
 
 from __future__ import annotations
@@ -10,11 +15,13 @@ from __future__ import annotations
 import json
 import os
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 STEPS = ["usaspending", "dod_contracts", "classifier", "resolve"]
 TABLES = ["awards", "organizations", "edges", "classifications", "taggings"]
 MAX_FAILURES = 10
+_USAGE_KEYS = ("input_tokens", "output_tokens", "cost_usd")
 ERROR_CHARS = 200
 ICON = {"success": "✅", "failure": "❌", "skipped": "⏭️", "cancelled": "🚫"}
 
@@ -40,6 +47,110 @@ def table_totals() -> dict[str, int] | None:
     except Exception as e:  # summary must never fail the job
         print(f"(could not read totals: {e})", file=sys.stderr)
         return None
+
+
+def run_started() -> datetime | None:
+    """FLOCK_RUN_STARTED_AT as an aware datetime, or None if unset or unreadable."""
+    raw = os.environ.get("FLOCK_RUN_STARTED_AT", "").strip()
+    try:
+        started = datetime.fromisoformat(raw) if raw else None
+    except ValueError:
+        print(f"(ignoring FLOCK_RUN_STARTED_AT={raw!r}: not ISO 8601)", file=sys.stderr)
+        return None
+    if started is not None and started.tzinfo is None:
+        started = started.replace(tzinfo=UTC)
+    return started
+
+
+def llm_usage() -> dict | None:
+    """Per-agent usage and estimated cost: {run, month, month_start, budget_usd}.
+
+    `run` is None when the run's start time is unknown.
+    """
+    if not os.environ.get("DATABASE_URL"):
+        return None
+    try:
+        from pipeline.agents import costs
+        from pipeline.agents.settings import get_settings
+        from pipeline.db import connect
+
+        start = costs.month_start()
+        started = run_started()
+        with connect() as conn:
+            return {
+                "run": costs.usage_by_agent(conn, started) if started else None,
+                "month": costs.usage_by_agent(conn, start),
+                "month_start": start.date().isoformat(),
+                "budget_usd": get_settings().monthly_llm_budget_usd,
+            }
+    except Exception as e:  # summary must never fail the job
+        print(f"(could not read LLM usage: {e})", file=sys.stderr)
+        return None
+
+
+def usd(value: float) -> str:
+    """Dollars, with enough digits to show the fractions of a cent a run costs."""
+    return f"${value:,.2f}" if value >= 1 else f"${value:.4f}"
+
+
+def render_usage(u: dict) -> list[str]:
+    """LLM usage section: tokens and estimated dollars per agent."""
+    month = {a["agent"]: a for a in u.get("month") or []}
+    run = None if u.get("run") is None else {a["agent"]: a for a in u["run"]}
+
+    def cells(a: dict | None) -> list[str]:
+        if a is None:
+            return ["–", "–", "–"]
+        return [f"{a['input_tokens']:,}", f"{a['output_tokens']:,}", usd(a["cost_usd"])]
+
+    def total(agents: dict | None) -> dict | None:
+        if agents is None:
+            return None
+        return {
+            key: sum(a[key] for a in agents.values())
+            for key in ("input_tokens", "output_tokens", "cost_usd")
+        }
+
+    lines = [
+        "",
+        "### LLM usage and estimated cost",
+        "",
+        "| Agent | This run: tokens in | out | est. cost | Month to date: tokens in | out "
+        "| est. cost |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    for agent in sorted(set(month) | set(run or {})):
+        this_run = None if run is None else run.get(agent, dict.fromkeys(_USAGE_KEYS, 0))
+        row = [agent, *cells(this_run), *cells(month.get(agent, dict.fromkeys(_USAGE_KEYS, 0)))]
+        lines.append("| " + " | ".join(row) + " |")
+    lines.append("| **Total** | " + " | ".join([*cells(total(run)), *cells(total(month))]) + " |")
+
+    spent, budget = total(month)["cost_usd"], float(u.get("budget_usd") or 0)
+    share = f", {spent / budget:.0%}" if budget else ""
+    lines += [
+        "",
+        f"- Month to date (UTC, since {u.get('month_start', '?')}): **{usd(spent)}** of the "
+        f"{usd(budget)} budget (`MONTHLY_LLM_BUDGET_USD`){share}",
+    ]
+    if spent >= budget:
+        lines.append(
+            "- **Budget reached.** LLM passes are skipped until the month ends or the "
+            "budget is raised."
+        )
+    if run is None:
+        lines.append("- This run's figures need `FLOCK_RUN_STARTED_AT` (the workflow sets it).")
+    unpriced = sorted({m for a in [*month.values(), *(run or {}).values()] for m in a["unpriced"]})
+    if unpriced:
+        lines.append(
+            "- No price in `config/pricing.yaml` for "
+            + ", ".join(f"`{m}`" for m in unpriced)
+            + ": counted as $0."
+        )
+    lines.append(
+        "- Estimated from `agent_runs` at the list prices in `config/pricing.yaml`; "
+        "cached input is priced as ordinary input, so this runs a little high."
+    )
+    return lines
 
 
 def _redact(text: str) -> str:
@@ -77,6 +188,12 @@ def render_resolve(r: dict) -> list[str]:
         f"- Tokens: {r.get('input_tokens', 0)} in + {r.get('output_tokens', 0)} out "
         f"over {r.get('requests', 0)} model requests",
     ]
+    if r.get("over_budget"):
+        lines.append(f"- ⏭️ Agent not run: {r['over_budget']}")
+    if r.get("stopped"):
+        lines.append(
+            f"- 🛑 Stopped early: {r['stopped']}; the remaining pairs wait for the next run"
+        )
     failures = r.get("failures") or []
     if failures:
         lines += ["", f"**{len(failures)} failed runs** (nothing was applied for these):", ""]
@@ -89,7 +206,23 @@ def render_resolve(r: dict) -> list[str]:
     return lines
 
 
-def render(stats: dict[str, dict], outcomes: dict[str, str], totals: dict | None) -> str:
+def _llm_notes(step: dict, stopped: bool) -> str:
+    """What cut an LLM pass short, as a suffix for its detail line."""
+    notes = ""
+    if step.get("over_budget"):
+        notes += f"; ⏭️ skipped: {step['over_budget']}"
+    if stopped:
+        reason = step.get("stopped")
+        notes += f"; 🛑 stopped early{f': {reason}' if isinstance(reason, str) else ''}"
+    return notes
+
+
+def render(
+    stats: dict[str, dict],
+    outcomes: dict[str, str],
+    totals: dict | None,
+    usage: dict | None = None,
+) -> str:
     lines = [
         "## flock nightly",
         "",
@@ -120,11 +253,13 @@ def render(stats: dict[str, dict], outcomes: dict[str, str], totals: dict | None
             f"{d.get('articles.via_brightdata', 0)}), **{d.get('articles.blocked', 0)} blocked**; "
             f"{d.get('paragraphs', 0)} paragraphs, {d.get('extractions.new', 0)} extracted, "
             f"{d.get('extractions.cached', 0)} cached, {d.get('extractions.failed', 0)} failed"
+            + _llm_notes(d, bool(d.get("extractions.stopped")))
         )
     if c := stats.get("classifier"):
         details.append(
             f"- **classifier**: {c.get('candidates', 0)} classified, "
             f"{c.get('positive', 0)} autonomy, {c.get('failed', 0)} failed"
+            + _llm_notes(c, bool(c.get("stopped")))
         )
     signals_outcome = outcomes.get("signals")
     if g := stats.get("signals"):
@@ -142,6 +277,8 @@ def render(stats: dict[str, dict], outcomes: dict[str, str], totals: dict | None
         lines += ["", "### Details", "", *details]
     if r := stats.get("resolve"):
         lines += render_resolve(r)
+    if usage:
+        lines += render_usage(usage)
     if totals:
         lines += [
             "",
@@ -159,7 +296,8 @@ def main() -> None:
     # Not a loading step (it adds no rows), so it has a detail line, not a table row.
     if signals := os.environ.get("OUTCOME_SIGNALS"):
         outcomes["signals"] = signals
-    print(render(read_stats(os.environ.get("FLOCK_STATS_FILE")), outcomes, table_totals()))
+    stats = read_stats(os.environ.get("FLOCK_STATS_FILE"))
+    print(render(stats, outcomes, table_totals(), llm_usage()))
 
 
 if __name__ == "__main__":

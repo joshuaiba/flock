@@ -296,6 +296,33 @@ def test_main_commits_awards_and_agent_runs(db, tmp_path, monkeypatch):
         )
 
 
+@pytest.mark.db
+def test_main_skips_extraction_when_over_the_monthly_budget(db, tmp_path, monkeypatch, capsys):
+    from datetime import UTC
+
+    from pipeline.agents import settings as agent_settings
+    from tests.test_costs import SONNET, spend
+
+    dsn = psycopg.conninfo.make_conninfo(db.info.dsn, password=db.info.password)
+    spend(db, "classifier", SONNET, 1_000_000, 0, at=datetime.now(UTC))  # $2 this month
+    monkeypatch.setenv("MONTHLY_LLM_BUDGET_USD", "2")
+    agent_settings.reset_settings()
+    monkeypatch.setenv("FLOCK_RAW_DIR", str(tmp_path / "raw"))
+    monkeypatch.setattr(run, "connect", lambda: psycopg.connect(dsn))
+    monkeypatch.setattr(run, "fetch_lines", lambda skip, max_articles, counts: _lines())
+    called = []
+    monkeypatch.setattr(run.llm, "get_provider", lambda: called.append(1))
+
+    assert run.main([]) == 0  # skipped, not failed
+    emitted = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert emitted["over_budget"].startswith("monthly LLM budget reached")
+    assert emitted["articles"] == 1 and "extractions.new" not in emitted and called == []
+    with psycopg.connect(dsn) as other:
+        assert other.execute("SELECT count(*) FROM awards").fetchone()[0] == 0
+        # Nothing loaded, so the article is not marked done: a later run extracts it.
+        assert run.loaded_article_ids(other) == set()
+
+
 def test_main_configures_tracing(tmp_path, monkeypatch):
     from pipeline.agents import tracing
 

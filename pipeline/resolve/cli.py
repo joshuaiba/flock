@@ -67,6 +67,10 @@ def summarize_run(st: dict) -> str:
         lines.append(
             "DRY RUN: nothing was merged, queued or recorded. Counts are what would happen."
         )
+    if st.get("over_budget"):
+        lines.append(f"agent not run: {st['over_budget']}")
+    if st.get("stopped"):
+        lines.append(f"stopped early: {st['stopped']}")
     lines += [
         f"auto-merged by UEI: {st['auto_merged']}",
         f"pairs sent to the agent: {decided_pairs(st)}"
