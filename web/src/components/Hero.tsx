@@ -1,14 +1,16 @@
 import { Art } from "./Art";
+import { HeroBoats } from "./HeroBoats";
 import "./hero.css";
 
 // The landing hero: the headline alone on the left, the engraved village and
 // lake along the bottom, and the flock (the canvas in the root layout, z-10)
-// between the two. The scene is one picture and it does not move: the
-// swallows are the only motion on the page. Layout is in hero.css.
+// between the two. The scene is one still picture. Two boats ride on its lake
+// (HeroBoats.tsx): with the swallows, they are the page's only ambient motion.
+// Layout is in hero.css.
 
-/** How wide the scene is drawn, for the browser's choice of file: the page's
- *  width, or wider on a tall screen (see --hero-scene-w in hero.css). */
-const SCENE_SIZES = "(max-aspect-ratio: 1/1) 105vh, (max-aspect-ratio: 3/2) 150vh, 100vw";
+/** How wide the scene is drawn, for the browser's choice of file (see
+ *  .hero-scene in hero.css). */
+const SCENE_SIZES = "max(100vw, 900px)";
 
 export function Hero({ children }: { children: React.ReactNode }) {
   return (
@@ -16,6 +18,7 @@ export function Hero({ children }: { children: React.ReactNode }) {
       <div className="hero-art" aria-hidden="true">
         <div className="hero-scene">
           <Art name="hero/scene" sizes={SCENE_SIZES} className="hero-scene-art" />
+          <HeroBoats />
           {/* Where the village is, for the flock: with motion off the frozen V
               is placed clear of it, in the open sky. Not drawn. */}
           <div className="hero-village" data-flock-village />

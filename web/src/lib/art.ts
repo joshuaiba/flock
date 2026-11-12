@@ -13,8 +13,11 @@ export function toneFor(theme: "dark" | "paper"): Tone {
 }
 
 export const ART = {
-  // Village, lake and boats in one picture; the waterline meets the shore.
+  // Village and lake in one picture; the waterline meets the shore. The two
+  // boats are their own files because they move (components/HeroBoats.tsx).
   "hero/scene": { widths: [1085, 2170], w: 2170, h: 905 },
+  "hero/rowboat": { widths: [160, 320], w: 320, h: 149 },
+  "hero/sailboat": { widths: [160, 320], w: 320, h: 362 },
   // The left 27% of the vine frame: the Field Report's margin.
   "margins/vine": { widths: [293, 586], w: 586, h: 725 },
   "props/swallow-glide-1": { widths: [123, 246], w: 246, h: 230 },

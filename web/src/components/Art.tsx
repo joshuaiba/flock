@@ -2,7 +2,8 @@ import { ART, artSrcSet, artUrl, TONES, type ArtName, type MedallionName } from 
 
 // Building blocks for the engraving pack. Every image here is decorative:
 // alt="" and aria-hidden. Files are used as they are (resized and cropped
-// only): never recolored, redrawn or animated.
+// only): never recolored or redrawn. None of it moves, except the two boats on
+// the landing hero's lake (HeroBoats.tsx).
 
 /** One engraving. Both tones are in the markup and the mode shows one (see
  *  .art in globals.css); the hidden one is never fetched, because both load

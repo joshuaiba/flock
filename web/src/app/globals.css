@@ -581,7 +581,8 @@
      lines for the dark page and ink lines for paper. Both are in the markup;
      the mode shows one. An engraving sits at a page edge at --art opacity
      (or its own), fades toward the content with a mask, never sits behind a
-     table, a chart, a filter or the graph, and never moves. */
+     table, a chart, a filter or the graph, and never moves (the two boats on
+     the landing hero's lake are the one exception: see hero.css). */
   .art {
     display: block;
     pointer-events: none;
@@ -620,7 +621,8 @@ html.theme-fade::view-transition-new(root) {
 }
 
 /* Reduced motion (the OS setting, or Motion: Off in the Display menu): the
-   flock is a still formation and nothing animates. */
+   flock is a still formation, the hero's boats sit still, and nothing
+   animates. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -1,47 +1,52 @@
 /* The landing hero (see components/Hero.tsx).
 
    Stacking, in the ROOT stacking context:
-     0 the engraved scene · 10 the flock canvas (global, fixed) · 20 text
+     0 the engraved scene, then its two boats · 10 the flock canvas (global,
+     fixed) · 20 text
    .hero must never create a stacking context (no z-index, transform, opacity,
    filter, isolation, will-change or contain on it), or the birds could not
-   fly between the engraving and the words.
+   fly between the engraving and the words. The boats are part of the art
+   layer, so the birds always fly in front of them.
 
-   The scene is one 2170x905 picture: village, lake and boats, with the
-   waterline already at the foot of the houses. It lies along the bottom edge
-   at the --art opacity and fades toward the left, where the headline is.
-   Nothing in it moves. */
+   The scene is one 2170x905 picture: village and lake, with the waterline
+   already at the foot of the houses. It lies along the bottom edge at the
+   --art opacity and fades toward the left, where the headline is. The picture
+   does not move. The two boats on its lake do (HeroBoats.tsx): with the
+   swallows, they are the page's only ambient motion. */
 
 .hero {
-  /* As wide as the page, or wider on a tall screen so the village never gets
-     tiny. When it is wider it is anchored to the right, where the village is. */
-  --hero-scene-w: max(100vw, min(150svh, 2170px));
   position: relative;
   overflow: hidden;
   min-height: max(100svh, 36rem);
 }
 
-/* z 0: the scene. The mask belongs to the window, not the picture, so the
-   fade is the same however much of the picture is in view: the left edge at
-   35%, full strength from the middle on. */
+/* z 0: the art. One box in the picture's proportions, as wide as the page and
+   anchored to the bottom. On a narrow screen it stops shrinking at 900px and
+   stays anchored to the right, where the village is; .hero cuts off the rest.
+   The boats are placed in shares of this box, so they keep their places on
+   the lake at any size. */
 .hero-art {
   position: absolute;
   z-index: 0;
   inset: 0;
   overflow: hidden;
   pointer-events: none;
-  -webkit-mask-image: linear-gradient(to right, rgb(0 0 0 / 0.35), #000 55%);
-  mask-image: linear-gradient(to right, rgb(0 0 0 / 0.35), #000 55%);
 }
 .hero-scene {
   position: absolute;
   right: 0;
   bottom: 0;
-  width: var(--hero-scene-w);
+  width: 100%;
+  min-width: 900px;
   aspect-ratio: 2170 / 905;
 }
+/* The picture fades toward the headline: 35% at the left edge, full strength
+   from 45% of the way across. */
 .hero-scene-art {
   position: absolute;
   inset: 0;
+  -webkit-mask-image: linear-gradient(to right, rgb(0 0 0 / 0.35), #000 45%);
+  mask-image: linear-gradient(to right, rgb(0 0 0 / 0.35), #000 45%);
 }
 /* Never painted: the part of the picture the village fills (its bell tower
    starts 17% down). Flock.tsx reads its rectangle. */
@@ -51,6 +56,87 @@
   right: 0;
   top: 17%;
   bottom: 0;
+}
+
+/* The boats. Each is two layers: .hero-boat holds the place (and, for the
+   sailboat, the drift), and the picture inside it bobs. Transforms and opacity
+   only, so nothing is laid out again while they move. */
+.hero-boats {
+  position: absolute;
+  inset: 0;
+}
+.hero-boat {
+  position: absolute;
+}
+.hero-boat > .art {
+  /* a little stronger than the scene, so a boat reads against the water */
+  opacity: calc(var(--art) * 1.4);
+}
+.hero-rowboat {
+  left: 25.5%;
+  bottom: 12%;
+  width: 8.2%;
+}
+.hero-rowboat > .art {
+  aspect-ratio: 320 / 149;
+}
+.hero-sailboat {
+  /* where it sits when nothing moves, and where its crossing starts */
+  --at: 54.5;
+  --w: 6.6;
+  left: calc(var(--at) * 1%);
+  bottom: 4%;
+  width: calc(var(--w) * 1%);
+  /* One crossing of the lake takes three minutes, from 8% to 88% of the box.
+     The negative delay starts it part-way, at its own place. */
+  animation: hero-drift 180s linear infinite;
+  animation-delay: calc((var(--at) - 8) / 80 * -180s);
+}
+.hero-sailboat > .art {
+  aspect-ratio: 320 / 362;
+}
+
+.hero-bob {
+  transform-origin: bottom center;
+  animation: hero-bob 7s ease-in-out infinite;
+}
+/* out of phase with the rowboat, and a little slower */
+.hero-sailboat > .hero-bob {
+  animation-duration: 8.5s;
+  animation-delay: -3s;
+}
+/* Off screen, or in a hidden tab (HeroBoats.tsx). */
+.hero-boats[data-paused] .hero-boat,
+.hero-boats[data-paused] .hero-bob {
+  animation-play-state: paused;
+}
+
+/* One swing, there and back. */
+@keyframes hero-bob {
+  from,
+  to {
+    transform: translateY(0) rotate(-0.6deg);
+  }
+  50% {
+    transform: translateY(-1.5px) rotate(0.6deg);
+  }
+}
+/* translateX is in shares of the boat's own width, hence the division. It
+   fades in over the first 4% and out over the last, so the jump back to the
+   start is never seen. */
+@keyframes hero-drift {
+  from {
+    transform: translateX(calc((8 - var(--at)) / var(--w) * 100%));
+    opacity: 0;
+  }
+  4%,
+  96% {
+    opacity: 1;
+  }
+  to {
+    transform: translateX(calc((88 - var(--at)) / var(--w) * 100%));
+    opacity: 0;
+  }
 }
 
 /* z 20: the words, alone on the left. */
@@ -115,14 +201,6 @@
     right: 2rem;
     bottom: 1.5rem;
     left: auto;
-  }
-}
-
-/* A tall, narrow screen: the scene stays under the words, drawn only a
-   little wider than the page is tall. */
-@media (max-aspect-ratio: 1/1) {
-  .hero {
-    --hero-scene-w: max(100vw, min(105svh, 2170px));
   }
 }
 

@@ -33,8 +33,9 @@ import { useStore } from "@/lib/store";
 // where there is no such room, it crosses the whole width. With motion off, a
 // few birds hang frozen in a loose V in the hero's open sky.
 //
-// The flock belongs to the landing page's hero and to nothing else, and it is
-// the only thing on the site that moves by itself. It scrolls with the page,
+// The flock belongs to the landing page's hero and to nothing else. With the
+// two boats on the hero's lake (HeroBoats.tsx), it is the only thing on the
+// site that moves by itself. It scrolls with the page,
 // like the engraving behind it, and it is faded out at the hero's bottom edge,
 // so a bird is never drawn over the page below. Over the last 30% of the hero's scroll
 // the birds leave: one after another they climb out of the top of the window,

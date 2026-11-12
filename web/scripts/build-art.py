@@ -1,7 +1,7 @@
 """Build the site's art from the Flock engraving pack.
 
     uv run --with pillow python web/scripts/build-art.py /path/to/flock-engraving \\
-        [/path/to/forum-additions/art/figures]
+        /path/to/flock-hero [/path/to/forum-additions/art/figures]
 
 Writes web/public/art/on-dark/ (light lines, for the dark page) and
 web/public/art/on-light/ (ink lines, for paper). Every file in the pack is one
@@ -10,12 +10,17 @@ suits the mode. The files are used as they are: this only resizes (1x and 2x
 variants, never upscaling) and crops, as the pack's INSTRUCTIONS.md allows.
 Nothing is redrawn, recolored or sharpened.
 
-The optional second folder holds the Forum's margin figures (nike, athena,
+The second folder is the landing hero's own pack: the lakeside village as one
+clean line engraving with no boats in it, and the two boats as separate files,
+because the site moves them (`on-dark/scene.png`, `rowboat.png`, `sailboat.png`,
+and the same under `on-light/`).
+
+The optional third folder holds the Forum's margin figures (nike, athena,
 trophy), which come as `<name>-on-dark.png` and `<name>-on-light.png`.
 
-Only the art the site uses is built. The pack also has the hero's separate
-midground and lake, the boats, two more glide poses, the laurel garland, the
-Greek key and the title plaque.
+Only the art the site uses is built. The engraving pack also has an older hero
+scene, two more glide poses, the laurel garland, the Greek key and the title
+plaque.
 """
 
 from __future__ import annotations
@@ -33,9 +38,6 @@ TONES = ("on-dark", "on-light")
 Job = tuple[str, str, list[int], tuple[int, int, int, int] | None]
 
 JOBS: list[Job] = [
-    # Village, lake and boats on one 2170x905 canvas. The waterline already
-    # meets the foot of the houses, so the site needs no offsets of its own.
-    ("hero/scene", "hero/scene", [1085, 2170], None),
     # The Field Report's margin: the left 27% of the vine frame.
     ("hero/foreground-frame", "margins/vine", [293, 586], (0, 0, 586, 725)),
     # One glide pose for the entity page's path to production, and three for
@@ -61,6 +63,15 @@ JOBS: list[Job] = [
     # edges (a painting has no linework to extract).
     ("fresco/boscoreale-wall", "fresco/wall", [625, 1250], None),
     ("fresco/boscoreale-garland-band", "fresco/garland-band", [625, 1250], None),
+]
+
+# The landing hero, from its own pack. The scene is village and lake on one
+# 2170x905 canvas, with the waterline already at the foot of the houses, so the
+# site needs no offsets of its own. The boats are drawn at most 180px wide.
+HERO: list[tuple[str, list[int]]] = [
+    ("scene", [1085, 2170]),
+    ("rowboat", [160, 320]),
+    ("sailboat", [160, 320]),
 ]
 
 # The Forum's margin figures, drawn up to 780px tall. One size each: fine
@@ -102,7 +113,7 @@ def build(
     return total
 
 
-def main(pack: Path, figures: Path | None) -> None:
+def main(pack: Path, hero: Path, figures: Path | None) -> None:
     # Start clean, so art the site no longer uses does not linger.
     if OUT.exists():
         shutil.rmtree(OUT)
@@ -110,6 +121,8 @@ def main(pack: Path, figures: Path | None) -> None:
     for tone in TONES:
         for src, name, widths, crop in JOBS:
             total += build(find(pack / tone, src), OUT / tone / name, widths, crop)
+        for name, widths in HERO:
+            total += build(find(hero / tone, name), OUT / tone / "hero" / name, widths, None)
         if figures:
             for name, widths in FIGURES:
                 total += build(
@@ -119,6 +132,6 @@ def main(pack: Path, figures: Path | None) -> None:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) not in (2, 3):
+    if len(sys.argv) not in (3, 4):
         raise SystemExit(__doc__)
-    main(Path(sys.argv[1]), Path(sys.argv[2]) if len(sys.argv) == 3 else None)
+    main(Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3]) if len(sys.argv) == 4 else None)

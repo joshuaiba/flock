@@ -122,11 +122,12 @@ Serif (Cormorant Garamond, EB Garamond) is for identity and reading; every
 control, label and number is in Inter. Dark is the default; the Display menu
 has a paper mode (ink on a paper ground) and a switch for motion. All of the
 art comes from an engraving pack, in two tones; nothing decorative is drawn in
-code, and nothing in it moves except the swallows.
+code. The landing page's ambient motion is the swallows and the two boats on
+the hero's lake; no other art moves.
 
 | Screen | Path | What it shows |
 | --- | --- | --- |
-| Landing | `/` | The headline, the engraved lakeside village along the bottom, the live flock in the open sky (award birds in the accent, solicitation birds in the text color), the month's totals, and the way into the Forum; then About, under a ghost of the Boscoreale fresco |
+| Landing | `/` | The headline, the engraved lakeside village along the bottom, two boats on its lake (both bob, and the sailboat drifts slowly across), the live flock in the open sky (award birds in the accent, solicitation birds in the text color), the month's totals, and the way into the Forum; then About, under a ghost of the Boscoreale fresco |
 | The Forum | `/forum` | The signals dashboard: the summary row, where the money went (award dollars by category family, as parts of a whole), momentum, stage transitions, topic heat, largest awards, funding by category, agency appetite and watchlist changes, over 30 days, 90 days or 1 year, for all categories or one. Engraved figures stand in the side margins on a wide window |
 | Leaderboards | `/forum/leaderboards` | The full rankings behind the Forum's panels |
 | Graph explorer | `/graph` | Companies as filled dots sized by dollars, agencies and offices as rings, solicitations as small diamonds; award edges in the accent, weight by dollars; search; filters for window (30 days / 90 days / 1 year / everything on record), category, agency, minimum dollars, node type and watchlist only. Selecting a node dims everything but its neighbors and opens a side card. It opens in 3D (drag to orbit, click a node to fly to it, drag a node to move it) with a toggle to a flat view that keeps the filters and the selection |
@@ -206,13 +207,14 @@ Things to know:
 - **No source loads solicitations yet.** The `opportunities` table is only
   filled by the sample data, so with real data the site shows awards only
   until a solicitation source is added.
-- **The art is built from an engraving pack that is not in this repo.**
+- **The art is built from packs that are not in this repo.**
   `web/public/art/` holds the resized `.webp` files the site serves, in two
   folders: `on-dark/` (light lines, for the dark page) and `on-light/` (ink
-  lines, for paper). To rebuild them from the pack: `uv run --with pillow
-  python web/scripts/build-art.py /path/to/flock-engraving
-  /path/to/forum-additions/art/figures`. The script only resizes and crops; it
-  never redraws or recolors.
+  lines, for paper). To rebuild them from the engraving pack, the landing
+  hero's pack (the scene and its two boats) and the Forum's figures:
+  `uv run --with pillow python web/scripts/build-art.py /path/to/flock-engraving
+  /path/to/flock-hero /path/to/forum-additions/art/figures`. The script only
+  resizes and crops; it never redraws or recolors.
 - **The fresco is a real Roman wall painting.** It is the west wall of Room L
   of the Villa of P. Fannius Synistor at Boscoreale, in The Metropolitan Museum
   of Art (accession 03.14.4, marked Public Domain on

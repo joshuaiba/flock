@@ -43,7 +43,7 @@ const ABOUT = [
 export default function Home() {
   return (
     <>
-      {/* Hero: the headline, the engraved lake along the bottom, and the flock. */}
+      {/* Hero: the headline, the engraved lake and its two boats along the bottom, and the flock. */}
       <Hero>
         <h1 className="hero-title">Following the money on the frontier of autonomy, from solicitation to production.</h1>
         <Suspense fallback={<p className="hero-stats">counting the flock…</p>}>

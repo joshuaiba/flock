@@ -11,7 +11,8 @@ The Next.js site. See "Web UI" in the repository README for how to run it.
 - `src/components/Art.tsx` art building blocks: one engraving in the tone that suits the mode, a medallion as a small category icon, the empty-state vignette
 - `src/components/Nav.tsx` the top bar: the links, the sample-data mark, the watchlist count, and the Display menu (dark or paper, motion on or off)
 - `src/components/Hero.tsx`, `hero.css` the landing scene: one still engraving along the bottom, the headline, the caption and legend for the birds
-- `src/components/Flock.tsx` the murmuration (boids drawn from sprite strips, `src/lib/sprites.ts`): award birds in the accent, solicitation birds in the text color. It belongs to the landing hero: it scrolls with the scene, leaves over the last 30% of the hero's scroll, and is not drawn anywhere else. It is the only ambient motion on the site
+- `src/components/HeroBoats.tsx` the two boats on the hero's lake: both bob and the sailboat drifts across (CSS, in `hero.css`), paused while the hero is off screen or the tab is hidden, and still when motion is off
+- `src/components/Flock.tsx` the murmuration (boids drawn from sprite strips, `src/lib/sprites.ts`): award birds in the accent, solicitation birds in the text color. It belongs to the landing hero: it scrolls with the scene, leaves over the last 30% of the hero's scroll, and is not drawn anywhere else. With the hero's two boats, it is the only ambient motion on the site
 - `src/components/Footer.tsx` the one-line footer; on the landing page the terrace engraving sits behind it
 - `src/components/GraphExplorer.tsx` the `/graph` screen: fetches the graph, holds the filters, search and selection, and shows them in one of two views (3D by default, `?view=flat` for the flat one), with the side card and the legend
 - `src/components/GraphFilters.tsx` the left rail: search, active filters as chips, window, categories, agency, minimum dollars, node types, watchlist only
