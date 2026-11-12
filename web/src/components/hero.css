@@ -1,9 +1,17 @@
 /* The landing hero: a layered lakeside painting (see components/Hero.tsx).
 
    Stacking, in the ROOT stacking context:
-     0 sky · 1 clouds, dusk glow · 2 midground · 3 lake · 4 boats
+     0 sky · 1 clouds, dusk glow · 2 lake · 3 midground · 4 boats
      10 the flock canvas (global, fixed) · 12 foreground frame
      13 light and mist · 15 paper grain (global) · 20 text
+
+   The water lies BEHIND the village. The pack draws midground and lake in one
+   2170x725 box, but stacked as drawn the lake (water from 65.3% down) covers
+   the bottom quarter of the midground: its shore, steps and boathouse arches.
+   The midground's own shoreline ends between 89.2% (left) and 92.6% (right)
+   of the box, so the lake is dropped by --hero-lake-drop until its top edge
+   sits at 88.1%, 1% to 4% under the rocks, and the box is raised so the water
+   runs on below it to the bottom of the hero.
    .hero and .hero-scene must never create a stacking context (no z-index,
    transform, opacity, filter, isolation, will-change or contain on them), or
    the birds could not fly between the lake and the leafy frame. Every layer
@@ -21,6 +29,14 @@
      page, or wider on tall screens so the scene never gets tiny. */
   --hero-box-w: max(104vw, min(150svh, 2170px));
   --hero-box-h: calc(var(--hero-box-w) * 725 / 2170);
+  /* How far the lake layer is moved down, as a share of the box height:
+     88.1% (where the water should start) - 65.3% (where it is drawn). */
+  --hero-lake-drop: 0.228;
+  /* How much water shows below the box, as a share of the box height. The
+     lake's paint is solid to about 97.5% + the drop = 120%; the mist takes
+     the last of it. */
+  --hero-water: 0.2;
+  --hero-scene-h: calc(var(--hero-box-h) * (1 + var(--hero-water)));
   /* When the box is wider than the page it is panned toward the villa.
      0 = centered, 0.5 = right edges aligned. */
   --hero-pan: 0.4;
@@ -38,14 +54,17 @@
   --my: 0;
   position: relative;
   overflow: hidden;
-  min-height: max(100svh, 34rem, calc(var(--hero-box-h) + 5rem));
+  min-height: max(100svh, 34rem, calc(var(--hero-scene-h) + 5rem));
 }
 
 /* ---- z 0: sky ---- */
+/* The sky's own far mountains are at its bottom edge. They belong behind the
+   midground hills, so the sky ends where the box does and the water covers
+   everything below. */
 .hero-sky {
   position: absolute;
   z-index: 0;
-  inset: -6px -2%;
+  inset: -6px -2% calc(var(--hero-box-h) * var(--hero-water) - 6px);
   pointer-events: none;
   transform: translate3d(calc(var(--mx) * 2px), calc(var(--sy) * 0.9px + var(--my) * 1px), 0);
   will-change: transform;
@@ -109,7 +128,7 @@ html[data-theme="dusk"] .hero-sky-dusk {
 .hero-scene {
   position: absolute;
   left: 50%;
-  bottom: -8px; /* spare paint under the fold for the mouse parallax */
+  bottom: calc(var(--hero-box-h) * var(--hero-water));
   width: var(--hero-box-w);
   height: var(--hero-box-h);
   margin-left: calc(var(--hero-box-w) / -2 - (var(--hero-box-w) - 104vw) * var(--hero-pan));
@@ -121,14 +140,14 @@ html[data-theme="dusk"] .hero-sky-dusk {
   will-change: transform;
 }
 
-/* z 1, dusk only: a warm glow behind the hills, at the horizon (65% down) */
+/* z 1, dusk only: a warm glow behind the hills, down to the waterline */
 .hero-glow {
   position: absolute;
   z-index: 1;
   left: 0;
   right: 0;
-  top: 22%;
-  height: 46%;
+  top: 42%;
+  height: 48%;
   opacity: 0;
   transition: opacity 1.2s ease;
   background: radial-gradient(
@@ -143,17 +162,22 @@ html[data-theme="dusk"] .hero-glow {
   opacity: 1;
 }
 
-/* z 2: midground */
-.hero-mid {
+/* z 2: lake, behind the village and dropped to its shoreline. The water is
+   only the bottom 35% of its box (y 472..721 of 725), so the shimmer filter
+   runs on a band cropped to that strip. Scrolling moves the lake up a little
+   faster than the midground and the mouse moves it at most 1px further down,
+   so the waterline only ever tucks deeper under the rocks, never out. */
+.hero-lake {
   z-index: 2;
-  transform: translate3d(calc(var(--mx) * 6px), calc(var(--sy) * 0.7px + var(--my) * 3px), 0);
+  top: calc(var(--hero-lake-drop) * 100%);
+  bottom: calc(var(--hero-lake-drop) * -100%);
+  transform: translate3d(calc(var(--mx) * 8px), calc(var(--sy) * 0.6px + var(--my) * 4px), 0);
 }
 
-/* z 3: lake. The water is only the bottom 35% of its box (y 472..721 of 725),
-   so the shimmer filter runs on a band cropped to that strip. */
-.hero-lake {
+/* z 3: midground */
+.hero-mid {
   z-index: 3;
-  transform: translate3d(calc(var(--mx) * 8px), calc(var(--sy) * 0.6px + var(--my) * 4px), 0);
+  transform: translate3d(calc(var(--mx) * 6px), calc(var(--sy) * 0.7px + var(--my) * 3px), 0);
 }
 .hero-lake-band {
   position: absolute;
@@ -186,7 +210,8 @@ html[data-theme="dusk"] .hero-glow {
   }
 }
 
-/* z 4: boats, in the lake's coordinates so they scale and move with it */
+/* z 4: boats, in the box's coordinates so they scale and move with the lake.
+   The water runs from 88% of the box to 120%; the mist takes the last tenth. */
 .hero-boats {
   z-index: 4;
   transform: translate3d(calc(var(--mx) * 8px), calc(var(--sy) * 0.6px + var(--my) * 4px), 0);
@@ -194,7 +219,7 @@ html[data-theme="dusk"] .hero-glow {
 .hero-sail {
   position: absolute;
   left: calc(var(--hero-sail-x) * 100%);
-  top: 57.2%; /* waterline at 74% of the box */
+  top: 78.7%; /* the hull's waterline (80% down the picture) at 95.5% of the box */
   width: 6.2%;
   aspect-ratio: 478 / 540;
   animation: hero-sail 120s linear var(--hero-sail-delay) infinite;
@@ -211,7 +236,7 @@ html[data-theme="dusk"] .hero-glow {
 .hero-row {
   position: absolute;
   left: var(--hero-row-x);
-  top: 80%; /* waterline at 87% of the box */
+  top: 97.5%; /* the hull's waterline (66% down the picture) at 104.5% of the box */
   width: 7.6%;
   aspect-ratio: 517 / 240;
   transform-origin: 50% 70%;

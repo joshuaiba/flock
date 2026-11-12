@@ -7,7 +7,7 @@ import "./hero.css";
 // The landing hero: a painted lake in layers, from the pack's hero/ and props/
 // files. Layout, stacking and all motion are in hero.css; scroll and mouse
 // parallax and the water shimmer are driven by HeroMotion.tsx. The flock canvas
-// (z 10, in the root layout) flies between the lake and the leafy frame.
+// (z 10, in the root layout) flies between the village and the leafy frame.
 
 /** Water shimmer: true = the SVG displacement filter; false = the cheap
  *  fallback (a still lake that slides 2px). */
@@ -92,15 +92,16 @@ export function Hero({ children }: { children: React.ReactNode }) {
         ))}
       </div>
 
-      {/* Midground, lake and boats share one 2170x725 coordinate system. */}
+      {/* Lake, midground and boats share one 2170x725 coordinate system. */}
       <div className="hero-scene" aria-hidden="true">
         <div className="hero-glow" />
-        <Art name="hero/midground" sizes={SCENE_SIZES} tint={SCENE_TINT} eager maskFull className="hero-layer hero-mid" />
+        {/* The lake lies behind the village, dropped to its shoreline (hero.css). */}
         <div className="hero-layer hero-lake">
           <div className="hero-lake-band">
             <Art name="hero/lake" sizes={SCENE_SIZES} tint={SCENE_TINT} eager maskFull className="hero-lake-art" />
           </div>
         </div>
+        <Art name="hero/midground" sizes={SCENE_SIZES} tint={SCENE_TINT} eager maskFull className="hero-layer hero-mid" />
         <div className="hero-layer hero-boats">
           <Art
             name="props/sailboat"
