@@ -18,8 +18,10 @@ const nextConfig: NextConfig = {
   },
   turbopack: {
     rules: {
+      // Every .css file goes through Tailwind's loader, by way of a small
+      // wrapper that keeps it from serving a stale stylesheet (see the file).
       "*.css": {
-        loaders: ["@tailwindcss/turbopack"],
+        loaders: [require.resolve("./tailwind-loader.cjs")],
         as: "*.css",
       },
     },
