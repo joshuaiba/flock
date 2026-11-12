@@ -38,6 +38,9 @@ export function Footer({ sample }: { sample?: boolean }) {
               <p className="label">Explore</p>
               <ul className="mt-3 space-y-1.5">
                 <li>
+                  <Link href="/forum">The Forum</Link>
+                </li>
+                <li>
                   <Link href="/graph">The graph</Link>
                 </li>
                 <li>
@@ -45,6 +48,9 @@ export function Footer({ sample }: { sample?: boolean }) {
                 </li>
                 <li>
                   <Link href="/#about">About</Link>
+                </li>
+                <li>
+                  <Link href="/about/numbers">About the numbers</Link>
                 </li>
               </ul>
             </div>

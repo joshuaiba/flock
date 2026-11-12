@@ -135,6 +135,12 @@ async function Report() {
             <p className="label mt-4 text-center">
               {day(d.week_of, true)} to {day(d.through)}
             </p>
+            {/* The week's figures come from the same views as the Forum. */}
+            <p className="mt-2 text-center text-[0.95rem] text-muted">
+              The same figures, by quarter: <Link href="/forum">the Forum</Link>
+              {" · "}
+              <Link href="/about/numbers">how these are counted</Link>
+            </p>
             <div className="fig mt-8 space-y-4 text-[1.12rem] leading-relaxed">
               {lines.map((line, i) => (
                 <p key={i} className="type-line" style={{ "--i": i } as React.CSSProperties}>

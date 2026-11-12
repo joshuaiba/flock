@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { Cartouche, CornerVine, Fresco } from "@/components/Art";
 import { Empty } from "@/components/Empty";
+import { EntitySignals, EntitySignalsSkeleton } from "@/components/EntitySignals";
 import { FlightPath } from "@/components/FlightPath";
 import { Footer } from "@/components/Footer";
 import { Medallion, MedallionLink } from "@/components/Medallion";
@@ -60,9 +61,19 @@ function Section({
   );
 }
 
+/** The frame of the Signals block. It is handed to the block itself, so the
+ *  title disappears with the readings when there is nothing to show. */
+function SignalsFrame({ children }: { children: React.ReactNode }) {
+  return (
+    <Section title="Signals" note="the last 90 days, against the 90 before">
+      {children}
+    </Section>
+  );
+}
+
 function AwardRows({ awards, counterpart }: { awards: OrgAward[]; counterpart: string }) {
   return (
-    <div className="overflow-x-auto">
+    <div className="relative overflow-x-auto">
       <table className="w-full min-w-[640px] border-collapse text-left">
         <thead>
           <tr className="label">
@@ -177,6 +188,20 @@ async function Sheet({ params }: { params: Promise<{ id: string }> }) {
             </p>
           )}
         </div>
+
+        {/* Signals load on their own, so the sheet never waits for them. An
+            organization with no awards has none, and gets no block. */}
+        {org.award_count > 0 && (
+          <Suspense
+            fallback={
+              <SignalsFrame>
+                <EntitySignalsSkeleton company={company} />
+              </SignalsFrame>
+            }
+          >
+            <EntitySignals id={org.id} Frame={SignalsFrame} />
+          </Suspense>
+        )}
 
         {org.path && (
           <Section title="Path to production" note="read from award descriptions">

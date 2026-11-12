@@ -50,6 +50,12 @@ export default function Home() {
         <Suspense fallback={<p className="fig mt-6 text-muted">counting the flock…</p>}>
           <Stats />
         </Suspense>
+        {/* The way in: the Forum is where a visit starts after the hero. */}
+        <p className="mt-6">
+          <Link href="/forum" className="marble pill">
+            enter the forum →
+          </Link>
+        </p>
       </Hero>
 
       <Garland className="mt-12 sm:mt-16" />
@@ -84,8 +90,12 @@ export default function Home() {
         </div>
 
         <div className="relative z-20 mt-14 flex flex-wrap justify-center gap-3 px-6 sm:mt-20 sm:px-0">
+          {/* The Forum leads; the graph and the letter follow. */}
+          <Link href="/forum" className="marble pill">
+            enter the forum →
+          </Link>
           <Link href="/graph" className="marble pill">
-            open the graph →
+            open the graph
           </Link>
           <Link href="/feed" className="marble pill">
             read this week&rsquo;s field report

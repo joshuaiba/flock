@@ -325,7 +325,7 @@ export function Flock() {
         const b = birds[i];
         if (b.leaving >= 0) {
           if (b.leaving >= LEAVE_FOR) continue; // gone, until the route changes
-          // Peel off: climb away toward the graph link.
+          // Peel off: climb away toward the top of the page.
           b.leaving += dt;
           b.vx += (W / 2 - b.x) * 3 * dt;
           b.vy += (-80 - b.y) * 3 * dt;
@@ -716,14 +716,25 @@ export function Flock() {
     const onClick = (e: MouseEvent) => {
       if (!hovered || interactive(e.target)) return;
       const b = hovered;
-      // An award with no recipient has no node to land on: open the graph as it is.
-      const id = b.item.kind === "award" ? (b.item.org_id == null ? null : `org:${b.item.org_id}`) : `opp:${b.item.id}`;
-      const go = () => live.current.router.push(id ? `/graph?focus=${encodeURIComponent(id)}` : "/graph");
+      // An award bird opens its recipient's page. A solicitation opens the graph
+      // on its node, and an award with no recipient has no page or node to land
+      // on, so it opens the graph as it is.
+      const item = b.item;
+      const to =
+        item.kind !== "award"
+          ? `/graph?focus=${encodeURIComponent(`opp:${item.id}`)}`
+          : item.org_id == null
+            ? "/graph"
+            : `/entity/${item.org_id}`;
+      // Already on that page: the bird stays where it is. Sending it off would
+      // lose it until the next change of page, for a link that leads nowhere new.
+      if (to === live.current.path) return;
+      const go = () => live.current.router.push(to);
       hovered = null;
       tip.style.opacity = "0";
       document.documentElement.style.cursor = "";
       if (raf) {
-        // The bird peels away, then the graph opens on its node.
+        // The bird peels away, then the page opens.
         ripples.push({ x: b.x, y: b.y, t: 0 });
         b.leaving = 0;
         setTimeout(go, 520);
