@@ -18,7 +18,7 @@ function ordinal(n: number): string {
   return `${n}${["th", "st", "nd", "rd"][n % 10] ?? "th"}`;
 }
 
-/** One reading: a small-caps label, the figure, and the lines that qualify it. */
+/** One reading: a quiet label, the figure, and the lines that qualify it. */
 function Reading({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="min-w-0">
@@ -29,7 +29,7 @@ function Reading({ label, children }: { label: string; children: React.ReactNode
 }
 
 const BIG = "font-display text-3xl leading-tight";
-const SMALL = "fig mt-1 text-[0.92rem] leading-snug text-muted";
+const SMALL = "ui mt-1 text-muted";
 
 /** The frame is the page's own section wrapper (cartouche title and plaster
  *  card), passed in so this block can leave the page without a trace: it
@@ -67,7 +67,7 @@ export async function EntitySignals({
           {compared && s.prev_amount > 0 && s.delta !== 0 && (
             <p className={SMALL}>
               a change of{" "}
-              <span className="text-ink">
+              <span className="delta text-ink">
                 {s.delta > 0 ? "+" : "−"}
                 {money(Math.abs(s.delta))}
               </span>
@@ -126,9 +126,9 @@ export async function EntitySignals({
       </dl>
 
       <div className="mt-8 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 border-t border-hair pt-4">
-        <AsOf env={s} className="text-[0.92rem]" />
-        <Link href="/about/numbers" className="label no-underline hover:text-ink">
-          how these are counted →
+        <AsOf env={s} />
+        <Link href="/about/numbers" className="ui-link">
+          How these are counted
         </Link>
       </div>
     </Frame>

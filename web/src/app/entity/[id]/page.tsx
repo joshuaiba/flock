@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
-import { Cartouche, CornerVine, Fresco } from "@/components/Art";
+import { Fresco } from "@/components/Art";
 import { Empty } from "@/components/Empty";
 import { EntitySignals, EntitySignalsSkeleton } from "@/components/EntitySignals";
 import { FlightPath } from "@/components/FlightPath";
@@ -16,47 +16,20 @@ export const metadata: Metadata = { title: "Specimen sheet" };
 
 const STAGE: Record<string, string> = { phase_1: "Phase I", phase_2: "Phase II", production: "Production" };
 
-// Sizes to tune by eye.
-const BANNER = "h-40 sm:h-[200px]"; // fresco strip: 160px, 200px from the sm breakpoint
-const CARTOUCHE = 360; // drawn width of a section-title plaque, px
-const VINE = 130; // drawn width of a card's corner vine, px
-// A card's padding keeps its content clear of the vines: at 130px a vine reaches
-// about 40px into the card at its corner (measured from the art's alpha).
-const CARD = "paper-card relative z-20 px-5 py-12 sm:px-10";
+// The fresco strip: 160px, 200px from the sm breakpoint. It is the page's one
+// ornament; everything under the header is a working sheet.
+const BANNER = "h-40 sm:h-[200px]";
 
-/** A corner vine on a plaster card: stems along the card's edges, flower inside. */
-function Vine({ corner }: { corner: "tl" | "br" }) {
-  return <CornerVine corner={corner} size={VINE} />;
-}
-
-/** A section: its title in a cartouche, an optional note under the plaque, and
- *  the content, on a plaster card with corner vines unless `card` is off.
- *  Layers follow the layout: the plaque is art (under the grain), cards and
- *  text sit at z-20. */
-function Section({
-  title,
-  note,
-  card = true,
-  children,
-}: {
-  title: string;
-  note?: string;
-  card?: boolean;
-  children: React.ReactNode;
-}) {
+/** A section of the sheet: a rule, a plain serif title with an optional note
+ *  beside it, then the content. No card and no ornament. */
+function Section({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {
   return (
-    <section className="mt-16">
-      <Cartouche width={CARTOUCHE}>{title}</Cartouche>
-      {note && <p className="fig relative z-20 mt-1 text-center text-muted">{note}</p>}
-      {card ? (
-        <div className={`${CARD} mt-8`}>
-          <Vine corner="tl" />
-          <Vine corner="br" />
-          {children}
-        </div>
-      ) : (
-        <div className="relative z-20 mt-8">{children}</div>
-      )}
+    <section className="relative z-20 mt-14 border-t border-frame pt-7">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
+        <h2 className="panel-title">{title}</h2>
+        {note && <p className="ui text-muted">{note}</p>}
+      </div>
+      <div className="mt-5">{children}</div>
     </section>
   );
 }
@@ -65,7 +38,7 @@ function Section({
  *  title disappears with the readings when there is nothing to show. */
 function SignalsFrame({ children }: { children: React.ReactNode }) {
   return (
-    <Section title="Signals" note="the last 90 days, against the 90 before">
+    <Section title="Signals" note="The last 90 days, against the 90 before">
       {children}
     </Section>
   );
@@ -74,26 +47,26 @@ function SignalsFrame({ children }: { children: React.ReactNode }) {
 function AwardRows({ awards, counterpart }: { awards: OrgAward[]; counterpart: string }) {
   return (
     <div className="relative overflow-x-auto">
-      <table className="w-full min-w-[640px] border-collapse text-left">
+      <table className="ledger min-w-[640px]">
         <thead>
-          <tr className="label">
-            <th className="py-2 pr-4 font-normal">Date</th>
-            <th className="py-2 pr-4 text-right font-normal">Amount</th>
-            <th className="py-2 pr-4 font-normal">Stage</th>
-            <th className="py-2 pr-4 font-normal">{counterpart}</th>
-            <th className="py-2 font-normal">For</th>
+          <tr>
+            <th>Date</th>
+            <th className="num">Amount</th>
+            <th>Stage</th>
+            <th>{counterpart}</th>
+            <th>For</th>
           </tr>
         </thead>
         <tbody>
           {awards.map((a) => (
-            <tr key={a.id} className="border-t border-hair align-baseline">
-              <td className="fig whitespace-nowrap py-2.5 pr-4 text-muted">{day(a.day)}</td>
-              <td className="fig whitespace-nowrap py-2.5 pr-4 text-right">{dollars(a.amount)}</td>
-              <td className="fig whitespace-nowrap py-2.5 pr-4 text-muted">{a.stage ? STAGE[a.stage] : "—"}</td>
-              <td className="py-2.5 pr-4 text-[0.98rem]">
+            <tr key={a.id}>
+              <td className="ui whitespace-nowrap text-muted">{day(a.day)}</td>
+              <td className="num">{dollars(a.amount)}</td>
+              <td className="ui whitespace-nowrap text-muted">{a.stage ? STAGE[a.stage] : "—"}</td>
+              <td className="text-[1.0625rem]">
                 {a.other_id ? <Link href={`/entity/${a.other_id}`}>{a.other_name}</Link> : "—"}
               </td>
-              <td className="py-2.5 text-[0.98rem]">
+              <td className="text-[1rem] leading-snug">
                 {a.url ? (
                   <a href={a.url} target="_blank" rel="noreferrer" className="text-ink no-underline hover:underline">
                     {truncate(a.description, 110) || "Award record"}
@@ -137,14 +110,14 @@ async function Sheet({ params }: { params: Promise<{ id: string }> }) {
         {/* The painted garland, as a strip. Nothing is written on it; the
             medallion hangs over its lower edge. */}
         <Fresco variant="band" eager className={`fade-sides z-0 w-full border-y border-frame ${BANNER}`} />
-        <div className="relative z-20 flex flex-col items-center text-center" data-flock-avoid>
+        <div className="relative z-20 flex flex-col items-center text-center">
           <div className="-mt-14">
             <Medallion id={org.id} tag={org.tag} kind={org.kind} size={112} morph="always" />
           </div>
-          <p className="label mt-5">{org.kind}</p>
+          <p className="label mt-5 capitalize">{org.kind}</p>
           <h1 className="mt-1 text-4xl sm:text-6xl">{org.name}</h1>
-          <p className="fig mt-3 text-muted">
-            {org.uei ? `UEI ${org.uei}` : "no UEI on record"}
+          <p className="ui mt-3 text-muted">
+            {org.uei ? `UEI ${org.uei}` : "No UEI on record"}
             {org.tags.map((t) => (
               <span key={t.slug}> · {tagLabel(t.slug)}</span>
             ))}
@@ -162,25 +135,23 @@ async function Sheet({ params }: { params: Promise<{ id: string }> }) {
         </div>
       </header>
 
-      <div data-flock-avoid>
+      <div>
         <div className="relative z-20 mt-8">
-          <dl className="fig flex flex-wrap justify-center gap-x-12 gap-y-4 border-y border-hair py-5 text-center">
-            <div>
-              <dt className="label">{company ? "Awarded" : "Obligated"}</dt>
-              <dd className="mt-1 font-display text-3xl text-pompeii">{money(org.total)}</dd>
-            </div>
-            <div>
-              <dt className="label">Awards</dt>
-              <dd className="mt-1 font-display text-3xl">{org.award_count}</dd>
-            </div>
-            <div>
-              <dt className="label">First seen</dt>
-              <dd className="mt-1 font-display text-3xl">{day(org.first_award)}</dd>
-            </div>
-            <div>
-              <dt className="label">Last seen</dt>
-              <dd className="mt-1 font-display text-3xl">{day(org.last_award)}</dd>
-            </div>
+          <dl className="grid grid-cols-2 border-y border-frame sm:grid-cols-4">
+            {[
+              { k: company ? "Awarded" : "Obligated", v: money(org.total), money: true },
+              { k: "Awards", v: String(org.award_count) },
+              { k: "First seen", v: day(org.first_award) },
+              { k: "Last seen", v: day(org.last_award) },
+            ].map((s, i) => (
+              <div
+                key={s.k}
+                className={`px-4 py-4 text-center ${i % 2 ? "border-l border-hair" : ""} ${i > 1 ? "border-t border-hair sm:border-t-0" : ""} ${i === 2 ? "sm:border-l" : ""}`}
+              >
+                <dt className="label">{s.k}</dt>
+                <dd className={`mt-1 font-display text-[1.75rem] leading-tight ${s.money ? "text-pompeii" : ""}`}>{s.v}</dd>
+              </div>
+            ))}
           </dl>
           {org.aliases.length > 0 && (
             <p className="mx-auto mt-4 max-w-2xl text-center text-muted">
@@ -204,24 +175,24 @@ async function Sheet({ params }: { params: Promise<{ id: string }> }) {
         )}
 
         {org.path && (
-          <Section title="Path to production" note="read from award descriptions">
+          <Section title="Path to production" note="Read from award descriptions">
             <FlightPath stages={org.path} />
           </Section>
         )}
 
         <Section
           title="Awards"
-          note={org.award_count ? `${plural(org.award_count, "award")} · newest first` : undefined}
+          note={org.award_count ? `${plural(org.award_count, "award")}, newest first` : undefined}
         >
           {org.awards.length === 0 ? (
-            <p className="text-center text-muted">No autonomy awards on record yet.</p>
+            <p className="text-muted">No autonomy awards on record yet.</p>
           ) : (
             <>
               <AwardRows awards={first} counterpart={company ? "From" : "To"} />
               {rest.length > 0 && (
-                <details className="mt-2">
-                  <summary className="fig cursor-pointer py-2 text-cypress">
-                    show {plural(rest.length, "older award")}
+                <details className="mt-3">
+                  <summary className="ui-link w-fit cursor-pointer py-1">
+                    Show {plural(rest.length, "older award")}
                   </summary>
                   <AwardRows awards={rest} counterpart={company ? "From" : "To"} />
                 </details>
@@ -231,8 +202,8 @@ async function Sheet({ params }: { params: Promise<{ id: string }> }) {
         </Section>
 
         {(org.related.length > 0 || org.family.length > 0) && (
-          <Section title={company ? "Who pays them" : "Where the money goes"} card={false}>
-            <div className="flex flex-wrap justify-center gap-x-6 gap-y-8">
+          <Section title={company ? "Who pays them" : "Where the money goes"}>
+            <div className="flex flex-wrap gap-x-6 gap-y-8 pt-2">
               {org.related.map((r) => (
                 <MedallionLink key={r.id} id={r.id} name={r.name} tag={null} kind={r.kind} note={money(r.total)} />
               ))}
@@ -255,9 +226,9 @@ async function Sheet({ params }: { params: Promise<{ id: string }> }) {
             <ul>
               {org.opportunities.map((o) => (
                 <li key={o.id} className="row sm:grid-cols-[7rem_1fr_auto]">
-                  <span className="fig text-muted">{day(o.posted)}</span>
+                  <span className="ui text-muted">{day(o.posted)}</span>
                   <span>{o.url ? <a href={o.url} target="_blank" rel="noreferrer">{o.title}</a> : o.title}</span>
-                  <span className="fig text-muted">{o.open ? `open until ${day(o.closes, true)}` : "closed"}</span>
+                  <span className="ui text-muted">{o.open ? `Open until ${day(o.closes, true)}` : "Closed"}</span>
                 </li>
               ))}
             </ul>
@@ -265,14 +236,14 @@ async function Sheet({ params }: { params: Promise<{ id: string }> }) {
         )}
 
         {org.sources.length > 0 && (
-          <Section title="Source documents" note="where each record came from">
+          <Section title="Source documents" note="Where each record came from">
             <ul className="grid gap-x-10 sm:grid-cols-2">
               {org.sources.map((s) => (
-                <li key={s.url} className="fig flex justify-between gap-4 border-b border-hair py-1.5">
+                <li key={s.url} className="flex items-baseline justify-between gap-4 border-b border-hair py-1.5 text-[1.0625rem]">
                   <a href={s.url} target="_blank" rel="noreferrer" className="truncate">
                     {s.label}
                   </a>
-                  <span className="shrink-0 text-muted">{day(s.day, true)}</span>
+                  <span className="ui shrink-0 text-muted">{day(s.day, true)}</span>
                 </li>
               ))}
             </ul>
@@ -286,7 +257,7 @@ async function Sheet({ params }: { params: Promise<{ id: string }> }) {
 export default function EntityPage({ params }: { params: Promise<{ id: string }> }) {
   return (
     <>
-      <main className="mx-auto max-w-5xl px-5 pt-20 sm:px-8" data-flock-column>
+      <main className="mx-auto max-w-5xl px-5 pt-20 sm:px-8">
         <Suspense fallback={<div className="h-[70vh]" />}>
           <Sheet params={params} />
         </Suspense>
