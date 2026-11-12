@@ -1,20 +1,20 @@
 import Link from "next/link";
 import { medallionFor } from "@/lib/art";
 import { day } from "@/lib/format";
-import { change, priorLabel, STAGE_LABEL, type Envelope, type SignalOrg, type StagePoint } from "@/lib/signals";
-import { CornerVine, MedallionImg } from "./Art";
+import { change, pct, priorLabel, STAGE_LABEL, type Envelope, type SignalOrg, type StagePoint } from "@/lib/signals";
+import { MedallionImg } from "./Art";
 
 // Shared pieces of the Forum, the leaderboards and the entity page's signals.
 // All of them render on the server; nothing here needs the browser.
 
-/** A plaster card for one signal. `vine` puts the corner ornament on the
- *  top-left; use it on the main panels only. The card sits above the paper
- *  grain (z-20), like every card that carries text. */
+/** One section of a dashboard: a hairline, a plain serif title, an optional
+ *  line saying what is counted, an optional one-sentence reading, then the
+ *  content. It is not a card: sections are told apart by the rule and by
+ *  space. It sits above the paper grain (z-20), like everything with text. */
 export function Panel({
   title,
   note,
   takeaway,
-  vine = false,
   more,
   className = "",
   id,
@@ -25,33 +25,41 @@ export function Panel({
   note?: React.ReactNode;
   /** one sentence read off the data, shown above a chart */
   takeaway?: React.ReactNode;
-  vine?: boolean;
-  /** a link in the panel's top-right corner, e.g. to the full leaderboard */
+  /** a link beside the title, e.g. to the full leaderboard */
   more?: { href: string; label: string };
   className?: string;
   id?: string;
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} className={`paper-card relative z-20 flex flex-col px-5 py-7 sm:px-8 ${vine ? "pt-10" : ""} ${className}`}>
-      {vine && <CornerVine corner="tl" size={120} />}
+    <section id={id} className={`relative z-20 flex flex-col border-t border-frame pt-5 ${className}`}>
       <header className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
         <h2 className="panel-title">{title}</h2>
         {more && (
-          <Link href={more.href} className="label no-underline hover:text-ink">
-            {more.label} →
+          <Link href={more.href} className="ui-link">
+            {more.label}
           </Link>
         )}
       </header>
-      {note && <p className="fig mt-1 text-muted">{note}</p>}
-      {takeaway && <p className="takeaway mt-4">{takeaway}</p>}
+      {takeaway && <p className="takeaway mt-2 max-w-[46rem]">{takeaway}</p>}
+      {note && <p className="ui mt-2 max-w-[46rem] text-muted">{note}</p>}
       <div className="mt-4 min-w-0 flex-1">{children}</div>
     </section>
   );
 }
 
-/** Change against the prior period: "▲ 41% vs the prior 90 days". Ink only;
- *  the triangle carries the direction. Says so when there is nothing to
+/** Growth with its sign, for a change column: 0.41 -> "+41%", -0.12 -> "−12%".
+ *  Tenfold growth and more is a multiple of the prior figure ("13×"), which
+ *  needs no sign: a multiple is growth. */
+export function signedPct(v: number): string {
+  const t = pct(v);
+  if (t.endsWith("×")) return t;
+  const sign = v > 0 ? "+" : v < 0 ? "−" : "";
+  return t === "under 1%" ? `${sign}<1%` : `${sign}${t}`;
+}
+
+/** Change against the prior period: "+41% vs the prior 90 days". The sign
+ *  carries the direction, in tabular figures. Says so when there is nothing to
  *  compare with, never a made-up zero.
  *
  *  Pass `pct` when the API gives one for this figure: `null` there means the
@@ -68,36 +76,38 @@ export function Delta({
   prev: number;
   env: Pick<Envelope, "window_days" | "coverage">;
   pct?: number | null;
-  /** just the arrow and the figure, for tight rows */
+  /** just the signed figure, for tight rows */
   short?: boolean;
 }) {
-  const quiet = "fig text-[0.86rem] text-muted";
+  const quiet = "ui text-muted";
   if (!env.coverage.prior_complete) return <span className={quiet}>no earlier period on record</span>;
   if (given === null && prev > 0)
     return <span className={quiet}>too little in {priorLabel(env.window_days)} for a percentage</span>;
   const c = change(cur, prev, true);
   if (!c) return <span className={quiet}>nothing in {priorLabel(env.window_days)}</span>;
+  if (c.flat) return <span className={quiet}>level{!short && <> with {priorLabel(env.window_days)}</>}</span>;
+  const text = signedPct((cur - prev) / prev);
+  // "+41% vs the prior 90 days", but "13× the prior 90 days".
+  const joiner = text.endsWith("×") ? "" : "vs ";
   return (
     <span className={quiet}>
-      <span className="text-ink">
-        {c.flat ? (
-          "level"
-        ) : (
-          <>
-            <span aria-hidden="true">{c.up ? "▲" : "▼"}</span>
-            <span className="sr-only">{c.up ? "up" : "down"}</span> {c.text}
-          </>
-        )}
-      </span>
-      {!short && <> vs {priorLabel(env.window_days)}</>}
+      <span className="delta text-ink">{text}</span>
+      {!short && (
+        <>
+          {" "}
+          {joiner}
+          {priorLabel(env.window_days)}
+        </>
+      )}
     </span>
   );
 }
 
-/** Movement in a ranking: ▲3, ▼1, "new", or a dash. `since` names what the
- *  earlier rank is from ("the prior period" unless said otherwise). When the
- *  earlier period is not fully on record, pass `complete={false}` and nothing
- *  is shown: a move against a partial period would be made up. */
+/** Movement in a ranking, as places gained or lost: "+3", "−1", "new", or a
+ *  dash. `since` names what the earlier rank is from ("the prior period"
+ *  unless said otherwise). When the earlier period is not fully on record,
+ *  pass `complete={false}` and nothing is shown: a move against a partial
+ *  period would be made up. */
 export function RankChange({
   rank,
   prev,
@@ -112,22 +122,23 @@ export function RankChange({
   if (rank == null || !complete) return null;
   if (prev == null)
     return (
-      <span className="fig text-[0.8rem] text-muted" title={`not ranked in ${since}`}>
+      <span className="delta text-muted" title={`not ranked in ${since}`}>
         new
       </span>
     );
   const d = prev - rank;
   if (d === 0)
     return (
-      <span className="fig text-[0.8rem] text-muted" title={`same place as in ${since}`}>
-        –
+      <span className="delta text-muted" title={`same place as in ${since}`}>
+        <span aria-hidden="true">–</span>
+        <span className="sr-only">no change</span>
       </span>
     );
   return (
-    <span className="fig whitespace-nowrap text-[0.8rem] text-ink" title={`was ${prev} in ${since}`}>
-      <span aria-hidden="true">{d > 0 ? "▲" : "▼"}</span>
-      <span className="sr-only">{d > 0 ? "up" : "down"} </span>
+    <span className="delta text-ink" title={`was ${prev} in ${since}`}>
+      {d > 0 ? "+" : "−"}
       {Math.abs(d)}
+      <span className="sr-only"> {Math.abs(d) === 1 ? "place" : "places"}</span>
     </span>
   );
 }
@@ -146,7 +157,7 @@ export function OrgLink({
   className?: string;
 }) {
   return (
-    <span className={`inline-flex min-w-0 items-center gap-2.5 ${className}`}>
+    <span className={`inline-flex min-w-0 items-center gap-2 ${className}`}>
       <MedallionImg name={medallionFor(org.tag, org.kind)} size={size} />
       <Link href={`/entity/${org.id}`} className="min-w-0 truncate">
         {org.name}
@@ -161,14 +172,14 @@ export function GraphLink({ id, name, label = false }: { id: number; name: strin
   return (
     <Link
       href={`/graph?focus=${encodeURIComponent(`org:${id}`)}`}
-      className={label ? "label no-underline hover:text-ink" : "shrink-0 text-muted no-underline hover:text-ink"}
+      className={label ? "ui-link" : "shrink-0 text-muted/70 no-underline transition-colors hover:text-ink"}
       aria-label={`Show ${name} in the graph`}
       title="Show in graph"
     >
       {label ? (
-        "show in graph →"
+        "Show in graph"
       ) : (
-        <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.1" aria-hidden="true">
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.1" aria-hidden="true">
           <circle cx="3.5" cy="11.5" r="1.9" />
           <circle cx="12.5" cy="12" r="1.9" />
           <circle cx="8.5" cy="3.5" r="1.9" />
@@ -200,7 +211,7 @@ export function StageTrack({ path, className = "" }: { path: StagePoint[]; class
 /** "As of Nov 11, 2026 · sample data": the line every signals page carries. */
 export function AsOf({ env, className = "" }: { env: Pick<Envelope, "as_of" | "sample">; className?: string }) {
   return (
-    <p className={`fig text-muted ${className}`}>
+    <p className={`ui text-muted ${className}`}>
       As of {day(env.as_of)}
       {env.sample && " · sample data"}
     </p>
@@ -210,30 +221,31 @@ export function AsOf({ env, className = "" }: { env: Pick<Envelope, "as_of" | "s
 /** Loading rows for a ledger or a list: plaster blocks, no spinner. */
 export function SkeletonRows({ rows = 6, className = "" }: { rows?: number; className?: string }) {
   return (
-    <div className={`space-y-4 ${className}`} aria-hidden="true">
+    <div className={className} aria-hidden="true">
       {Array.from({ length: rows }, (_, i) => (
-        <div key={i} className="flex items-center gap-3">
-          <span className="skeleton h-7 w-7 shrink-0 rounded-full" />
-          <span className="skeleton h-4" style={{ width: `${46 - ((i * 7) % 22)}%` }} />
-          <span className="skeleton ml-auto h-4 w-16" />
+        <div key={i} className="flex h-10 items-center gap-3 border-b border-hair">
+          <span className="skeleton h-[22px] w-[22px] shrink-0 rounded-full" />
+          <span className="skeleton h-3.5" style={{ width: `${46 - ((i * 7) % 22)}%` }} />
+          <span className="skeleton ml-auto h-3.5 w-16" />
         </div>
       ))}
     </div>
   );
 }
 
-/** A panel-shaped placeholder while a signal loads. */
+/** A section-shaped placeholder while a signal loads. */
 export function PanelSkeleton({ title, rows = 6, className = "" }: { title: string; rows?: number; className?: string }) {
   return (
-    <section className={`paper-card relative z-20 px-5 py-7 sm:px-8 ${className}`} aria-busy="true">
+    <section className={`relative z-20 border-t border-frame pt-5 ${className}`} aria-busy="true">
       <h2 className="panel-title">{title}</h2>
       <span className="sr-only">Loading</span>
-      <SkeletonRows rows={rows} className="mt-6" />
+      <span className="skeleton mt-3 h-3.5 w-full max-w-md" aria-hidden="true" />
+      <SkeletonRows rows={rows} className="mt-5" />
     </section>
   );
 }
 
 /** A quiet line inside a panel when a signal has no rows behind it. */
 export function NoRows({ children }: { children: React.ReactNode }) {
-  return <p className="py-6 text-center text-muted">{children}</p>;
+  return <p className="py-6 text-muted">{children}</p>;
 }

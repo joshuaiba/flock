@@ -1,9 +1,9 @@
 import { NoRows, OrgLink, Panel } from "@/components/Signals";
 import { serverGet } from "@/lib/api";
-import { day, money, truncate } from "@/lib/format";
+import { day, money } from "@/lib/format";
 import { signalPath, type AwardRow, type Page } from "@/lib/signals";
 import { tagPhrase } from "@/lib/tags";
-import { Down, lastLabel, type PanelProps } from "./shared";
+import { Down, lastLabel, Scroll, type PanelProps } from "./shared";
 
 /** The ten biggest single awards in the window: who got it, who paid, when,
  *  how much and what for, with a link to the source record when there is one. */
@@ -31,43 +31,72 @@ export async function LargestAwards({ days, tag, className = "" }: PanelProps) {
           No {tag && <>{tagPhrase(tag)} </>}awards on record in {lastLabel(days)}.
         </NoRows>
       ) : (
-        <ol>
-          {d.items.map((a) => (
-            <li key={a.id} className="border-b border-hair py-3 first:pt-0 last:border-b-0">
-              <div className="flex items-center justify-between gap-4">
-                {a.recipient ? (
-                  <OrgLink org={a.recipient} size={26} />
-                ) : (
-                  <span className="text-muted">Unnamed recipient</span>
-                )}
-                <span className="fig shrink-0 text-pompeii">{money(a.amount)}</span>
-              </div>
-              <div className="fig mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[0.92rem] text-muted">
-                {a.agency && (
-                  <>
-                    <span>from</span>
-                    <OrgLink org={a.agency} size={18} className="gap-1.5!" />
-                    <span aria-hidden="true">·</span>
-                  </>
-                )}
-                <span className="whitespace-nowrap">{day(a.day)}</span>
-              </div>
-              {(a.description || a.url) && (
-                <p className="mt-1 text-[0.98rem] leading-snug">
-                  {truncate(a.description, 120)}
-                  {a.url && (
-                    <>
-                      {a.description && " "}
-                      <a href={a.url} target="_blank" rel="noreferrer" className="fig whitespace-nowrap text-[0.92rem]">
-                        source<span className="sr-only">: award record for {a.recipient?.name ?? "this award"}</span>
-                      </a>
-                    </>
-                  )}
-                </p>
-              )}
-            </li>
-          ))}
-        </ol>
+        <Scroll label="Largest awards">
+          {/* On a phone the agency and the date move under the recipient, and
+              the description is left to the source record. */}
+          <table className="ledger">
+            <thead>
+              <tr>
+                <th scope="col">Recipient</th>
+                <th scope="col" className="hidden md:table-cell">
+                  Awarded by
+                </th>
+                <th scope="col" className="hidden md:table-cell">
+                  Date
+                </th>
+                <th scope="col" className="hidden lg:table-cell">
+                  For
+                </th>
+                <th scope="col" className="num">
+                  Amount
+                </th>
+                <th scope="col" className="hidden sm:table-cell">
+                  <span className="sr-only">Source record</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {d.items.map((a) => {
+                const source = a.url && (
+                  <a href={a.url} target="_blank" rel="noreferrer" className="ui-link whitespace-nowrap">
+                    Source<span className="sr-only">: award record for {a.recipient?.name ?? "this award"}</span>
+                  </a>
+                );
+                return (
+                  <tr key={a.id}>
+                    <td className="forum-name max-w-0 md:w-[26%]">
+                      {a.recipient ? (
+                        <OrgLink org={a.recipient} size={22} className="max-w-full align-middle" />
+                      ) : (
+                        <span className="text-muted">Unnamed recipient</span>
+                      )}
+                      <span className="ui mt-0.5 flex flex-wrap items-center gap-x-2 text-muted md:hidden">
+                        {a.agency && <span className="min-w-0 truncate">{a.agency.name}</span>}
+                        <span className="whitespace-nowrap">{day(a.day)}</span>
+                        <span className="sm:hidden">{source}</span>
+                      </span>
+                    </td>
+                    <td className="hidden max-w-0 text-[1rem] md:table-cell md:w-[24%]">
+                      {a.agency ? (
+                        <OrgLink org={a.agency} size={18} graph={false} className="max-w-full align-middle" />
+                      ) : (
+                        <span className="text-muted">—</span>
+                      )}
+                    </td>
+                    <td className="ui hidden whitespace-nowrap text-muted md:table-cell">{day(a.day)}</td>
+                    <td className="ui hidden max-w-0 text-muted lg:table-cell lg:w-[34%]">
+                      <span className="block truncate" title={a.description ?? undefined}>
+                        {a.description ?? "—"}
+                      </span>
+                    </td>
+                    <td className="num text-pompeii">{money(a.amount)}</td>
+                    <td className="hidden text-right sm:table-cell">{source}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </Scroll>
       )}
     </Panel>
   );

@@ -47,14 +47,14 @@ export async function ReachedProduction({ days, tag, className = "" }: PanelProp
         </NoRows>
       ) : (
         <>
-          <ul>
+          <ul className="forum-rows border-t border-frame">
             {d.items.map((t) => (
-              <li key={t.org.id} className="border-b border-hair py-3 first:pt-0 last:border-b-0">
-                <div className="flex items-center justify-between gap-4">
-                  <OrgLink org={t.org} size={26} />
-                  <span className="fig shrink-0 text-pompeii">{money(t.amount)}</span>
+              <li key={t.org.id} className="py-2.5">
+                <div className="forum-name flex items-center justify-between gap-4">
+                  <OrgLink org={t.org} size={22} />
+                  <span className="forum-num shrink-0 text-pompeii">{money(t.amount)}</span>
                 </div>
-                <div className="fig mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.92rem] text-muted">
+                <div className="ui mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-muted">
                   <StageTrack path={t.path} />
                   <span className="whitespace-nowrap">{day(t.day)}</span>
                   <span aria-hidden="true">·</span>
@@ -66,7 +66,7 @@ export async function ReachedProduction({ days, tag, className = "" }: PanelProp
             ))}
           </ul>
           {d.total > d.items.length && (
-            <p className="fig mt-3 text-[0.92rem] text-muted">
+            <p className="ui mt-3 text-muted">
               Showing the latest {d.items.length} of {d.total.toLocaleString("en-US")}.
             </p>
           )}

@@ -35,38 +35,29 @@ export function SignalFilters({
     return s ? `${basePath}?${s}` : basePath;
   };
   return (
-    <div className={`flex flex-wrap items-center gap-x-4 gap-y-3 ${className}`}>
-      <div className="marble inline-flex rounded-full p-1" role="group" aria-label="Window">
+    <div className={`flex flex-wrap items-center gap-x-3 gap-y-2 ${className}`}>
+      <div className="seg" role="group" aria-label="Window">
         {WINDOWS.map((w) => (
-          <Link
-            key={w}
-            href={href({ window: w })}
-            scroll={false}
-            aria-current={w === current ? "true" : undefined}
-            className={`rounded-full px-3 py-1.5 font-caps text-[0.66rem] uppercase tracking-[0.14em] no-underline transition-colors ${
-              w === current ? "bg-card text-ink shadow-[0_0_0_1px_var(--frame)]" : "text-muted hover:text-ink"
-            }`}
-          >
+          <Link key={w} href={href({ window: w })} scroll={false} aria-current={w === current ? "true" : undefined}>
             {windowLabel(w)}
           </Link>
         ))}
       </div>
       {showTag && (
-        <label className="marble inline-flex items-center gap-2 rounded-full py-1 pl-4 pr-2">
-          <span className="label">Category</span>
-          <select
-            value={tag ?? ""}
-            onChange={(e) => router.push(href({ tag: e.target.value || null }), { scroll: false })}
-            className="fig max-w-[13rem] cursor-pointer truncate rounded-full bg-transparent py-1 pl-1 pr-1 text-ink outline-offset-2"
-          >
-            <option value="">All categories</option>
-            {TAGS.map((t) => (
-              <option key={t} value={t}>
-                {tagLabel(t)}
-              </option>
-            ))}
-          </select>
-        </label>
+        <select
+          aria-label="Category"
+          value={tag ?? ""}
+          onChange={(e) => router.push(href({ tag: e.target.value || null }), { scroll: false })}
+          className="field w-[13.5rem] max-w-full"
+          style={{ height: "1.875rem" }}
+        >
+          <option value="">All categories</option>
+          {TAGS.map((t) => (
+            <option key={t} value={t}>
+              {tagLabel(t)}
+            </option>
+          ))}
+        </select>
       )}
     </div>
   );

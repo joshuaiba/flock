@@ -1,7 +1,7 @@
-import { NoRows, OrgLink, Panel } from "@/components/Signals";
+import { NoRows, OrgLink, Panel, signedPct } from "@/components/Signals";
 import { serverGet } from "@/lib/api";
 import { money } from "@/lib/format";
-import { pct, priorLabel, signalPath, type FundingPage } from "@/lib/signals";
+import { priorLabel, signalPath, type FundingPage } from "@/lib/signals";
 import { tagPhrase } from "@/lib/tags";
 import { carry, Down, lastLabel, Scroll, signedMoney, type PanelProps } from "./shared";
 
@@ -11,10 +11,10 @@ export async function Rising({ days, tag, className = "" }: PanelProps) {
   const d = await serverGet<FundingPage>(
     signalPath("momentum", { by: "company", sort: "pct", direction: "rising", window: days, tag, limit: 10 }),
   );
-  const more = { href: carry("/forum/leaderboards", days, tag, { tab: "rising" }), label: "full leaderboard" };
+  const more = { href: carry("/forum/leaderboards", days, tag, { tab: "rising" }), label: "Full leaderboard" };
   if (!d)
     return (
-      <Panel title="Rising" vine className={className}>
+      <Panel title="Rising" className={className}>
         <Down />
       </Panel>
     );
@@ -25,7 +25,6 @@ export async function Rising({ days, tag, className = "" }: PanelProps) {
   return (
     <Panel
       title="Rising"
-      vine
       more={more}
       className={className}
       note={
@@ -47,8 +46,8 @@ export async function Rising({ days, tag, className = "" }: PanelProps) {
         </NoRows>
       ) : (
         <Scroll label="Rising companies">
-          {/* Four columns, so the name keeps its room in a half-width panel:
-              the dollar change sits under the period's dollars. */}
+          {/* The dollar change has its own column from `sm` up; on a phone
+              it sits under the period's dollars, so the name keeps its room. */}
           <table className="ledger min-w-[19.5rem]">
             <thead>
               <tr>
@@ -60,6 +59,9 @@ export async function Rising({ days, tag, className = "" }: PanelProps) {
                 <th scope="col" className="num">
                   Awarded
                 </th>
+                <th scope="col" className="num hidden sm:table-cell">
+                  Change
+                </th>
                 <th scope="col" className="num">
                   Growth
                 </th>
@@ -68,27 +70,21 @@ export async function Rising({ days, tag, className = "" }: PanelProps) {
             <tbody>
               {d.items.map((r, i) => (
                 <tr key={r.org?.id ?? i}>
-                  <td className="num text-muted">{r.pct_rank ?? i + 1}</td>
+                  <td className="num w-8 text-muted">{r.pct_rank ?? i + 1}</td>
                   {/* w-full + max-w-0: this cell takes the room the numbers
                       leave, and a long name is cut with an ellipsis. */}
-                  <td className="w-full max-w-0">
-                    {r.org ? <OrgLink org={r.org} size={26} className="max-w-full align-middle" /> : "Unnamed recipient"}
+                  <td className="forum-name w-full max-w-0">
+                    {r.org ? <OrgLink org={r.org} size={22} className="max-w-full align-middle" /> : "Unnamed recipient"}
                   </td>
                   <td className="num leading-tight">
                     <span className="text-pompeii">{money(r.amount)}</span>
-                    <span className="block text-[0.86rem] text-muted">
+                    <span className="block text-[0.75rem] text-muted sm:hidden">
                       <span className="sr-only">change </span>
                       {signedMoney(r.delta)}
                     </span>
                   </td>
-                  <td className="num">
-                    {r.pct != null && (
-                      <>
-                        <span aria-hidden="true">▲</span>
-                        <span className="sr-only">up</span> {pct(r.pct)}
-                      </>
-                    )}
-                  </td>
+                  <td className="num hidden text-muted sm:table-cell">{signedMoney(r.delta)}</td>
+                  <td className="num">{r.pct != null && signedPct(r.pct)}</td>
                 </tr>
               ))}
             </tbody>
