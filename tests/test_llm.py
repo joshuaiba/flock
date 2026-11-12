@@ -270,6 +270,10 @@ def test_default_provider_comes_from_settings(monkeypatch):
 
 def test_default_provider_requires_key(monkeypatch):
     monkeypatch.setattr(llm, "_provider", None)
+    with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):  # the default model is Claude
+        llm.get_provider()
+    monkeypatch.setenv("EXTRACT_MODEL", "gemini-x")
+    settings.reset_settings()
     with pytest.raises(RuntimeError, match="GEMINI_API_KEY"):
         llm.get_provider()
 

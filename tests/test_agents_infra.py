@@ -40,8 +40,11 @@ def test_settings_defaults():
     s = settings.get_settings()
     assert s.extract_model == config.DEFAULT_EXTRACT_MODEL
     assert s.resolve_model == config.DEFAULT_RESOLVE_MODEL
-    assert s.gemini_api_key is None and s.sam_api_key is None and s.logfire_token is None
+    assert s.extract_model == s.resolve_model == "anthropic:claude-haiku-5-5"
+    assert s.anthropic_api_key is None and s.gemini_api_key is None
+    assert s.sam_api_key is None and s.logfire_token is None
     assert (s.extract_request_limit, s.resolve_tool_calls_limit, s.sam_daily_quota) == (2, 8, 10)
+    assert (s.llm_min_interval, s.monthly_llm_budget_usd) == (1.0, 90.0)
 
 
 def test_settings_env_override_and_cache(monkeypatch):
@@ -66,22 +69,62 @@ def test_blank_int_settings_fall_back(monkeypatch):
     # Unset GitHub Actions variables arrive as "", which must not crash int fields.
     monkeypatch.setenv("SAM_DAILY_QUOTA", "")
     monkeypatch.setenv("RESOLVE_TOOL_CALLS_LIMIT", " ")
+    monkeypatch.setenv("LLM_MIN_INTERVAL", "")
+    monkeypatch.setenv("MONTHLY_LLM_BUDGET_USD", " ")
     s = settings.Settings()
     assert s.sam_daily_quota == 10 and s.resolve_tool_calls_limit == 8
+    assert (s.llm_min_interval, s.monthly_llm_budget_usd) == (1.0, 90.0)
+
+
+def test_pacing_and_budget_settings_from_env(monkeypatch):
+    monkeypatch.setenv("LLM_MIN_INTERVAL", "0.25")
+    monkeypatch.setenv("MONTHLY_LLM_BUDGET_USD", "12.5")
+    s = settings.Settings()
+    assert (s.llm_min_interval, s.monthly_llm_budget_usd) == (0.25, 12.5)
+    with pytest.raises(ValueError):
+        settings.Settings(llm_min_interval=-1)
 
 
 def test_secrets_are_not_in_repr(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sekrit-anthropic")
     monkeypatch.setenv("GEMINI_API_KEY", "sekrit-gemini")
     monkeypatch.setenv("SAM_API_KEY", "sekrit-sam")
     s = settings.Settings()
     assert "sekrit" not in repr(s) and "sekrit" not in str(s.model_dump())
-    assert s.secret_values() == ["sekrit-gemini", "sekrit-sam"]
+    assert s.secret_values() == ["sekrit-anthropic", "sekrit-gemini", "sekrit-sam"]
+
+
+def test_anthropic_key_is_redacted(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api03-abcDEF123456")
+    settings.reset_settings()
+    out = run_log.redact("401 from api.anthropic.com, x-api-key sk-ant-api03-abcDEF123456 rejected")
+    assert "abcDEF" not in out and run_log.REDACTED in out
 
 
 def test_settings_ignore_dotenv_in_tests(tmp_path, monkeypatch):
     (tmp_path / ".env").write_text("GEMINI_API_KEY=from-dotenv\n")
     monkeypatch.chdir(tmp_path)
     assert settings.Settings().gemini_api_key is None
+
+
+@pytest.mark.parametrize(
+    "name, expected",
+    [
+        ("anthropic:claude-haiku-5-5", ("anthropic", "claude-haiku-5-5")),
+        ("gemini:gemini-3.8-flash", ("gemini", "gemini-3.8-flash")),
+        ("gemini-3.8-flash", ("gemini", "gemini-3.8-flash")),  # bare: pre-Claude configs
+        (" Anthropic:claude-sonnet-5-5 ", ("anthropic", "claude-sonnet-5-5")),
+    ],
+)
+def test_parse_model_and_label(name, expected):
+    assert settings.parse_model(name) == expected
+    assert settings.model_label(name) == ":".join(expected)
+
+
+@pytest.mark.parametrize("name", ["openai:gpt-x", "anthropic:", ":claude-haiku-5-5", ""])
+def test_parse_model_rejects_unknown_provider_or_empty_name(name):
+    with pytest.raises(ValueError, match="provider|model name"):
+        settings.parse_model(name)
 
 
 def test_build_model_requires_key(monkeypatch):
@@ -92,6 +135,34 @@ def test_build_model_requires_key(monkeypatch):
     model = settings.build_model("gemini-x")
     assert model.model_name == "gemini-x"
     assert settings.model_label("gemini-x") == "gemini:gemini-x"
+    # The prefixed spelling builds the same thing.
+    prefixed = settings.build_model("gemini:gemini-x")
+    assert type(prefixed) is type(model) and prefixed.model_name == "gemini-x"
+
+
+def test_build_model_dispatches_on_the_prefix(monkeypatch):
+    from pydantic_ai.models.anthropic import AnthropicModel
+    from pydantic_ai.models.google import GoogleModel
+
+    # Each provider needs its own key: a Gemini key does not unlock Claude.
+    monkeypatch.setenv("GEMINI_API_KEY", "g-key")
+    settings.reset_settings()
+    with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY.*anthropic:claude-haiku-5-5"):
+        settings.build_model("anthropic:claude-haiku-5-5")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "a-key")
+    settings.reset_settings()
+    claude = settings.build_model("anthropic:claude-haiku-5-5")
+    assert isinstance(claude, AnthropicModel) and claude.model_name == "claude-haiku-5-5"
+    assert isinstance(settings.build_model("gemini-x"), GoogleModel)
+
+
+def test_default_models_need_only_the_anthropic_key(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "a-key")
+    settings.reset_settings()
+    s = settings.get_settings()
+    for name in (s.extract_model, s.resolve_model):
+        assert settings.build_model(name).model_name == "claude-haiku-5-5"
+        assert settings.model_label(name) == "anthropic:claude-haiku-5-5"
 
 
 # --- budgets ----------------------------------------------------------------
