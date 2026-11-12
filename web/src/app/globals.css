@@ -500,15 +500,6 @@
     color: var(--faint);
   }
 
-  /* A row in a plain list: a hairline under it and nothing else. */
-  .row {
-    display: grid;
-    align-items: baseline;
-    gap: 0.25rem 1.25rem;
-    padding: 0.7rem 0;
-    border-bottom: 1px solid var(--line);
-  }
-
   /* ---- Tables ----
      A ledger: no boxes, 12px column heads over a rule, hairline rows. Names
      take .name (the display serif); numbers go in cells marked .num and line
