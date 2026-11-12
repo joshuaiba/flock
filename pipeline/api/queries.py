@@ -187,19 +187,36 @@ def _primary(tag_totals: dict[str, float]) -> str | None:
     return max(tag_totals, key=lambda k: (tag_totals[k], k)) if tag_totals else None
 
 
-def graph(conn: psycopg.Connection, days: int = 90, max_companies: int = 150) -> dict:
+def graph(
+    conn: psycopg.Connection, days: int = 90, max_companies: int = 150, *, recent: bool = False
+) -> dict:
     """Companies, agencies and solicitations in the window, with money edges.
-    `days = 0` means everything on record."""
+    `days = 0` means everything on record.
+
+    The window ends today, or, with `recent`, on the day of the newest award on
+    record: the data is not loaded on a fixed schedule, so the last `days` days
+    can be empty while the record's own latest stretch is not. Either way the
+    answer says when the newest award was (`latest`, and `age` in days), so the
+    caller can tell which windows have anything in them."""
+    at = _one(
+        conn,
+        AWARDS_CTE
+        + "SELECT current_date AS today, max(aa.day) AS latest FROM aa"
+        + " WHERE aa.recipient_id IS NOT NULL",
+    )
+    today, latest = at["today"], at["latest"]
+    through = latest if recent and latest else today
+    since = through - timedelta(days=days) if days else None
     rows = _rows(
         conn,
         AWARDS_CTE
         + """
         SELECT aa.recipient_id, aa.agency_id, aa.opportunity_id, aa.amount, aa.tags
         FROM aa
-        WHERE (%(days)s = 0 OR aa.day >= current_date - %(days)s::int)
+        WHERE (%(since)s::date IS NULL OR aa.day >= %(since)s::date)
           AND aa.recipient_id IS NOT NULL
         """,
-        days=days,
+        since=since,
     )
     totals: dict[int, float] = {}
     for r in rows:
@@ -251,11 +268,11 @@ def graph(conn: psycopg.Connection, days: int = 90, max_companies: int = 150) ->
                (o.closes_at IS NULL OR o.closes_at > now()) AS open
         FROM opportunities o
         WHERE o.id = ANY(%(ids)s)
-           OR %(days)s = 0
-           OR COALESCE(o.posted_at, o.fetched_at) >= current_date - %(days)s::int
+           OR %(since)s::date IS NULL
+           OR COALESCE(o.posted_at, o.fetched_at) >= %(since)s::date
         """,
         ids=list(opp_ids),
-        days=days,
+        since=since,
     ):
         n = node(f"opp:{o['id']}")
         n.update(
@@ -302,6 +319,11 @@ def graph(conn: psycopg.Connection, days: int = 90, max_companies: int = 150) ->
     ids = {n["id"] for n in out}
     return {
         "days": days,
+        "recent": recent,
+        "since": since,
+        "through": through,
+        "latest": latest,
+        "age": (today - latest).days if latest else None,
         "nodes": out,
         "edges": [e for e in edges.values() if e["source"] in ids and e["target"] in ids],
     }

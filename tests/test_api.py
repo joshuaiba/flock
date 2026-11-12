@@ -65,6 +65,35 @@ def test_graph_window_narrows(seeded):
     assert len(everything["nodes"]) >= len(wide["nodes"])
 
 
+def test_graph_recent_window_ends_on_the_newest_award(seeded):
+    client, db, _ = seeded
+    # A record that was last loaded 200 days ago: nothing is recent by the calendar.
+    db.execute(
+        "UPDATE awards SET signed_at = signed_at - 200,"
+        " fetched_at = fetched_at - interval '200 days'"
+    )
+    db.execute(
+        "UPDATE opportunities SET posted_at = posted_at - interval '200 days',"
+        " fetched_at = fetched_at - interval '200 days'"
+    )
+    total = lambda g: sum(e["amount"] for e in g["edges"] if e["kind"] == "award")  # noqa: E731
+    by_calendar = client.get("/api/graph", params={"days": 90}).json()
+    assert total(by_calendar) == 0
+    assert by_calendar["age"] == 200
+    assert by_calendar["recent"] is False
+
+    recent = client.get("/api/graph", params={"days": 90, "recent": True}).json()
+    assert total(recent) > 0
+    assert recent["recent"] is True
+    assert recent["through"] == recent["latest"] == by_calendar["latest"]
+    (expected,) = db.execute(
+        "SELECT sum(amount) FROM awards WHERE source_id <> 'award-not-autonomy'"
+        " AND signed_at >= (SELECT max(signed_at) FROM awards"
+        " WHERE source_id <> 'award-not-autonomy') - 90"
+    ).fetchone()
+    assert total(recent) == pytest.approx(float(expected))
+
+
 def test_org_page_for_company(seeded):
     client, db, _ = seeded
     (org_id,) = db.execute(
