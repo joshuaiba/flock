@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
-import { Fresco } from "@/components/Art";
+import { Art } from "@/components/Art";
 import { Empty } from "@/components/Empty";
 import { EntitySignals, EntitySignalsSkeleton } from "@/components/EntitySignals";
 import { FlightPath } from "@/components/FlightPath";
@@ -109,7 +109,7 @@ async function Sheet({ params }: { params: Promise<{ id: string }> }) {
       <header>
         {/* The painted garland, as a strip. Nothing is written on it; the
             medallion hangs over its lower edge. */}
-        <Fresco variant="band" eager className={`fade-sides z-0 w-full border-y border-line2 ${BANNER}`} />
+        <Art name="fresco/garland-band" sizes="100vw" className={`w-full ${BANNER}`} imgClassName="object-cover" />
         <div className="relative z-20 flex flex-col items-center text-center">
           <div className="-mt-14">
             <Medallion id={org.id} tag={org.tag} kind={org.kind} size={112} morph="always" />

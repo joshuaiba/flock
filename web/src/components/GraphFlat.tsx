@@ -928,7 +928,7 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
       atlas = a;
       invalidate();
     });
-    loadSprites().then(
+    loadSprites("on-dark").then(
       (s) => (sprites = s),
       () => {}, // without the sprites the graph simply has no birds
     );

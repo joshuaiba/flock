@@ -1,26 +1,26 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { Cartouche, Fresco, Garland } from "@/components/Art";
+import { Art } from "@/components/Art";
 import { Footer } from "@/components/Footer";
 import { Hero } from "@/components/Hero";
 import { serverGet, type Summary } from "@/lib/api";
+import { FRESCO_CAPTION, FRESCO_CREDIT } from "@/lib/art";
 import { clockET, money, plural } from "@/lib/format";
 
 async function Stats() {
   const s = await serverGet<Summary>("summary");
-  if (!s) return <p className="fig mt-6 text-muted">The data service is not answering right now.</p>;
+  if (!s) return <p className="hero-stats">The data service is not answering right now.</p>;
   return (
-    <p className="fig mt-6 text-muted">
-      {plural(s.awards_30d, "award")} tracked this month · <span className="text-accent">{money(s.amount_30d)}</span> · updated{" "}
+    <p className="hero-stats">
+      {plural(s.awards_30d, "award")} tracked this month · <span className="money">{money(s.amount_30d)}</span> · updated{" "}
       {clockET(s.updated_at)}
-      {s.sample && " · sample data"}
     </p>
   );
 }
 
 async function FooterWithData() {
   const s = await serverGet<Summary>("summary");
-  return <Footer sample={s?.sample} />;
+  return <Footer terrace sources sample={s?.sample} />;
 }
 
 // The three things Flock follows, in the order the money moves. The titles
@@ -43,69 +43,57 @@ const ABOUT = [
 export default function Home() {
   return (
     <>
-      {/* Hero: the painted lake in layers; the same scene at evening in dusk mode. */}
+      {/* Hero: the headline, the engraved lake along the bottom, and the flock. */}
       <Hero>
         <h1 className="hero-title">Following the money on the frontier of autonomy, from solicitation to production.</h1>
-        <Suspense fallback={<p className="fig mt-6 text-muted">counting the flock…</p>}>
+        <Suspense fallback={<p className="hero-stats">counting the flock…</p>}>
           <Stats />
         </Suspense>
         {/* The way in: the Forum is where a visit starts after the hero. */}
-        <p className="mt-7 flex flex-wrap items-center gap-2.5">
+        <p className="mt-8 flex flex-wrap items-center gap-2.5">
           <Link href="/forum" className="btn btn-primary">
-            Enter the Forum
+            Open the Forum
           </Link>
           <Link href="/graph" className="btn">
-            Open the graph
+            Explore the graph
           </Link>
         </p>
       </Hero>
 
-      <Garland className="mt-12 sm:mt-16" />
+      <section id="about" className="relative scroll-mt-16">
+        {/* The page's one engraving: the Boscoreale wall as a ghost in the top
+            right corner, clear of the words, with its caption. */}
+        <figure className="about-fresco">
+          <Art name="fresco/wall" sizes="(min-width: 1024px) 600px, 60vw" opacity={0.5} className="aspect-[2499/1856] w-full" />
+          <figcaption className="caption mt-3 pr-4 text-right sm:pr-10">
+            {FRESCO_CAPTION} {FRESCO_CREDIT}
+          </figcaption>
+        </figure>
 
-      <section id="about" className="mx-auto max-w-[1100px] scroll-mt-20 pt-12 sm:px-6 sm:pt-16">
-        {/* Header panel: the Boscoreale wall. The words start below it, never on it. */}
-        <Fresco variant="wall" className="h-[clamp(220px,42vw,460px)] sm:rounded-t-md" />
-        <Cartouche width={340} className="relative z-20 -mt-10 px-6 sm:-mt-14">
-          About
-        </Cartouche>
+        <div className="relative z-20 mx-auto max-w-[71.75rem] px-4 pt-20 sm:px-6 sm:pt-28 lg:pt-32">
+          <div className="max-w-[30rem] lg:min-h-[21rem]">
+            <h2 className="page-title text-balance">A map of defense funding for drones and autonomy.</h2>
+            <p className="reading mt-6 text-muted">
+              Flock is a knowledge graph. It connects what the Pentagon asks for to who gets paid, and watches whether
+              the research turns into something built at scale.
+            </p>
+          </div>
 
-        <div className="relative z-20 mx-auto mt-8 max-w-2xl px-6 text-center sm:px-0">
-          <p className="font-display text-[2rem] font-medium leading-[1.1] text-balance sm:text-[2.6rem]">
-            A painted map of defense funding for drones and autonomy.
-          </p>
-          <p className="mt-5 text-lg text-muted">
-            Flock is a knowledge graph. It connects what the Pentagon asks for to who gets paid, and
-            watches whether the research turns into something built at scale.
-          </p>
-        </div>
-
-        <div className="relative z-20 mx-6 mt-16 grid border-t border-line2 sm:mx-0 sm:mt-24 md:grid-cols-3">
-          {ABOUT.map((a) => (
-            <div
-              key={a.title}
-              className="border-b border-line py-8 md:border-b-0 md:border-l md:px-8 md:py-10 md:first:border-l-0 md:first:pl-0 md:last:pr-0"
-            >
-              <h3 className="text-[1.75rem]">{a.title}</h3>
-              <p className="mt-3 text-[1.0625rem] leading-[1.6] text-muted">{a.body}</p>
-            </div>
-          ))}
-        </div>
-
-        <div className="relative z-20 mt-12 flex flex-wrap items-center justify-center gap-2.5 px-6 sm:mt-16 sm:px-0">
-          {/* The Forum leads; the graph and the letter follow. */}
-          <Link href="/forum" className="btn btn-primary">
-            Enter the Forum
-          </Link>
-          <Link href="/graph" className="btn">
-            Open the graph
-          </Link>
-          <Link href="/feed" className="btn">
-            Read this week&rsquo;s field report
-          </Link>
+          <div className="mt-14 grid border-t border-line2 md:mt-20 md:grid-cols-3">
+            {ABOUT.map((a) => (
+              <div
+                key={a.title}
+                className="border-b border-line py-8 md:border-b-0 md:border-l md:px-8 md:pb-2 md:pt-10 md:first:border-l-0 md:first:pl-0 md:last:pr-0"
+              >
+                <h3 className="text-[1.6875rem] leading-[1.15]">{a.title}</h3>
+                <p className="reading mt-3 !text-[1.0625rem] !leading-[1.6] text-muted">{a.body}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
-      <Suspense fallback={<Footer />}>
+      <Suspense fallback={<Footer terrace sources />}>
         <FooterWithData />
       </Suspense>
     </>

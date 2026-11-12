@@ -1,80 +1,65 @@
 import Link from "next/link";
-import { FRESCO_CREDIT } from "@/lib/art";
-import { Art, GreekKey } from "./Art";
+import { Art } from "./Art";
 import "./footer.css";
 
-// Strength of the dusk darkening on the terrace. Higher is darker, which helps
-// the pale text; the dusk mask (--terrace-mask in globals.css) assumes 0.7 or more.
-const TERRACE_TINT = 0.7;
-
-/** Footer: a Greek-key rule, then the links in the empty sky of a painted
- *  terrace at dusk. The painting is full width, anchored to the bottom, and
- *  its top edge dissolves into the page. */
-export function Footer({ sample }: { sample?: boolean }) {
+/** The footer: one quiet line under a hairline. On the left the wordmark and
+ *  the ways around the site; on the right where the data comes from (the
+ *  landing page) or that it is sample data.
+ *
+ *  `width` matches the page's column: 1100px, or the Field Report's 620px
+ *  reading column (which keeps only the wordmark). `terrace` puts the terrace
+ *  engraving behind the foot of a long page: full width, anchored to the
+ *  bottom, fading out toward its own top edge. */
+export function Footer({
+  sample,
+  terrace = false,
+  sources = false,
+  width = "wide",
+}: {
+  sample?: boolean;
+  terrace?: boolean;
+  /** name the sources at the right, in place of the sample-data mark */
+  sources?: boolean;
+  width?: "wide" | "reading";
+}) {
+  const reading = width === "reading";
   return (
-    <footer className="site-footer mt-28">
-      <div className="mx-auto max-w-[400px] px-4 sm:max-w-6xl sm:px-6">
-        <GreekKey className="fade-sides" />
-      </div>
-
-      <Art
-        name="footer/terrace"
-        sizes="(max-width: 660px) 660px, 100vw"
-        tint={TERRACE_TINT}
-        className="site-footer-painting"
-        imgClassName="object-cover object-bottom"
-      />
-
-      <div className="site-footer-copy relative z-20 mx-auto max-w-6xl px-4 sm:px-6">
-        <div className="pt-10 sm:pt-12">
-          <div className="grid grid-cols-2 gap-x-8 gap-y-8 sm:grid-cols-[1.4fr_1fr_1fr] sm:gap-10">
-            <div className="col-span-2 sm:col-span-1">
-              <p className="font-display text-3xl">flock</p>
-              <p className="mt-3 max-w-xs text-muted">
-                Following the money on the frontier of autonomy, from solicitation to production.
-              </p>
-            </div>
-            <div>
-              <p className="eyebrow">Explore</p>
-              <ul className="mt-3 space-y-1.5">
-                <li>
-                  <Link href="/forum">The Forum</Link>
-                </li>
-                <li>
-                  <Link href="/graph">The graph</Link>
-                </li>
-                <li>
-                  <Link href="/feed">Field report</Link>
-                </li>
-                <li>
-                  <Link href="/#about">About</Link>
-                </li>
-                <li>
-                  <Link href="/about/numbers">About the numbers</Link>
-                </li>
-              </ul>
-            </div>
-            <div>
-              <p className="eyebrow">Sources</p>
-              <ul className="mt-3 space-y-1.5">
-                <li>
-                  <a href="https://www.usaspending.gov/">USAspending.gov</a>
-                </li>
-                <li>
-                  <a href="https://www.war.gov/News/Contracts/">DoD contract announcements</a>
-                </li>
-                <li>
-                  <a href="https://sam.gov/">SAM.gov</a>
-                </li>
-              </ul>
-            </div>
-          </div>
-          {/* Centered, so it stays in the open middle of the sky, clear of the
-              leaves at either edge of the painting. */}
-          <div className="mt-8 text-center text-muted">
-            <p className="fig">Public records, read nightly.{sample ? " Showing sample data." : ""}</p>
-            <p className="mt-1 text-[0.875rem] leading-snug">{FRESCO_CREDIT}</p>
-          </div>
+    <footer className={`site-footer ${terrace ? "site-footer-terrace" : ""}`}>
+      {terrace && (
+        <Art
+          name="footer/terrace"
+          sizes="(max-width: 660px) 660px, 100vw"
+          opacity={0.3}
+          className="site-footer-art"
+          imgClassName="object-cover object-bottom"
+        />
+      )}
+      <div className={`site-footer-row mx-auto px-4 sm:px-6 ${reading ? "max-w-[41.75rem]" : "max-w-[71.75rem]"}`}>
+        <div className="site-footer-line">
+          <p>
+            <Link href="/">flock</Link>
+            {!reading && (
+              <>
+                {" · "}
+                <Link href="/forum">Forum</Link>
+                {" · "}
+                <Link href="/graph">Graph</Link>
+                {" · "}
+                <Link href="/feed">Field Report</Link>
+                {" · "}
+                <Link href="/about/numbers">How the numbers are counted</Link>
+              </>
+            )}
+          </p>
+          {sources ? (
+            <p>
+              Sources: <a href="https://www.usaspending.gov/">USAspending</a>, <a href="https://sam.gov/">SAM.gov</a>,{" "}
+              <a href="https://www.war.gov/News/Contracts/">daily contract announcements</a>
+              {sample && " · Sample data"}
+            </p>
+          ) : (
+            sample && <p>Sample data</p>
+          )}
         </div>
       </div>
     </footer>

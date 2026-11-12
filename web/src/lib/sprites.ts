@@ -1,9 +1,13 @@
-// Swallow sprites for the flock canvas and the graph. Two strips of 8 frames
-// (award: warm, terracotta throat; solicitation: pale), birds facing right, plus
-// five single glide poses. Loaded once and shared.
+// Swallow sprites for the flock canvas. Two strips of 8 frames, birds facing
+// right: award birds in the accent, solicitation birds in the text color.
+// Plus three single glide poses, drawn in the text color only. Everything
+// comes in two tones (light lines for the dark page, ink lines for paper); a
+// tone is loaded once and shared.
 //
 // Strip metadata is from the pack's sprite-meta.json, at half size: the site
-// ships 130x195 cells, sharp for birds up to 56px wide on a 2x display.
+// ships 130x195 cells, sharp for birds up to 60px wide on a 2x display.
+
+import type { Tone } from "./art";
 
 export const SPRITE = { cellW: 130, cellH: 195, frames: 8, fps: 12 } as const;
 
@@ -12,9 +16,9 @@ const BODY_X = 0.52;
 const BODY_Y = 0.55;
 // Glide poses that face right and read as level flight, with their aspect ratios.
 const GLIDES = [
-  { src: "/art/props/swallow-glide-2-135.webp", w: 135, h: 104 },
-  { src: "/art/props/swallow-glide-4-133.webp", w: 133, h: 99 },
-  { src: "/art/props/swallow-glide-5-120.webp", w: 120, h: 84 },
+  { file: "swallow-glide-2-135", w: 135, h: 104 },
+  { file: "swallow-glide-4-133", w: 133, h: 99 },
+  { file: "swallow-glide-5-120", w: 120, h: 84 },
 ];
 export const GLIDE_COUNT = GLIDES.length;
 /** The flattest wing position in the strip: a glide for birds with no glide art. */
@@ -26,7 +30,7 @@ export type Sprites = {
   glides: HTMLImageElement[];
 };
 
-let pending: Promise<Sprites> | null = null;
+const pending = new Map<Tone, Promise<Sprites>>();
 
 function load(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -38,26 +42,34 @@ function load(src: string): Promise<HTMLImageElement> {
   });
 }
 
-/** Load the sprite images (once). A failed load is forgotten, so the next
- *  caller tries again. */
-export function loadSprites(): Promise<Sprites> {
-  pending ??= Promise.all([
-    load("/art/sprites/swallow-award-1040.webp"),
-    load("/art/sprites/swallow-solicitation-1040.webp"),
-    ...GLIDES.map((g) => load(g.src)),
-  ])
-    .then(([award, solicitation, ...glides]) => ({ award, solicitation, glides }))
-    .catch((e) => {
-      pending = null;
-      throw e;
-    });
-  return pending;
+export function spriteUrl(tone: Tone, kind: "award" | "solicitation"): string {
+  return `/art/${tone}/sprites/swallow-${kind}-1040.webp`;
+}
+
+/** Load one tone's sprite images (once). A failed load is forgotten, so the
+ *  next caller tries again. */
+export function loadSprites(tone: Tone): Promise<Sprites> {
+  let p = pending.get(tone);
+  if (!p) {
+    p = Promise.all([
+      load(spriteUrl(tone, "award")),
+      load(spriteUrl(tone, "solicitation")),
+      ...GLIDES.map((g) => load(`/art/${tone}/props/${g.file}.webp`)),
+    ])
+      .then(([award, solicitation, ...glides]) => ({ award, solicitation, glides }))
+      .catch((e) => {
+        pending.delete(tone);
+        throw e;
+      });
+    pending.set(tone, p);
+  }
+  return p;
 }
 
 export type Swallow = {
   x: number;
   y: number;
-  /** drawn width of a sprite cell in CSS pixels (28-56 in the flock) */
+  /** drawn width of a sprite cell in CSS pixels (26-60 in the flock) */
   width: number;
   /** velocity; sets facing (flipped when vx < 0) and tilt (clamped to +/-25 degrees) */
   vx: number;
@@ -81,8 +93,9 @@ export function drawSwallow(ctx: CanvasRenderingContext2D, s: Sprites, b: Swallo
   if (left) ctx.scale(-1, 1);
   ctx.rotate(tilt);
   ctx.globalAlpha = b.alpha ?? 1;
-  if (b.glide != null && b.award) {
-    // The glide art is in the award birds' colors, so only they use it.
+  if (b.glide != null && !b.award) {
+    // The glide art is in the text color, so only solicitation birds use it;
+    // an award bird glides on the strip's flattest frame, in the accent.
     const g = GLIDES[b.glide % GLIDES.length];
     const w = b.width * 0.92;
     const h = (w * g.h) / g.w;

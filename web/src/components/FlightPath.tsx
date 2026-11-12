@@ -23,7 +23,7 @@ export function FlightPath({ stages }: { stages: Stage[] }) {
               <Art
                 name="props/swallow-glide-2"
                 sizes={`${BIRD}px`}
-                tint={0}
+                opacity={1}
                 className="mb-0.5"
                 style={{ width: BIRD, aspectRatio: "135 / 104" }}
               />

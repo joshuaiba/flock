@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
-import { CornerVine, Fresco, GreekKey } from "@/components/Art";
 import { Empty } from "@/components/Empty";
 import { Footer } from "@/components/Footer";
 import { Letter } from "@/components/Letter";
@@ -10,10 +9,6 @@ import { day, money, plural, truncate } from "@/lib/format";
 import { tagPhrase } from "@/lib/tags";
 
 export const metadata: Metadata = { title: "Field report" };
-
-// The corner vine by the sign-off, in px: from the `sm` breakpoint up, and on phones.
-const VINE = 150;
-const VINE_SMALL = 96;
 
 function Entity({ id, name }: { id: number | null; name: string | null }) {
   if (!name) return <>an unnamed recipient</>;
@@ -105,17 +100,6 @@ async function Report() {
   return (
     <>
       <article className="paper-card relative z-20 mx-auto max-w-2xl overflow-clip">
-        {/* One vine, beside the sign-off, where the lines are short. */}
-        <CornerVine corner="br" size={VINE} className="hidden sm:block" />
-        <CornerVine corner="br" size={VINE_SMALL} className="sm:hidden" />
-
-        {/* Header panel: the Boscoreale wall. No text sits on it. The grain
-            ties the photograph to the drawn art. */}
-        <div className="relative">
-          <Fresco variant="wall" eager className="h-52 sm:h-64" />
-          <div className="grain grain-local fade-bottom" aria-hidden="true" />
-        </div>
-
         <Letter week={d.week_of}>
           {/* The title plaque sits on the faded foot of the fresco. */}
           <div className="relative z-10 -mt-3 px-4 text-center">
@@ -126,7 +110,6 @@ async function Report() {
             </p>
           </div>
           <div className="px-5 pb-12 sm:px-12 sm:pb-16">
-            <GreekKey className="fade-sides mx-auto mt-6 max-w-[400px] sm:max-w-none" />
             {/* The week's figures come from the same views as the Forum. */}
             <p className="ui mt-5 text-center text-muted">
               The same figures, by quarter:{" "}

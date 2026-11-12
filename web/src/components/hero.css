@@ -1,420 +1,145 @@
-/* The landing hero: a layered lakeside painting (see components/Hero.tsx).
+/* The landing hero (see components/Hero.tsx).
 
    Stacking, in the ROOT stacking context:
-     0 sky · 1 clouds, dusk glow · 2 lake · 3 midground · 4 boats
-     10 the flock canvas (global, fixed) · 12 foreground frame
-     13 light and mist · 15 paper grain (global) · 20 text
+     0 the engraved scene · 10 the flock canvas (global, fixed) · 20 text
+   .hero must never create a stacking context (no z-index, transform, opacity,
+   filter, isolation, will-change or contain on it), or the birds could not
+   fly between the engraving and the words.
 
-   The water lies BEHIND the village. The pack draws midground and lake in one
-   2170x725 box, but stacked as drawn the lake (water from 65.3% down) covers
-   the bottom quarter of the midground: its shore, steps and boathouse arches.
-   The midground's own shoreline ends between 89.2% (left) and 92.6% (right)
-   of the box, so the lake is dropped by --hero-lake-drop until its top edge
-   sits at 88.1%, 1% to 4% under the rocks, and the box is raised so the water
-   runs on below it to the bottom of the hero.
-   .hero and .hero-scene must never create a stacking context (no z-index,
-   transform, opacity, filter, isolation, will-change or contain on them), or
-   the birds could not fly between the lake and the leafy frame. Every layer
-   is positioned and carries its own z-index; transforms live on the layers.
-
-   Parallax comes from three numbers that HeroMotion.tsx writes on .hero:
-     --sy  scroll offset in px (0 when motion is off)
-     --mx  --my  the mouse, eased, each from -1 to 1
-   A layer that should move on screen at f times the scroll speed is pushed
-   down by (1 - f) of the scroll: sky 0.1, midground 0.3, lake 0.4, frame 0.6.
-   The mouse moves the frame by at most 12px and the rest in proportion. */
+   The scene is one 2170x905 picture: village, lake and boats, with the
+   waterline already at the foot of the houses. It lies along the bottom edge
+   at the --art opacity and fades toward the left, where the headline is.
+   Nothing in it moves. */
 
 .hero {
-  /* Midground, lake and boats share one 2170x725 box. It is as wide as the
-     page, or wider on tall screens so the scene never gets tiny. */
-  --hero-box-w: max(104vw, min(150svh, 2170px));
-  --hero-box-h: calc(var(--hero-box-w) * 725 / 2170);
-  /* How far the lake layer is moved down, as a share of the box height:
-     88.1% (where the water should start) - 65.3% (where it is drawn). */
-  --hero-lake-drop: 0.228;
-  /* How much water shows below the box, as a share of the box height. The
-     lake's paint is solid to about 97.5% + the drop = 120%; the mist takes
-     the last of it. */
-  --hero-water: 0.2;
-  --hero-scene-h: calc(var(--hero-box-h) * (1 + var(--hero-water)));
-  /* When the box is wider than the page it is panned toward the villa.
-     0 = centered, 0.5 = right edges aligned. */
-  --hero-pan: 0.4;
-  /* The leafy frame hugs the page edges at its own scale. */
-  --hero-fg-w: max(104vw, 640px);
-  /* The sailboat: where it rests when motion is off, and the ends of its
-     drift, all as fractions of the box width. */
-  --hero-sail-x: 0.3;
-  --hero-sail-from: -0.08;
-  --hero-sail-to: 1.04;
-  --hero-sail-delay: -40.7s; /* starts the loop at the resting place */
-  --hero-row-x: 56%;
-  --sy: 0;
-  --mx: 0;
-  --my: 0;
+  /* As wide as the page, or wider on a tall screen so the village never gets
+     tiny. When it is wider it is anchored to the right, where the village is. */
+  --hero-scene-w: max(100vw, min(150svh, 2170px));
   position: relative;
   overflow: hidden;
-  min-height: max(100svh, 34rem, calc(var(--hero-scene-h) + 5rem));
+  min-height: max(100svh, 36rem);
 }
 
-/* ---- z 0: sky ---- */
-/* The sky's own far mountains are at its bottom edge. They belong behind the
-   midground hills, so the sky ends where the box does and the water covers
-   everything below. */
-.hero-sky {
+/* z 0: the scene. The mask belongs to the window, not the picture, so the
+   fade is the same however much of the picture is in view: the left edge at
+   35%, full strength from the middle on. */
+.hero-art {
   position: absolute;
   z-index: 0;
-  inset: -6px -2% calc(var(--hero-box-h) * var(--hero-water) - 6px);
-  pointer-events: none;
-  transform: translate3d(calc(var(--mx) * 2px), calc(var(--sy) * 0.9px + var(--my) * 1px), 0);
-  will-change: transform;
-}
-.hero-sky-art {
-  position: absolute;
   inset: 0;
-}
-.hero-sky-art > img {
-  object-fit: cover;
-  object-position: center bottom;
-}
-/* Dusk cross-fades in over 1.2s. The day sky stays opaque underneath until the
-   fade is done, so the page color never shows through mid-way. */
-.hero-sky-day {
-  opacity: 1;
-  transition: opacity 0s;
-}
-.hero-sky-dusk {
-  opacity: 0;
-  transition: opacity 1.2s ease;
-}
-html[data-theme="dusk"] .hero-sky-day {
-  opacity: 0;
-  transition: opacity 0s 1.2s;
-}
-html[data-theme="dusk"] .hero-sky-dusk {
-  opacity: 1;
-}
-
-/* ---- z 1: clouds ---- */
-.hero-clouds {
-  position: absolute;
-  z-index: 1;
-  inset: 0;
+  overflow: hidden;
   pointer-events: none;
-  transform: translate3d(calc(var(--mx) * 3px), calc(var(--sy) * 0.85px + var(--my) * 1.5px), 0);
+  -webkit-mask-image: linear-gradient(to right, rgb(0 0 0 / 0.35), #000 55%);
+  mask-image: linear-gradient(to right, rgb(0 0 0 / 0.35), #000 55%);
 }
-/* --x --y --w --d --delay are set per cloud in Hero.tsx. A cloud rests at
-   (--x, --y); its loop runs from just off the left edge to just off the
-   right, and the delay starts it at the resting place. */
-.hero-cloud {
-  position: absolute;
-  left: var(--x);
-  top: var(--y);
-  width: var(--w);
-  opacity: 0.85;
-  animation: hero-cloud var(--d) linear var(--delay) infinite;
-  will-change: transform;
-}
-@keyframes hero-cloud {
-  from {
-    transform: translateX(calc(-4vw - var(--x) - var(--w)));
-  }
-  to {
-    transform: translateX(calc(104vw - var(--x)));
-  }
-}
-
-/* ---- the shared 3:1 box (not a layer: no z-index, no transform) ---- */
 .hero-scene {
   position: absolute;
-  left: 50%;
-  bottom: calc(var(--hero-box-h) * var(--hero-water));
-  width: var(--hero-box-w);
-  height: var(--hero-box-h);
-  margin-left: calc(var(--hero-box-w) / -2 - (var(--hero-box-w) - 104vw) * var(--hero-pan));
-  pointer-events: none;
+  right: 0;
+  bottom: 0;
+  width: var(--hero-scene-w);
+  aspect-ratio: 2170 / 905;
 }
-.hero-layer {
+.hero-scene-art {
   position: absolute;
   inset: 0;
-  will-change: transform;
 }
-
-/* z 1, dusk only: a warm glow behind the hills, down to the waterline */
-.hero-glow {
-  position: absolute;
-  z-index: 1;
-  left: 0;
-  right: 0;
-  top: 42%;
-  height: 48%;
-  opacity: 0;
-  transition: opacity 1.2s ease;
-  background: radial-gradient(
-    ellipse 46% 100% at 58% 100%,
-    rgb(226 182 111 / 0.42),
-    rgb(226 182 111 / 0.12) 55%,
-    transparent 78%
-  );
-  transform: translate3d(calc(var(--mx) * 6px), calc(var(--sy) * 0.7px + var(--my) * 3px), 0);
-}
-html[data-theme="dusk"] .hero-glow {
-  opacity: 1;
-}
-
-/* z 2: lake, behind the village and dropped to its shoreline. The water is
-   only the bottom 35% of its box (y 472..721 of 725), so the shimmer filter
-   runs on a band cropped to that strip. Scrolling moves the lake up a little
-   faster than the midground and the mouse moves it at most 1px further down,
-   so the waterline only ever tucks deeper under the rocks, never out. */
-.hero-lake {
-  z-index: 2;
-  top: calc(var(--hero-lake-drop) * 100%);
-  bottom: calc(var(--hero-lake-drop) * -100%);
-  transform: translate3d(calc(var(--mx) * 8px), calc(var(--sy) * 0.6px + var(--my) * 4px), 0);
-}
-
-/* z 3: midground */
-.hero-mid {
-  z-index: 3;
-  transform: translate3d(calc(var(--mx) * 6px), calc(var(--sy) * 0.7px + var(--my) * 3px), 0);
-}
-.hero-lake-band {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 64.5%;
-  bottom: 0;
-  overflow: hidden;
-}
-.hero-lake-art {
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  width: 100%;
-  height: calc(100% / 0.355); /* the full 725 rows, hanging from the band's bottom */
-}
-.hero[data-shimmer="filter"] .hero-lake-band {
-  filter: url(#hero-shimmer);
-}
-/* Fallback when the filter is too slow: a still lake that slides 2px. */
-.hero[data-shimmer="sway"] .hero-lake-band {
-  animation: hero-lake-sway 9s ease-in-out infinite alternate;
-}
-@keyframes hero-lake-sway {
-  from {
-    transform: translateX(-2px);
-  }
-  to {
-    transform: translateX(2px);
-  }
-}
-
-/* Not a layer and never painted: the part of the box the village fills (its
-   roofs start 18% down, its bank reaches the box's middle). Flock.tsx reads
-   its rectangle. */
+/* Never painted: the part of the picture the village fills (its bell tower
+   starts 17% down). Flock.tsx reads its rectangle. */
 .hero-village {
   position: absolute;
   left: 49%;
   right: 0;
-  top: 18%;
+  top: 17%;
   bottom: 0;
 }
 
-/* z 4: boats, in the box's coordinates so they scale and move with the lake.
-   The water runs from 88% of the box to 120%; the mist takes the last tenth. */
-.hero-boats {
-  z-index: 4;
-  transform: translate3d(calc(var(--mx) * 8px), calc(var(--sy) * 0.6px + var(--my) * 4px), 0);
-}
-.hero-sail {
-  position: absolute;
-  left: calc(var(--hero-sail-x) * 100%);
-  top: 78.7%; /* the hull's waterline (80% down the picture) at 95.5% of the box */
-  width: 6.2%;
-  aspect-ratio: 478 / 540;
-  animation: hero-sail 120s linear var(--hero-sail-delay) infinite;
-  will-change: transform;
-}
-@keyframes hero-sail {
-  from {
-    transform: translateX(calc(var(--hero-box-w) * (var(--hero-sail-from) - var(--hero-sail-x))));
-  }
-  to {
-    transform: translateX(calc(var(--hero-box-w) * (var(--hero-sail-to) - var(--hero-sail-x))));
-  }
-}
-.hero-row {
-  position: absolute;
-  left: var(--hero-row-x);
-  top: 97.5%; /* the hull's waterline (66% down the picture) at 104.5% of the box */
-  width: 7.6%;
-  aspect-ratio: 517 / 240;
-  transform-origin: 50% 70%;
-  animation: hero-bob 4.6s ease-in-out infinite alternate;
-}
-@keyframes hero-bob {
-  from {
-    transform: translateY(-2px) rotate(-1deg);
-  }
-  to {
-    transform: translateY(2px) rotate(1deg);
-  }
-}
-
-/* ---- z 12: the leafy frame, in two halves that sway ---- */
-.hero-fg {
-  position: absolute;
-  z-index: 12;
-  bottom: -8px;
-  width: var(--hero-fg-w);
-  aspect-ratio: 2170 / 725;
-  pointer-events: none;
-  transform: translate3d(calc(var(--mx) * 12px), calc(var(--sy) * 0.4px + var(--my) * 6px), 0);
-  will-change: transform;
-}
-/* The overhang is never less than 16px: the mouse parallax moves a half by up
-   to 12px, and its cut edge must stay off screen in a narrow window. */
-.hero-fg-l {
-  left: min(-2vw, -16px);
-}
-.hero-fg-r {
-  right: min(-2vw, -16px);
-}
-.hero-fg-art {
-  position: absolute;
-  inset: 0;
-  /* The leaves run off the top of the picture: soften that edge. */
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 9%);
-  mask-image: linear-gradient(to bottom, transparent 0%, #000 9%);
-}
-.hero-fg-l .hero-fg-art {
-  clip-path: inset(0 50% 0 0);
-  transform-origin: 0% 100%;
-  animation: hero-sway-l 7s ease-in-out infinite alternate;
-}
-.hero-fg-r .hero-fg-art {
-  clip-path: inset(0 0 0 50%);
-  transform-origin: 100% 100%;
-  animation: hero-sway-r 8.6s ease-in-out -3.2s infinite alternate;
-}
-@keyframes hero-sway-l {
-  from {
-    transform: rotate(-0.3deg);
-  }
-  to {
-    transform: rotate(0.45deg);
-  }
-}
-@keyframes hero-sway-r {
-  from {
-    transform: rotate(0.3deg);
-  }
-  to {
-    transform: rotate(-0.4deg);
-  }
-}
-
-/* ---- z 13: a slow warm light, and mist where the scene meets the page ---- */
-.hero-light {
-  position: absolute;
-  z-index: 13;
-  inset: 0 -25%;
-  pointer-events: none;
-  background: radial-gradient(ellipse 34% 58% at 50% 58%, rgb(217 178 111 / 0.09), transparent 72%);
-  animation: hero-light 40s ease-in-out infinite alternate;
-  will-change: transform;
-}
-@keyframes hero-light {
-  from {
-    transform: translateX(-24%);
-  }
-  to {
-    transform: translateX(24%);
-  }
-}
-.hero-mist {
-  position: absolute;
-  z-index: 13;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: max(9svh, 64px);
-  pointer-events: none;
-  background: linear-gradient(
-    to top,
-    var(--paper),
-    color-mix(in srgb, var(--paper) 50%, transparent) 40%,
-    transparent
-  );
-}
-
-/* ---- z 20: the words, in the empty sky ---- */
+/* z 20: the words, alone on the left. */
 .hero-copy {
   position: relative;
   z-index: 20;
-  /* on a phone the right side stays clear of the watchlist chain */
-  padding: clamp(5.25rem, 12svh, 8rem) 4.5rem 0 1.5rem;
+  padding: clamp(6rem, 20svh, 11.25rem) 1.25rem 0;
   pointer-events: none; /* only the words themselves take the pointer */
 }
 .hero-text {
-  position: relative;
   width: fit-content;
   max-width: 100%;
   pointer-events: auto;
 }
-/* A breath of page color behind the words, so a passing cloud never dims them. */
-.hero-text::before {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  inset: -14% -9%;
-  pointer-events: none;
-  background: radial-gradient(closest-side, color-mix(in srgb, var(--paper) 62%, transparent), transparent);
-}
 .hero-title {
-  max-width: 12em;
-  font-size: clamp(2.1rem, min(4.5vw, 7.2svh), 4.5rem);
+  max-width: 10.1em;
+  font-size: clamp(2.5rem, min(4.3vw, 7.4svh), 3.875rem);
+  line-height: 1.02;
+  text-wrap: wrap;
+}
+.hero-stats {
+  margin-top: 2.25rem;
+  font-size: 0.875rem;
+  color: var(--muted);
 }
 @media (min-width: 640px) {
   .hero-copy {
-    padding-left: 3rem;
-    padding-right: 3rem;
-  }
-}
-/* On wide screens the frame's olive branch reaches into the top-left, so the
-   words start to the right of it (it ends about 23vw in). */
-@media (min-aspect-ratio: 8/5) {
-  .hero-copy {
-    padding-left: 25vw;
+    padding-left: clamp(2rem, 6.67vw, 6rem);
+    padding-right: 2rem;
   }
 }
 
-/* Tall, narrow screens see only part of the box: keep the boats in view. */
+/* z 20: the caption and the two-item legend, bottom right. */
+.hero-key {
+  position: absolute;
+  z-index: 20;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  left: 1.25rem;
+  text-align: right;
+}
+.hero-legend {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1.25rem;
+  margin-top: 0.4rem;
+  color: var(--muted);
+}
+.hero-legend > li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.hero-dot {
+  display: block;
+  width: 0.4375rem;
+  height: 0.4375rem;
+  border-radius: 50%;
+}
+@media (min-width: 640px) {
+  .hero-key {
+    right: 2rem;
+    bottom: 1.5rem;
+    left: auto;
+  }
+}
+
+/* A tall, narrow screen: the scene stays under the words, drawn only a
+   little wider than the page is tall. */
 @media (max-aspect-ratio: 1/1) {
   .hero {
-    --hero-sail-x: 0.72;
-    --hero-sail-from: 0.4;
-    --hero-sail-to: 1;
-    --hero-sail-delay: -64s;
-    --hero-row-x: 67%;
-  }
-}
-/* Nearly square windows see further left, so the sailboat starts further left
-   too (still off screen); the delay keeps the loop starting at its resting place. */
-@media (max-aspect-ratio: 1/1) and (min-aspect-ratio: 7/10) {
-  .hero {
-    --hero-sail-from: 0.2;
-    --hero-sail-delay: -78s;
+    --hero-scene-w: max(100vw, min(105svh, 2170px));
   }
 }
 
-/* Off screen or in a hidden tab (set by HeroMotion.tsx): everything waits. */
-.hero[data-paused] .hero-cloud,
-.hero[data-paused] .hero-sail,
-.hero[data-paused] .hero-row,
-.hero[data-paused] .hero-fg-art,
-.hero[data-paused] .hero-light,
-.hero[data-paused] .hero-lake-band {
-  animation-play-state: paused;
+/* ---- About, under the hero: the fresco ghost in the top right corner ---- */
+.about-fresco {
+  position: absolute;
+  z-index: 0;
+  top: 2.5rem;
+  right: 0;
+  width: min(600px, 60vw);
+}
+/* On a phone the ghost sits above the words, not beside them. */
+@media (max-width: 1023.98px) {
+  .about-fresco {
+    position: relative;
+    top: auto;
+    width: min(600px, 86vw);
+    margin: 3rem 0 -2rem auto;
+  }
 }
