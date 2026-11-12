@@ -247,5 +247,5 @@ export function PanelSkeleton({ title, rows = 6, className = "" }: { title: stri
 
 /** A quiet line inside a panel when a signal has no rows behind it. */
 export function NoRows({ children }: { children: React.ReactNode }) {
-  return <p className="py-6 text-muted">{children}</p>;
+  return <p className="max-w-xl text-[1.0625rem] leading-[1.4] text-muted">{children}</p>;
 }

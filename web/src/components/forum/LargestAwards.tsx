@@ -76,7 +76,7 @@ export async function LargestAwards({ days, tag, className = "" }: PanelProps) {
                         <span className="sm:hidden">{source}</span>
                       </span>
                     </td>
-                    <td className="hidden max-w-0 text-[1rem] md:table-cell md:w-[24%]">
+                    <td className="forum-name forum-name-sm hidden max-w-0 md:table-cell md:w-[24%]">
                       {a.agency ? (
                         <OrgLink org={a.agency} size={18} graph={false} className="max-w-full align-middle" />
                       ) : (

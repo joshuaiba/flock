@@ -49,19 +49,18 @@ export async function ReachedProduction({ days, tag, className = "" }: PanelProp
         <>
           <ul className="forum-rows border-t border-frame">
             {d.items.map((t) => (
-              <li key={t.org.id} className="py-2.5">
-                <div className="forum-name flex items-center justify-between gap-4">
-                  <OrgLink org={t.org} size={22} />
-                  <span className="forum-num shrink-0 text-pompeii">{money(t.amount)}</span>
+              <li key={t.org.id} className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 py-2.5">
+                <div className="forum-name min-w-0">
+                  <OrgLink org={t.org} size={22} className="max-w-full" />
                 </div>
-                <div className="ui mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-muted">
+                <span className="forum-num self-center text-right text-pompeii">{money(t.amount)}</span>
+                <div className="ui flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5 text-muted">
                   <StageTrack path={t.path} />
-                  <span className="whitespace-nowrap">{day(t.day)}</span>
-                  <span aria-hidden="true">·</span>
-                  <span>{cameFrom(t)}</span>
-                  <span aria-hidden="true">·</span>
-                  <span>{plural(t.awards, "production award")} on record</span>
+                  <span>
+                    {day(t.day)} · {cameFrom(t)}
+                  </span>
                 </div>
+                <span className="ui text-right text-muted">{plural(t.awards, "production award")}</span>
               </li>
             ))}
           </ul>
