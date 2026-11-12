@@ -1,0 +1,103 @@
+/* The Forum's margin art (see ForumGutters.tsx). Fixed to the bottom of the
+   window, behind the content, in the two gutters beside the content column.
+
+   --col-left and --col-right are the column's edges in window pixels, measured
+   by the component. Until it has measured, they are worked out from the
+   column's own width (the page centers a 1100px column). Each piece keeps
+   --gap clear of the column; its far side may run off the screen. */
+.gutters {
+  --col-w: 1100px;
+  --col-left: calc(50vw - var(--col-w) / 2);
+  --col-right: calc(50vw + var(--col-w) / 2);
+  --gap: 24px;
+  position: fixed;
+  z-index: -1; /* behind everything on the page, above the page's own color */
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  display: none; /* no art below 1400px */
+  animation: gutters-in 0.6s ease both;
+}
+@keyframes gutters-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.gutter {
+  position: absolute;
+  bottom: 0;
+  color: var(--text);
+  opacity: var(--gutter-art-opacity);
+}
+/* A piece's inner edge sits --gap short of the column. */
+.gutter-l {
+  right: calc(100% - var(--col-left) + var(--gap));
+}
+.gutter-r {
+  left: calc(var(--col-right) + var(--gap));
+}
+.gutter-mirror {
+  transform: scaleX(-1);
+}
+
+/* Nike and Athena: 80% of the window's height, at most 780px. The side that
+   faces the content fades out. */
+.gutter-figure {
+  height: min(80vh, 780px);
+}
+.gutter-nike {
+  aspect-ratio: 973 / 1511;
+  -webkit-mask-image: linear-gradient(to right, #000 70%, transparent 96%);
+  mask-image: linear-gradient(to right, #000 70%, transparent 96%);
+}
+.gutter-athena {
+  aspect-ratio: 619 / 1475;
+  -webkit-mask-image: linear-gradient(to left, #000 75%, transparent 100%);
+  mask-image: linear-gradient(to left, #000 75%, transparent 100%);
+}
+/* The trophy of arms: a little shorter, standing 40px above the bottom. The
+   right one is mirrored, mask and all, so one fade serves both. */
+.gutter-trophy {
+  bottom: 40px;
+  height: min(72vh, 700px);
+  aspect-ratio: 736 / 1526;
+  -webkit-mask-image: linear-gradient(to right, #000 70%, transparent 100%);
+  mask-image: linear-gradient(to right, #000 70%, transparent 100%);
+}
+/* The olive branch: about 82% of the window's height, its stem at the bottom
+   edge. */
+.gutter-olive {
+  height: 82vh;
+  width: auto;
+  aspect-ratio: 380 / 1200;
+  -webkit-mask-image: linear-gradient(to right, #000 62%, transparent 84%);
+  mask-image: linear-gradient(to right, #000 62%, transparent 84%);
+}
+/* The olive branch is narrow and drawn with its leaves to both sides, so it
+   stands closer in than a figure: nearer the middle of its gutter. */
+.gutter-olive.gutter-l {
+  right: calc(100% - var(--col-left) + var(--gap) - 8px);
+}
+.gutter-olive.gutter-r {
+  left: calc(var(--col-right) + var(--gap) - 8px);
+}
+
+/* 1400px to 1499px: the olive branches stand in for the figures. */
+@media (min-width: 1400px) {
+  .gutters {
+    display: block;
+  }
+  .gutters:not([data-variant="olive"]) .gutter-figure {
+    display: none;
+  }
+}
+/* 1500px and up: the figures; their stand-in goes. */
+@media (min-width: 1500px) {
+  .gutters:not([data-variant="olive"]) .gutter-figure {
+    display: block;
+  }
+  .gutters-fallback {
+    display: none;
+  }
+}

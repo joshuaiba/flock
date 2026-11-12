@@ -4,10 +4,12 @@ import { Suspense } from "react";
 import { Footer } from "@/components/Footer";
 import { Agencies } from "@/components/forum/Agencies";
 import { getOverview } from "@/components/forum/data";
+import { ForumGutters } from "@/components/forum/ForumGutters";
 import { FundingByCategory } from "@/components/forum/FundingByCategory";
 import { AsOfLine, HeadlineStats, StatsSkeleton } from "@/components/forum/Headline";
 import { HeatingUp } from "@/components/forum/HeatingUp";
 import { LargestAwards } from "@/components/forum/LargestAwards";
+import { MoneySkeleton, WhereTheMoneyWent } from "@/components/forum/MoneyByFamily";
 import { ReachedProduction } from "@/components/forum/ReachedProduction";
 import { Rising } from "@/components/forum/Rising";
 import { Watchlist } from "@/components/forum/Watchlist";
@@ -22,12 +24,14 @@ type Search = Promise<{ [key: string]: string | string[] | undefined }>;
 
 // The dashboard's grid: twelve columns on a wide screen, one column (in this
 // same order) on a narrow one. The order is the order of importance: what
-// changed (the summary row), who is rising, what reached production, what is heating up, then the supporting sections.
+// changed (the summary row), where the money went, who is rising, what
+// reached production, what is heating up, then the supporting sections.
 // min-w-0 lets a section shrink below its widest table, which then scrolls
 // inside it instead of stretching the page. Sections are set apart by space;
 // there are no cards and no rules between them.
 const GRID = "mt-14 grid grid-cols-1 gap-x-14 gap-y-16 lg:grid-cols-12";
 const SPAN = {
+  money: "min-w-0 lg:col-span-12",
   rising: "min-w-0 lg:col-span-7",
   production: "min-w-0 lg:col-span-5",
   heating: "min-w-0 lg:col-span-12",
@@ -76,6 +80,9 @@ async function Forum({ searchParams }: { searchParams: Search }) {
       </Suspense>
 
       <div className={GRID}>
+        <Suspense key={`money:${key}`} fallback={<MoneySkeleton className={SPAN.money} />}>
+          <WhereTheMoneyWent {...p} className={SPAN.money} />
+        </Suspense>
         <Suspense key={`rising:${key}`} fallback={<PanelSkeleton title="Rising" rows={10} className={SPAN.rising} />}>
           <Rising {...p} className={SPAN.rising} />
         </Suspense>
@@ -120,6 +127,7 @@ function ForumSkeleton() {
       </div>
       <StatsSkeleton />
       <div className={GRID}>
+        <MoneySkeleton className={SPAN.money} />
         <PanelSkeleton title="Rising" rows={10} className={SPAN.rising} />
         <PanelSkeleton title="Reached production" rows={6} className={SPAN.production} />
         <PanelSkeleton title="Heating up" rows={5} className={SPAN.heating} />
@@ -141,6 +149,8 @@ async function ForumFooter({ searchParams }: { searchParams: Search }) {
 export default function ForumPage({ searchParams }: { searchParams: Search }) {
   return (
     <>
+      {/* The page's art: engraved figures in the margins, clear of the data. */}
+      <ForumGutters />
       <main data-forum-column className="mx-auto max-w-[71.75rem] px-4 pt-24 sm:px-6 sm:pt-32">
         <h1 className="page-title">The Forum</h1>
         <Suspense fallback={<ForumSkeleton />}>
