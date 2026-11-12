@@ -1,0 +1,646 @@
+/* The graph screen's chrome: the filter rail (GraphFilters.tsx), and the
+   legend, view controls and detail panel around the map (GraphExplorer.tsx).
+   Plain CSS with graph- prefixed names (CSS Modules are not available here).
+
+   One language throughout: the interface sans at 13px, hairlines instead of
+   boxes, 26px rows, and the shared controls from globals.css (.seg, .field,
+   .chip, .btn). The serif is kept for entity names.
+
+   Geometry the two renderers rely on (see room() in GraphFlat.tsx and
+   Graph3DStage.ts): on a wide screen the rail ends within 300px of the left
+   edge and the detail panel within 404px of the right; on a narrow one the
+   search and the row under it end within 170px of the top. */
+
+[data-graph-root] {
+  /* a panel's surface: a shade lighter than the parchment under the map */
+  --graph-panel: color-mix(in srgb, var(--marble) 62%, var(--paper));
+  --graph-rail-left: 1.25rem;
+  --graph-rail-w: 17.5rem;
+  /* where the map's own corner starts: just right of the rail */
+  --graph-canvas-left: 0.75rem;
+}
+[data-theme="dusk"] [data-graph-root] {
+  --graph-panel: color-mix(in srgb, var(--marble) 38%, var(--paper));
+}
+@media (min-width: 768px) {
+  [data-graph-root] {
+    --graph-canvas-left: calc(var(--graph-rail-left) + var(--graph-rail-w) + 1rem);
+  }
+  [data-graph-root][data-rail="closed"] {
+    --graph-rail-w: 2.625rem;
+  }
+}
+
+/* ---- The rail ---- */
+
+.graph-rail {
+  position: absolute;
+  left: 0.75rem;
+  right: 0.75rem;
+  top: 4.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  /* on a phone the open panel stops above the controls along the bottom */
+  max-height: calc(100svh - 8.75rem);
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  letter-spacing: 0;
+  color: var(--ink);
+}
+.graph-rail-full {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.graph-rail-strip {
+  display: none;
+}
+
+/* Phone: the search and one row of controls float over the map; the filters
+   fold into a panel under them. */
+.graph-rail-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--frame) transparent;
+  border: 1px solid var(--frame);
+  border-radius: 8px;
+  background: var(--graph-panel);
+  box-shadow: 0 12px 28px -18px rgb(40 30 22 / 0.55);
+}
+.graph-rail-body[data-open="false"] {
+  display: none;
+}
+.graph-rail-quick {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.graph-rail-foot,
+.graph-rail .graph-only-wide {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .graph-rail {
+    left: var(--graph-rail-left);
+    right: auto;
+    bottom: 1.25rem;
+    width: var(--graph-rail-w);
+    max-height: none;
+    gap: 0;
+    overflow: hidden;
+    border: 1px solid var(--frame);
+    border-radius: 8px;
+    background: var(--graph-panel);
+    box-shadow: 0 14px 30px -24px rgb(40 30 22 / 0.6);
+  }
+  .graph-rail-full {
+    gap: 0;
+  }
+  .graph-rail-body,
+  .graph-rail-body[data-open="false"] {
+    display: block;
+    flex: 1;
+    border: 0;
+    border-top: 1px solid var(--hair);
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+  }
+  .graph-rail-quick {
+    display: none;
+  }
+  .graph-rail-foot {
+    display: flex;
+  }
+  .graph-rail .graph-only-wide {
+    display: block;
+  }
+
+  /* Folded to an icon strip: three buttons, as tall as they need. */
+  .graph-rail[data-collapsed="true"] {
+    bottom: auto;
+  }
+  .graph-rail[data-collapsed="true"] .graph-rail-full {
+    display: none;
+  }
+  .graph-rail[data-collapsed="true"] .graph-rail-strip {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 5px;
+  }
+}
+
+/* ---- Search ---- */
+
+.graph-search {
+  position: relative;
+  /* on a phone the watchlist chain hangs over the top right corner */
+  margin-right: 3.25rem;
+}
+@media (min-width: 768px) {
+  .graph-search {
+    margin-right: 0;
+    padding: 0.625rem;
+  }
+}
+.graph-search-field {
+  position: relative;
+  display: block;
+}
+.graph-search-field > svg {
+  position: absolute;
+  left: 0.6rem;
+  top: 50%;
+  translate: 0 -50%;
+  color: var(--muted);
+  pointer-events: none;
+}
+.graph-search-field > .field {
+  display: block;
+  width: 100%;
+  padding-left: 2rem;
+  padding-right: 2rem;
+}
+/* the browser's own clear button would double ours */
+.graph-search-field > .field::-webkit-search-cancel-button {
+  display: none;
+}
+.graph-search-aside {
+  position: absolute;
+  right: 0.35rem;
+  top: 50%;
+  translate: 0 -50%;
+  display: grid;
+  place-items: center;
+}
+.graph-kbd {
+  min-width: 1.125rem;
+  padding: 0.1rem 0.3rem;
+  border: 1px solid var(--frame);
+  border-radius: 4px;
+  font-family: var(--font-sans);
+  font-size: 0.6875rem;
+  line-height: 1.1;
+  text-align: center;
+  color: var(--muted);
+  pointer-events: none;
+}
+.graph-hits {
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  right: 0;
+  top: calc(100% + 0.25rem);
+  padding: 0.25rem;
+  border: 1px solid var(--frame);
+  border-radius: 8px;
+  background: var(--paper);
+  box-shadow: 0 14px 30px -16px rgb(40 30 22 / 0.6);
+}
+@media (min-width: 768px) {
+  .graph-hits {
+    left: 0.625rem;
+    right: 0.625rem;
+    top: calc(100% - 0.375rem);
+  }
+}
+.graph-hit {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.4rem;
+  border-radius: 5px;
+  text-align: left;
+  cursor: pointer;
+}
+.graph-hit[aria-selected="true"] {
+  background: color-mix(in srgb, var(--ochre) 20%, transparent);
+}
+/* entity names keep the serif */
+.graph-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-serif);
+  font-size: 1rem;
+  line-height: 1.25;
+}
+.graph-hit-kind {
+  flex: none;
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.graph-hits-none {
+  padding: 0.35rem 0.4rem;
+  color: var(--muted);
+}
+
+/* ---- Active filters ---- */
+
+.graph-active {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.5rem 0.875rem;
+  border-bottom: 1px solid var(--hair);
+  background: var(--graph-panel);
+}
+.graph-active > ul {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+.graph-active > ul > li {
+  max-width: 100%;
+}
+.graph-clear {
+  flex: none;
+  height: 1.5rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-decoration: underline;
+  text-decoration-color: var(--frame);
+  text-underline-offset: 0.24em;
+  cursor: pointer;
+}
+.graph-clear:hover {
+  color: var(--ink);
+  text-decoration-color: currentColor;
+}
+
+/* ---- Groups: a title, what it is set to, and a chevron; hairlines between ---- */
+
+.graph-group + .graph-group {
+  border-top: 1px solid var(--hair);
+}
+.graph-group > summary {
+  display: flex;
+  height: 1.875rem;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 0.625rem 0 0.875rem;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+.graph-group > summary::-webkit-details-marker {
+  display: none;
+}
+.graph-group > summary:focus-visible {
+  outline-offset: -3px;
+}
+.graph-group-title {
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+.graph-group-value {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.graph-group > summary > svg {
+  flex: none;
+  color: var(--muted);
+  transition: rotate 0.18s var(--ease-out);
+}
+.graph-group[open] > summary > svg {
+  rotate: 90deg;
+}
+.graph-group-body {
+  padding: 0 0.875rem 0.5rem;
+}
+.graph-group-body > .seg,
+.graph-group-body > .field {
+  display: flex;
+  width: 100%;
+}
+.graph-seg > * {
+  padding: 0 0.4rem;
+}
+.graph-note {
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+/* ---- Checklists: 26px rows, a box, an icon, a name, a count ---- */
+
+.graph-checklist {
+  margin: 0 -0.375rem;
+}
+.graph-checklist-scroll {
+  max-height: 16.25rem; /* ten rows */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--frame) transparent;
+}
+/* On a short window the list keeps to six and a half rows, so the half row
+   says there is more, and the groups under it stay in reach. */
+@media (max-height: 800px) {
+  .graph-checklist-scroll {
+    max-height: 10.5625rem;
+  }
+}
+.graph-check {
+  display: flex;
+  height: 1.625rem;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 0.375rem;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.graph-check:hover {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+.graph-check > input {
+  display: grid;
+  width: 0.875rem;
+  height: 0.875rem;
+  flex: none;
+  place-items: center;
+  appearance: none;
+  border: 1px solid color-mix(in srgb, var(--ink) 38%, transparent);
+  border-radius: 3px;
+  background: var(--marble);
+  cursor: pointer;
+  transition:
+    background-color 0.12s,
+    border-color 0.12s;
+}
+.graph-check > input::after {
+  content: "";
+  width: 0.5rem;
+  height: 0.3rem;
+  margin-top: -0.1rem;
+  border: solid var(--paper);
+  border-width: 0 0 1.5px 1.5px;
+  rotate: -45deg;
+  opacity: 0;
+}
+.graph-check > input:checked {
+  border-color: var(--cypress);
+  background: var(--cypress);
+}
+.graph-check > input:checked::after {
+  opacity: 1;
+}
+.graph-check > input:focus-visible {
+  outline: 1.5px solid var(--cypress);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.graph-check > span:first-of-type {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.graph-count {
+  flex: none;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.graph-check[data-empty="true"] > span:first-of-type,
+.graph-check[data-disabled="true"] > span:first-of-type {
+  color: var(--muted);
+}
+.graph-check[data-disabled="true"] {
+  cursor: default;
+}
+.graph-check[data-disabled="true"]:hover {
+  background: none;
+}
+.graph-check[data-disabled="true"] > input {
+  opacity: 0.5;
+  cursor: default;
+}
+.graph-rule {
+  height: 1px;
+  margin: 0.375rem 0;
+  background: var(--hair);
+}
+
+/* ---- Foot: how much of the map is shown, and the fold ---- */
+
+.graph-rail-foot {
+  height: 2.25rem;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0 0.3125rem 0 0.875rem;
+  border-top: 1px solid var(--hair);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.graph-rail-foot b {
+  font-weight: 500;
+  color: var(--ink);
+}
+
+/* A plain square button that holds one icon: no border until it is used. */
+.graph-icon-btn {
+  position: relative;
+  display: grid;
+  width: 1.625rem;
+  height: 1.625rem;
+  flex: none;
+  place-items: center;
+  border-radius: 5px;
+  color: var(--muted);
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    background-color 0.15s;
+}
+.graph-icon-btn:hover {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--ink);
+}
+.graph-rail-strip .graph-icon-btn {
+  width: 1.875rem;
+  height: 1.875rem;
+}
+.graph-badge {
+  position: absolute;
+  right: 1px;
+  top: 1px;
+  display: grid;
+  min-width: 0.875rem;
+  height: 0.875rem;
+  place-items: center;
+  padding: 0 0.2rem;
+  border-radius: 0.4375rem;
+  background: var(--cypress);
+  font-size: 0.625rem;
+  font-weight: 500;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--paper);
+}
+
+/* ---- Around the map: legend (bottom left of the canvas), view and zoom
+   (bottom right), detail panel (right) ---- */
+
+.graph-float {
+  background: var(--graph-panel);
+}
+/* The shared segmented track is translucent; over the map it must be solid. */
+.graph-float.seg {
+  background: color-mix(in srgb, var(--ink) 9%, var(--paper));
+}
+
+.graph-legend {
+  position: absolute;
+  left: var(--graph-canvas-left);
+  bottom: 1.25rem;
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  line-height: 1.3;
+  letter-spacing: 0;
+  transition: left 0.2s var(--ease-out);
+}
+.graph-legend-panel {
+  width: 13rem;
+  padding: 0.25rem 0.375rem 0.5rem 0.75rem;
+  border: 1px solid var(--frame);
+  border-radius: 8px;
+  background: var(--graph-panel);
+}
+.graph-legend-head {
+  display: flex;
+  height: 1.75rem;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 500;
+}
+.graph-legend-panel li {
+  display: flex;
+  height: 1.375rem;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--muted);
+}
+.graph-legend-key {
+  display: flex;
+  width: 2.375rem;
+  flex: none;
+  align-items: center;
+}
+
+.graph-controls {
+  position: absolute;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.graph-zoom {
+  display: flex;
+  gap: 2px;
+}
+
+.graph-detail {
+  position: absolute;
+  left: 0.75rem;
+  right: 0.75rem;
+  bottom: 4rem;
+  max-height: 55vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--frame) transparent;
+  padding: 1rem 1rem 1.125rem 1.125rem;
+  border: 1px solid var(--frame);
+  border-radius: 8px;
+  background: var(--graph-panel);
+  box-shadow: 0 14px 30px -22px rgb(40 30 22 / 0.6);
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  letter-spacing: 0;
+}
+@media (min-width: 768px) {
+  .graph-detail {
+    left: auto;
+    right: 1.25rem;
+    top: 12rem;
+    bottom: auto;
+    width: 22rem;
+    max-height: calc(100vh - 16.5rem);
+  }
+}
+.graph-detail h2 {
+  margin-top: 0.125rem;
+  font-size: 1.5rem;
+  line-height: 1.1;
+}
+.graph-facts {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.3rem 1rem;
+  margin-top: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+.graph-facts dt {
+  color: var(--muted);
+}
+.graph-facts dd {
+  text-align: right;
+}
+.graph-around li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.3rem 0;
+  border-top: 1px solid var(--hair);
+}
+.graph-around button {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  font-family: var(--font-serif);
+  font-size: 1rem;
+  line-height: 1.3;
+  cursor: pointer;
+}
+.graph-around button:hover {
+  color: var(--cypress);
+}
+.graph-around span {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}

@@ -1244,6 +1244,8 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
   wrap.addEventListener("pointerleave", onLeave);
   wrap.addEventListener("wheel", onWheel, { capture: true, passive: true });
   wrap.addEventListener("keydown", onKey);
+  // The rail folded or the legend opened (GraphExplorer.tsx): measure again.
+  window.addEventListener("graph:chrome", measureSoon);
   controls.addEventListener("start", onGrab);
   canvas.style.cursor = "grab";
   readFonts();
@@ -1368,6 +1370,7 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
       wrap.removeEventListener("pointerleave", onLeave);
       wrap.removeEventListener("wheel", onWheel, true);
       wrap.removeEventListener("keydown", onKey);
+      window.removeEventListener("graph:chrome", measureSoon);
       controls.removeEventListener("start", onGrab);
       controls.enabled = true;
       controls.autoRotate = false;

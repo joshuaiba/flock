@@ -193,7 +193,7 @@ export default function Graph3D({
       <div ref={labelsRef} aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden" />
       <div
         ref={tipRef}
-        className="fig paper-card pointer-events-none absolute left-0 top-0 whitespace-nowrap px-3 py-1 opacity-0 !shadow-none transition-opacity duration-150"
+        className="tip left-0 top-0 opacity-0 transition-opacity duration-150"
       />
     </div>
   );

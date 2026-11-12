@@ -13,7 +13,7 @@ import { useStore } from "@/lib/store";
 import { tagLabel, TAGS } from "@/lib/tags";
 import { MedallionImg } from "./Art";
 import { Empty } from "./Empty";
-import { GraphFilters, WINDOWS } from "./GraphFilters";
+import { CloseIcon, GraphFilters, WINDOWS } from "./GraphFilters";
 import { GraphFlat } from "./GraphFlat";
 import { NO_API, type GraphViewApi } from "./GraphView";
 import { PinButton } from "./PinButton";
@@ -24,14 +24,101 @@ import { PinButton } from "./PinButton";
 // The two are views of the same filtered graph, so everything chosen here
 // carries across the switch. The rail is GraphFilters.tsx, the renderers are
 // Graph3D.tsx and GraphFlat.tsx, and the filter itself is one function
-// (lib/graphLayout.ts hiddenNodes) used for both.
+// (lib/graphLayout.ts hiddenNodes) used for both. The legend sits in the map's
+// own bottom-left corner, just right of the rail, and follows it when the rail
+// folds; the view and zoom controls sit bottom-right. Looks: graph-rail.css.
 
 // three.js is large and needs a browser: it loads only when the 3D view is shown.
 const Graph3D = dynamic(() => import("./Graph3D"), { ssr: false });
 
 type ViewName = "3d" | "flat";
 const NO_PINS: ReadonlySet<string> = new Set();
+const NO_TAGS: ReadonlySet<string> = new Set();
+const EVERY_KIND: ReadonlySet<NodeKind> = new Set(ALL_KINDS);
 const NOTHING_HIDDEN: ReadonlySet<string> = new Set();
+
+const KIND_NAME: Record<NodeKind, string> = {
+  company: "Company",
+  agency: "Agency",
+  office: "Office",
+  opportunity: "Solicitation",
+};
+
+/** A small preference of this screen, kept in localStorage. */
+function recall(key: string): boolean | null {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw === null ? null : raw === "true";
+  } catch {
+    return null; // a private window: the preference just does not persist
+  }
+}
+function remember(key: string, value: boolean): void {
+  try {
+    localStorage.setItem(key, String(value));
+  } catch {
+    /* as above */
+  }
+}
+
+/** Tell the mounted view that the rail or the legend changed shape, so names
+ *  on the map keep clear of where they are now. */
+function chromeMoved(): void {
+  window.dispatchEvent(new Event("graph:chrome"));
+}
+
+/** What the marks on the map mean. It lives in the map's corner, never under
+ *  the rail, and folds to a button. */
+function Legend({ open, onOpen }: { open: boolean; onOpen: (open: boolean) => void }) {
+  if (!open)
+    return (
+      <div className="graph-legend">
+        <button type="button" className="btn btn-sm graph-float" aria-expanded={false} onClick={() => onOpen(true)}>
+          Legend
+        </button>
+      </div>
+    );
+  return (
+    <div className="graph-legend" data-obstacle>
+      <section className="graph-legend-panel" aria-label="Legend">
+        <div className="graph-legend-head">
+          <span>Legend</span>
+          <button type="button" className="graph-icon-btn" aria-label="Hide the legend" aria-expanded={true} onClick={() => onOpen(false)}>
+            <CloseIcon size={12} />
+          </button>
+        </div>
+        <ul>
+          <li>
+            <span className="graph-legend-key">
+              <MedallionImg name="column" size={16} />
+            </span>
+            Agency or office
+          </li>
+          <li>
+            <span className="graph-legend-key -space-x-1">
+              <MedallionImg name="wing" size={16} />
+              <MedallionImg name="anchor" size={16} />
+              <MedallionImg name="laurel" size={16} />
+            </span>
+            Company, by category
+          </li>
+          <li>
+            <span className="graph-legend-key">
+              <MedallionImg name="laurel" size={10} className="ml-[3px] opacity-60" />
+            </span>
+            Solicitation
+          </li>
+          <li>
+            <span className="graph-legend-key">
+              <span className="block h-[2px] w-6 bg-pompeii" />
+            </span>
+            Dollars awarded
+          </li>
+        </ul>
+      </section>
+    </div>
+  );
+}
 
 export function GraphExplorer() {
   const params = useSearchParams();
@@ -55,6 +142,24 @@ export function GraphExplorer() {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const ready = readyIn === view;
+
+  // The rail folded to its icon strip, and the legend folded to its button.
+  // Both are remembered. The legend opens by itself only where there is room.
+  const [railFolded, setRailFolded] = useState(false);
+  const [legend, setLegend] = useState(false);
+  useEffect(() => {
+    setRailFolded(recall("flock.graph.rail") ?? false);
+    setLegend(recall("flock.graph.legend") ?? window.matchMedia("(min-width: 768px)").matches);
+  }, []);
+  useEffect(chromeMoved, [railFolded, legend]);
+  const foldRail = useCallback((folded: boolean) => {
+    setRailFolded(folded);
+    remember("flock.graph.rail", folded);
+  }, []);
+  const openLegend = (open: boolean) => {
+    setLegend(open);
+    remember("flock.graph.legend", open);
+  };
 
   const api = useRef<GraphViewApi>(NO_API); // the camera of whichever view is mounted
   const focused = useRef<string | null>(null);
@@ -121,6 +226,28 @@ export function GraphExplorer() {
     setKinds(new Set(ALL_KINDS));
     setWatch(false);
   };
+
+  // What each row of the rail would show: the entities in a category, or of a
+  // kind, under every other filter in force. So a count is what ticking that
+  // row adds to the map, and it does not drop to zero because of its own group.
+  const tagCounts = useMemo(() => {
+    const out: Record<string, number> = {};
+    if (!graph) return out;
+    const hid = tags.size ? hiddenNodes(graph, { tags: NO_TAGS, agency, min, kinds, watch }, watched) : hidden;
+    for (const n of graph.nodes) {
+      if (n.kind === "agency" || n.kind === "office" || hid.has(n.id)) continue;
+      for (const t of n.tags) out[t] = (out[t] ?? 0) + 1;
+    }
+    return out;
+  }, [graph, hidden, tags, agency, min, kinds, watch, watched]);
+  const kindCounts = useMemo(() => {
+    const out: Record<NodeKind, number> = { company: 0, agency: 0, office: 0, opportunity: 0 };
+    if (!graph) return out;
+    const hid =
+      kinds.size < ALL_KINDS.length ? hiddenNodes(graph, { tags, agency, min, kinds: EVERY_KIND, watch }, watched) : hidden;
+    for (const n of graph.nodes) if (!hid.has(n.id)) out[n.kind]++;
+    return out;
+  }, [graph, hidden, tags, agency, min, kinds, watch, watched]);
 
   // A selection the filters have hidden would dim the map around nothing.
   useEffect(() => {
@@ -212,11 +339,10 @@ export function GraphExplorer() {
   const shown = graph ? graph.nodes.length - hidden.size : 0;
   const empty = ready && graph && graph.nodes.length === 0;
   const filteredOut = ready && graph && graph.nodes.length > 0 && shown === 0;
-  const caps = "font-caps text-[0.66rem] uppercase tracking-[0.14em]";
   const shared = { graph, hidden, tags, selected, query: needle, ready, api, onSelect: setSelected };
 
   return (
-    <div data-graph-root className="fixed inset-0 z-20 overflow-hidden bg-paper">
+    <div data-graph-root data-rail={railFolded ? "closed" : "open"} className="fixed inset-0 z-20 overflow-hidden bg-paper">
       {/* Plain parchment. A hairline frame; labels keep clear of it. */}
       <div aria-hidden="true" className="pointer-events-none absolute inset-3 rounded-sm border border-hair" />
       {view === "flat" ? (
@@ -260,47 +386,33 @@ export function GraphExplorer() {
         days={days}
         onDays={setDays}
         present={present}
+        tagCounts={tagCounts}
         tags={tags}
         onToggleTag={toggleTag}
-        onClearTags={() => setTags(new Set())}
         agencies={agencies}
         agency={agency}
         onAgency={setAgency}
         min={min}
         onMin={setMin}
         kinds={kinds}
+        kindCounts={kindCounts}
         onToggleKind={toggleKind}
         watch={watch}
         onWatch={setWatch}
         pins={pins.length}
         active={active}
         onReset={reset}
+        shown={shown}
+        total={graph?.nodes.length ?? 0}
+        collapsed={railFolded}
+        onCollapsed={foldRail}
       />
 
-      {/* Legend */}
-      <div className="absolute bottom-7 left-12 hidden max-w-[calc(100%-22rem)] flex-wrap items-center gap-x-5 gap-y-1 text-[0.95rem] italic text-muted md:flex">
-        <span className="flex items-center gap-2">
-          <MedallionImg name="column" size={22} /> agency
-        </span>
-        <span className="flex items-center gap-2">
-          <span className="flex -space-x-1.5">
-            <MedallionImg name="wing" size={22} />
-            <MedallionImg name="anchor" size={22} />
-            <MedallionImg name="laurel" size={22} />
-          </span>
-          company, by category
-        </span>
-        <span className="flex items-center gap-2">
-          <MedallionImg name="laurel" size={14} className="opacity-60" /> solicitation
-        </span>
-        <span className="flex items-center gap-2">
-          <span className="inline-block h-[3px] w-6 rounded-full bg-pompeii" /> dollars awarded
-        </span>
-      </div>
+      <Legend open={legend} onOpen={openLegend} />
 
       {/* View and zoom */}
-      <div className="absolute bottom-6 right-12 flex items-center gap-2">
-        <div className="marble inline-flex rounded-full p-1" role="group" aria-label="Graph view">
+      <div className="graph-controls">
+        <div className="seg graph-float" role="group" aria-label="Graph view">
           {(["3d", "flat"] as const).map((v) => (
             <button
               key={v}
@@ -310,28 +422,31 @@ export function GraphExplorer() {
               disabled={v === "3d" && no3d}
               title={v === "3d" && no3d ? "This browser cannot draw the 3D view" : undefined}
               onClick={() => setView(v)}
-              className={`h-7 cursor-pointer rounded-full px-3 transition-colors disabled:cursor-default disabled:opacity-50 ${caps} ${
-                view === v ? "bg-card text-ink shadow-[0_0_0_1px_var(--frame)]" : "text-muted hover:text-ink"
-              }`}
+              className="disabled:cursor-default disabled:opacity-50"
             >
               {v === "3d" ? "3D" : "Flat"}
             </button>
           ))}
         </div>
-        <div className="marble flex items-center rounded-full p-1">
-          <button type="button" className="h-7 w-7 cursor-pointer rounded-full hover:bg-hair" aria-label="Zoom out" onClick={() => api.current.zoom(1 / 1.4)}>
-            −
+        <div className="graph-zoom" role="group" aria-label="Zoom">
+          <button type="button" className="btn btn-sm btn-icon graph-float" aria-label="Zoom out" onClick={() => api.current.zoom(1 / 1.4)}>
+            <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
+              <path d="M4 8h8" />
+            </svg>
           </button>
-          <button type="button" className={`h-7 cursor-pointer rounded-full px-2 hover:bg-hair ${caps}`} onClick={() => api.current.fit(true)}>
-            fit
+          <button type="button" className="btn btn-sm graph-float" aria-label="Fit the whole graph" onClick={() => api.current.fit(true)}>
+            Fit
           </button>
-          <button type="button" className="h-7 w-7 cursor-pointer rounded-full hover:bg-hair" aria-label="Zoom in" onClick={() => api.current.zoom(1.4)}>
-            +
+          <button type="button" className="btn btn-sm btn-icon graph-float" aria-label="Zoom in" onClick={() => api.current.zoom(1.4)}>
+            <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
+              <path d="M4 8h8M8 4v8" />
+            </svg>
           </button>
         </div>
       </div>
 
-      {/* Right panel */}
+      {/* Right panel: the selected entity. Its name in the serif, the rest in
+          the interface face. */}
       <AnimatePresence>
         {detail && (
           <m.aside
@@ -342,75 +457,75 @@ export function GraphExplorer() {
             animate={{ opacity: 1, x: 0 }}
             exit={motion ? { opacity: 0, x: 24, transition: { duration: 0.15 } } : { opacity: 0 }}
             transition={{ type: "spring", stiffness: 170, damping: 26 }}
-            className="paper-card absolute inset-x-3 bottom-16 max-h-[55vh] overflow-y-auto p-6 md:inset-x-auto md:bottom-auto md:right-7 md:top-48 md:max-h-[calc(100vh-15.5rem)] md:w-[22rem]"
+            className="graph-detail"
           >
             <div className="flex items-start gap-3">
-              <MedallionImg name={medallionFor(detail.node.tag, detail.node.kind)} size={44} className="mt-0.5" />
-              <div className="min-w-0">
-                <p className="label">{detail.node.kind === "opportunity" ? "solicitation" : detail.node.kind}</p>
-                <h2 className="mt-1 text-[1.6rem]">{detail.node.name}</h2>
+              <MedallionImg name={medallionFor(detail.node.tag, detail.node.kind)} size={40} className="mt-0.5" />
+              <div className="min-w-0 flex-1">
+                <p className="label">{KIND_NAME[detail.node.kind]}</p>
+                <h2>{detail.node.name}</h2>
               </div>
-              <button type="button" onClick={() => setSelected(null)} aria-label="Close" className="-mr-1 -mt-1 ml-auto cursor-pointer p-1 text-muted hover:text-ink">
-                ×
+              <button type="button" onClick={() => setSelected(null)} aria-label="Close" className="graph-icon-btn -mr-1 -mt-0.5">
+                <CloseIcon size={14} />
               </button>
             </div>
 
             {detail.node.kind === "opportunity" ? (
-              <dl className="fig mt-4 grid grid-cols-2 gap-y-1">
-                <dt className="text-muted">Posted</dt>
-                <dd className="text-right">{day(detail.node.posted)}</dd>
-                <dt className="text-muted">Closes</dt>
-                <dd className="text-right">{day(detail.node.closes)}</dd>
-                <dt className="text-muted">Status</dt>
-                <dd className="text-right">{detail.node.open ? "Open" : "Closed"}</dd>
+              <dl className="graph-facts">
+                <dt>Posted</dt>
+                <dd>{day(detail.node.posted)}</dd>
+                <dt>Closes</dt>
+                <dd>{day(detail.node.closes)}</dd>
+                <dt>Status</dt>
+                <dd>{detail.node.open ? "Open" : "Closed"}</dd>
               </dl>
             ) : (
-              <dl className="fig mt-4 grid grid-cols-2 gap-y-1">
-                <dt className="text-muted">{days ? `Awarded, ${span}` : "Awarded, on record"}</dt>
-                <dd className="text-right text-pompeii">{money(detail.node.total)}</dd>
-                <dt className="text-muted">Awards</dt>
-                <dd className="text-right">{detail.node.awards}</dd>
+              <dl className="graph-facts">
+                <dt>{days ? `Awarded, ${span}` : "Awarded, on record"}</dt>
+                <dd className="text-pompeii">{money(detail.node.total)}</dd>
+                <dt>Awards</dt>
+                <dd>{detail.node.awards}</dd>
                 {detail.node.uei && (
                   <>
-                    <dt className="text-muted">UEI</dt>
-                    <dd className="text-right">{detail.node.uei}</dd>
+                    <dt>UEI</dt>
+                    <dd>{detail.node.uei}</dd>
                   </>
                 )}
               </dl>
             )}
 
-            {detail.node.tags.length > 0 && (
-              <p className="mt-3 italic text-muted">{detail.node.tags.map(tagLabel).join(", ")}</p>
-            )}
+            {detail.node.tags.length > 0 && <p className="mt-2.5 text-muted">{detail.node.tags.map(tagLabel).join(", ")}</p>}
 
             {detail.around.length > 0 && (
               <>
-                <p className="label mt-5">Connected to</p>
-                <ul className="mt-1">
+                <p className="label mt-4">Connected to</p>
+                <ul className="graph-around mt-1.5">
                   {detail.around.map((a) => (
-                    <li key={a.node.id} className="flex items-baseline gap-3 border-b border-hair py-1.5 last:border-0">
-                      <button type="button" onClick={() => select(a.node.id)} className="min-w-0 flex-1 cursor-pointer truncate text-left hover:text-cypress">
+                    <li key={a.node.id}>
+                      <button type="button" onClick={() => select(a.node.id)}>
                         {a.node.name}
                       </button>
-                      <span className="fig shrink-0 text-muted">
-                        {a.kind === "award" ? money(a.amount) : a.kind.replace("_", " ")}
-                      </span>
+                      <span>{a.kind === "award" ? money(a.amount) : a.kind.replace("_", " ")}</span>
                     </li>
                   ))}
                 </ul>
               </>
             )}
 
-            <div className="mt-5 flex flex-wrap items-center gap-2">
+            <div className="mt-4 flex flex-wrap items-center gap-2">
               {detail.node.kind === "opportunity" ? (
                 detail.node.url && (
-                  <a className="marble pill" href={detail.node.url} target="_blank" rel="noreferrer">
-                    read the notice ↗
+                  <a className="btn btn-sm" href={detail.node.url} target="_blank" rel="noreferrer">
+                    Read the notice<span className="sr-only"> (opens in a new tab)</span>
                   </a>
                 )
               ) : (
                 <>
+                  <Link className="btn btn-sm btn-primary" href={`/entity/${detail.node.id.split(":")[1]}`}>
+                    Open profile
+                  </Link>
                   <PinButton
+                    small
                     entity={{
                       id: Number(detail.node.id.split(":")[1]),
                       name: detail.node.name,
@@ -418,9 +533,6 @@ export function GraphExplorer() {
                       kind: detail.node.kind,
                     }}
                   />
-                  <Link className="marble pill" href={`/entity/${detail.node.id.split(":")[1]}`}>
-                    specimen sheet →
-                  </Link>
                 </>
               )}
             </div>

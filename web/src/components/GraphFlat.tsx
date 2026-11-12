@@ -940,6 +940,12 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
     canvas.addEventListener("wheel", onWheel, { passive: false });
     canvas.addEventListener("keydown", onKey);
     window.addEventListener("flock:theme", onTheme);
+    // The rail folded or the legend opened (GraphExplorer.tsx): measure again.
+    const onChrome = () => {
+      setTimeout(measure, 60);
+      setTimeout(invalidate, 80);
+    };
+    window.addEventListener("graph:chrome", onChrome);
     // The canvas always matches its container times devicePixelRatio.
     const ro = new ResizeObserver(() => {
       resize();
@@ -963,6 +969,7 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
       canvas.removeEventListener("wheel", onWheel);
       canvas.removeEventListener("keydown", onKey);
       window.removeEventListener("flock:theme", onTheme);
+      window.removeEventListener("graph:chrome", onChrome);
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
@@ -1012,7 +1019,7 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
       <div className="grain grain-local" aria-hidden="true" />
       <div
         ref={tipRef}
-        className="fig paper-card pointer-events-none absolute left-0 top-0 whitespace-nowrap px-3 py-1 opacity-0 !shadow-none transition-opacity duration-150"
+        className="tip left-0 top-0 opacity-0 transition-opacity duration-150"
       />
     </div>
   );

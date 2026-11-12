@@ -1,30 +1,33 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type { GraphNode, NodeKind } from "@/lib/api";
 import { medallionFor, medallionForTag } from "@/lib/art";
 import { ALL_KINDS } from "@/lib/graphLayout";
 import { tagLabel } from "@/lib/tags";
 import { MedallionImg } from "./Art";
+import "./graph-rail.css";
 
-// The graph's left rail: search, the time window and the filters. It only
-// shows and reports choices; the state lives in GraphExplorer.tsx, and one
-// function (lib/graphLayout.ts hiddenNodes) applies it to both views.
+// The graph's left rail: search, the filters in force, and the filters. It
+// only shows and reports choices; the state lives in GraphExplorer.tsx, and
+// one function (lib/graphLayout.ts hiddenNodes) applies it to both views.
 //
-// On a wide screen the filters sit under the search field and scroll inside
-// the rail when the window is short (a 13-inch laptop). On a phone they fold
-// behind a "Filters" button so the map stays visible.
+// On a wide screen it is one docked panel, 280px wide: the search stays at the
+// top, the groups scroll under it, and the foot says how much of the map is
+// shown. It folds to a strip of three icon buttons. On a phone the search and
+// the window float over the map and the groups fold behind a "Filters" button,
+// so the map stays visible. Layout and looks are in graph-rail.css.
 
 export const WINDOWS = [
   { days: 30, label: "30d", long: "30 days" },
   { days: 90, label: "90d", long: "90 days" },
   { days: 365, label: "1y", long: "1 year" },
-  { days: 0, label: "all", long: "everything on record" },
+  { days: 0, label: "All", long: "everything on record" },
 ];
 
 /** Minimum-dollar steps: companies awarded less in the window are hidden. */
 export const AMOUNTS = [
-  { min: 0, label: "any" },
+  { min: 0, label: "Any" },
   { min: 1e6, label: "$1M" },
   { min: 1e7, label: "$10M" },
   { min: 1e8, label: "$100M" },
@@ -32,31 +35,116 @@ export const AMOUNTS = [
 
 // There is no "program" in the data: the kinds are these four.
 const KIND_LABEL: Record<NodeKind, string> = {
-  company: "companies",
-  agency: "agencies",
-  office: "offices",
-  opportunity: "solicitations",
+  company: "Companies",
+  agency: "Agencies",
+  office: "Offices",
+  opportunity: "Solicitations",
+};
+const KIND_ONE: Record<NodeKind, string> = {
+  company: "Company",
+  agency: "Agency",
+  office: "Office",
+  opportunity: "Solicitation",
 };
 
-const caps = "font-caps text-[0.66rem] uppercase tracking-[0.14em]";
-const on = "bg-card text-ink shadow-[0_0_0_1px_var(--frame)]";
-const off = "text-muted hover:text-ink";
-const pressed = "bg-sage/45 text-ink shadow-[inset_0_0_0_1.5px_var(--cypress)]";
+// ---- Icons: 16px, one stroke weight, drawn in the text color ----
 
-/** A filter group that folds away, with a short note on what it is set to. */
-function Section({ title, note, children }: { title: string; note?: string; children: ReactNode }) {
+function Icon({ children, size = 16 }: { children: ReactNode; size?: number }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width={size}
+      height={size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {children}
+    </svg>
+  );
+}
+export const SearchIcon = () => (
+  <Icon>
+    <circle cx="7" cy="7" r="4.25" />
+    <path d="m10.2 10.2 3.3 3.3" />
+  </Icon>
+);
+export const CloseIcon = ({ size = 16 }: { size?: number }) => (
+  <Icon size={size}>
+    <path d="m4.25 4.25 7.5 7.5m0-7.5-7.5 7.5" />
+  </Icon>
+);
+const DiscloseIcon = () => (
+  <Icon size={14}>
+    <path d="m6 4 4 4-4 4" />
+  </Icon>
+);
+/** A panel with its side rail: `fold` draws the rail narrow. */
+const RailIcon = () => (
+  <Icon>
+    <rect x="2" y="3" width="12" height="10" rx="1.75" />
+    <path d="M6.25 3v10" />
+  </Icon>
+);
+const SlidersIcon = () => (
+  <Icon>
+    <path d="M2.5 5h5m3.5 0h2.5M2.5 11h2.5m3.5 0h5" />
+    <circle cx="9.25" cy="5" r="1.6" />
+    <circle cx="6.75" cy="11" r="1.6" />
+  </Icon>
+);
+
+/** A filter group that folds away. Its header always says what it is set to. */
+function Group({
+  title,
+  value,
+  className = "",
+  children,
+}: {
+  title: string;
+  value: string;
+  className?: string;
+  children: ReactNode;
+}) {
   const [open, setOpen] = useState(true);
   return (
-    <details className="group" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
-      <summary className="flex cursor-pointer list-none items-baseline gap-2 rounded py-1 [&::-webkit-details-marker]:hidden">
-        <span className="label">{title}</span>
-        {note && <span className="min-w-0 flex-1 truncate text-[0.95rem] italic text-muted">{note}</span>}
-        <span aria-hidden="true" className="ml-auto text-muted transition-transform group-open:rotate-90">
-          ›
-        </span>
+    <details className={`graph-group ${className}`} open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary>
+        <span className="graph-group-title">{title}</span>
+        <span className="graph-group-value">{value}</span>
+        <DiscloseIcon />
       </summary>
-      <div className="pb-1 pt-1.5">{children}</div>
+      <div className="graph-group-body">{children}</div>
     </details>
+  );
+}
+
+/** One row of a checklist: a box, an optional icon, a name and a count. */
+function Check({
+  checked,
+  onChange,
+  icon,
+  count,
+  disabled = false,
+  children,
+}: {
+  checked: boolean;
+  onChange: () => void;
+  icon?: ReactNode;
+  count?: number;
+  disabled?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <label className="graph-check" data-empty={count === 0} data-disabled={disabled}>
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={onChange} />
+      {icon}
+      <span>{children}</span>
+      {count !== undefined && <span className="graph-count">{count.toLocaleString("en-US")}</span>}
+    </label>
   );
 }
 
@@ -68,21 +156,26 @@ export function GraphFilters({
   days,
   onDays,
   present,
+  tagCounts,
   tags,
   onToggleTag,
-  onClearTags,
   agencies,
   agency,
   onAgency,
   min,
   onMin,
   kinds,
+  kindCounts,
   onToggleKind,
   watch,
   onWatch,
   pins,
   active,
   onReset,
+  shown,
+  total,
+  collapsed,
+  onCollapsed,
 }: {
   query: string;
   onQuery: (q: string) => void;
@@ -93,9 +186,10 @@ export function GraphFilters({
   onDays: (days: number) => void;
   /** categories present in this window */
   present: string[];
+  /** companies and solicitations in each category, under the other filters */
+  tagCounts: Readonly<Record<string, number>>;
   tags: ReadonlySet<string>;
   onToggleTag: (tag: string) => void;
-  onClearTags: () => void;
   /** agencies and offices in this window */
   agencies: GraphNode[];
   agency: string | null;
@@ -103,6 +197,8 @@ export function GraphFilters({
   min: number;
   onMin: (min: number) => void;
   kinds: ReadonlySet<NodeKind>;
+  /** entities of each kind, under the other filters */
+  kindCounts: Readonly<Record<NodeKind, number>>;
   onToggleKind: (kind: NodeKind) => void;
   watch: boolean;
   onWatch: (on: boolean) => void;
@@ -111,129 +207,294 @@ export function GraphFilters({
   /** how many filters are narrowing the map */
   active: number;
   onReset: () => void;
+  /** entities on the map now, and in the window */
+  shown: number;
+  total: number;
+  /** wide screens only: the rail is folded to its icon strip */
+  collapsed: boolean;
+  onCollapsed: (collapsed: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false); // the filters, on a narrow screen
+  const [open, setOpen] = useState(false); // the groups, on a narrow screen
+  const [listed, setListed] = useState(false); // the search results are showing
+  const [cursor, setCursor] = useState(0);
+  const input = useRef<HTMLInputElement>(null);
+  const search = useRef<HTMLDivElement>(null);
+  const showBtn = useRef<HTMLButtonElement>(null);
+  const hideBtn = useRef<HTMLButtonElement>(null);
+  /** where the keyboard's place goes once the rail has folded or unfolded */
+  const focusNext = useRef<"search" | "show" | "hide" | null>(null);
+  const listId = useId();
+
   const byName = (a: GraphNode, b: GraphNode) => a.name.localeCompare(b.name);
   const top = agencies.filter((a) => a.kind === "agency").sort(byName);
   const offices = agencies.filter((a) => a.kind === "office").sort(byName);
+  const agencyName = agency ? (agencies.find((a) => a.id === agency)?.name ?? "One agency") : null;
+  const hiddenKinds = ALL_KINDS.filter((k) => !kinds.has(k));
+  const windowLong = WINDOWS.find((w) => w.days === days)?.long ?? `${days} days`;
+
+  const typing = query.trim().length > 0;
+  const at = hits.length ? Math.min(cursor, hits.length - 1) : -1;
+  const showHits = typing && listed;
+
+  // "/" puts the cursor in the search field, from anywhere on the screen.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target;
+      if (t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      e.preventDefault();
+      if (collapsed) {
+        focusNext.current = "search";
+        onCollapsed(false);
+      } else input.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [collapsed, onCollapsed]);
+
+  // Folding hides the button that was pressed, so the keyboard's place moves
+  // to its counterpart: "hide" to "show" and back, or to the search field.
+  useEffect(() => {
+    const to = focusNext.current;
+    focusNext.current = null;
+    if (to === "search") input.current?.focus();
+    else if (to === "show") showBtn.current?.focus();
+    else if (to === "hide") hideBtn.current?.focus();
+  }, [collapsed]);
+  const fold = (next: boolean, focus: "search" | "show" | "hide") => {
+    focusNext.current = focus;
+    onCollapsed(next);
+  };
+
+  const pick = (id: string) => {
+    onPick(id);
+    setListed(false);
+  };
+  const onSearchKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      if (!hits.length) return;
+      e.preventDefault();
+      setListed(true);
+      setCursor(showHits ? (at + (e.key === "ArrowDown" ? 1 : hits.length - 1)) % hits.length : 0);
+    } else if (e.key === "Enter") {
+      if (showHits && at >= 0) pick(hits[at].id);
+    } else if (e.key === "Escape") {
+      // first the list, then the text, then the field
+      if (showHits) setListed(false);
+      else if (query) onQuery("");
+      else input.current?.blur();
+    }
+  };
+
+  const chips: { key: string; label: string; remove: () => void }[] = [
+    ...present.filter((t) => tags.has(t)).map((t) => ({ key: `tag:${t}`, label: tagLabel(t), remove: () => onToggleTag(t) })),
+    ...(agencyName ? [{ key: "agency", label: agencyName, remove: () => onAgency(null) }] : []),
+    ...(min ? [{ key: "min", label: `${AMOUNTS.find((a) => a.min === min)?.label ?? "Minimum"} or more`, remove: () => onMin(0) }] : []),
+    ...hiddenKinds.map((k) => ({ key: `kind:${k}`, label: `No ${KIND_LABEL[k].toLowerCase()}`, remove: () => onToggleKind(k) })),
+    ...(watch ? [{ key: "watch", label: "Watchlist only", remove: () => onWatch(false) }] : []),
+  ];
+
+  const windowSeg = (
+    <div className="seg graph-seg graph-float" role="group" aria-label="Time window">
+      {WINDOWS.map((w) => (
+        <button key={w.days} type="button" aria-pressed={days === w.days} aria-label={w.long} onClick={() => onDays(w.days)}>
+          {w.label}
+        </button>
+      ))}
+    </div>
+  );
 
   return (
-    <aside
-      data-obstacle
-      aria-label="Graph filters"
-      className="absolute left-3 right-3 top-[4.5rem] flex max-h-[calc(100svh-6rem)] flex-col gap-3 md:left-7 md:right-auto md:top-20 md:max-h-[calc(100svh-9.5rem)] md:w-64"
-    >
-      <div>
-        <label className="marble flex w-full cursor-text items-center rounded-full px-4 py-1.5">
-          <span className="sr-only">Search the graph</span>
-          <input
-            value={query}
-            onChange={(e) => onQuery(e.target.value)}
-            placeholder="Find a company or agency"
-            className="w-full bg-transparent text-[1.05rem] text-ink outline-none placeholder:italic placeholder:text-muted"
-            type="search"
-            autoComplete="off"
-            spellCheck={false}
-          />
-        </label>
-        {query.trim() && (
-          <div className="paper-card mt-2 overflow-hidden p-2">
-            {hits.length ? (
-              <ul>
-                {hits.map((h) => (
-                  <li key={h.id}>
-                    <button
-                      type="button"
-                      onClick={() => onPick(h.id)}
-                      className="flex w-full cursor-pointer items-center gap-2.5 rounded px-2 py-1 text-left hover:bg-hair"
-                    >
-                      <MedallionImg name={medallionFor(h.tag, h.kind)} size={24} />
-                      <span className="truncate">{h.name}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="px-2 py-1.5 italic text-muted">
-                {active ? "No one by that name among what is shown." : "No one by that name in this window."}
-              </p>
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
-        <div>
-          <p className="label mb-2 hidden md:block">Window</p>
-          <div className="marble inline-flex rounded-full p-1" role="group" aria-label="Time window">
-            {WINDOWS.map((w) => (
-              <button
-                key={w.days}
-                type="button"
-                aria-pressed={days === w.days}
-                aria-label={w.long}
-                onClick={() => onDays(w.days)}
-                className={`cursor-pointer rounded-full px-3 py-0.5 transition-colors ${caps} ${days === w.days ? on : off}`}
-              >
-                {w.label}
-              </button>
-            ))}
-          </div>
-        </div>
+    <aside data-obstacle aria-label="Graph filters" className="graph-rail" data-collapsed={collapsed}>
+      {/* Folded (wide screens): three buttons that open it again. */}
+      <div className="graph-rail-strip">
+        <button
+          ref={showBtn}
+          type="button"
+          className="graph-icon-btn"
+          aria-label="Show filters"
+          aria-expanded={false}
+          title="Show filters"
+          onClick={() => fold(false, "hide")}
+        >
+          <RailIcon />
+        </button>
         <button
           type="button"
-          aria-expanded={open}
-          aria-controls="graph-filter-list"
-          onClick={() => setOpen((was) => !was)}
-          className={`marble cursor-pointer rounded-full px-3.5 py-1.5 md:hidden ${caps}`}
+          className="graph-icon-btn"
+          aria-label="Search the graph"
+          title="Search ( / )"
+          onClick={() => fold(false, "search")}
         >
-          Filters{active > 0 && <span className="fig ml-1.5 text-[0.8rem] normal-case">({active})</span>}
+          <SearchIcon />
+        </button>
+        <button
+          type="button"
+          className="graph-icon-btn"
+          aria-label={active ? `Filters, ${active} in use` : "Filters"}
+          title={active ? `Filters (${active} in use)` : "Filters"}
+          onClick={() => fold(false, "hide")}
+        >
+          <SlidersIcon />
+          {active > 0 && (
+            <span className="graph-badge" aria-hidden="true">
+              {active}
+            </span>
+          )}
         </button>
       </div>
 
-      {/* The filters. They scroll inside the rail when the window is short. */}
-      <div
-        id="graph-filter-list"
-        className={`paper-card min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-4 [scrollbar-width:thin] md:-mx-1.5 md:flex md:border-0 md:bg-transparent md:px-1.5 md:pb-3 md:pt-0 md:shadow-none ${
-          open ? "flex" : "hidden"
-        }`}
-      >
-        <Section title="Categories" note={tags.size ? `${tags.size} of ${present.length}` : "all"}>
-          {/* Several categories share one medallion, so every filter carries its name. */}
-          <ul aria-label="Filter by category" className="marble space-y-0.5 rounded-[1.25rem] p-1.5">
-            {present.map((t) => (
-              <li key={t}>
+      <div className="graph-rail-full">
+        {/* Search: stays put while the groups scroll under it. */}
+        <div
+          ref={search}
+          className="graph-search"
+          onBlur={(e) => {
+            if (!search.current?.contains(e.relatedTarget as Node | null)) setListed(false);
+          }}
+        >
+          <label className="graph-search-field">
+            <span className="sr-only">Search the graph</span>
+            <SearchIcon />
+            <input
+              ref={input}
+              className="field"
+              type="search"
+              role="combobox"
+              aria-expanded={showHits}
+              aria-controls={listId}
+              aria-autocomplete="list"
+              aria-activedescendant={showHits && at >= 0 ? `${listId}-${at}` : undefined}
+              value={query}
+              onChange={(e) => {
+                onQuery(e.target.value);
+                setListed(true);
+                setCursor(0);
+              }}
+              onFocus={() => setListed(true)}
+              onKeyDown={onSearchKey}
+              placeholder="Find a company or agency"
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <span className="graph-search-aside">
+              {query ? (
                 <button
                   type="button"
-                  aria-pressed={tags.has(t)}
-                  onClick={() => onToggleTag(t)}
-                  className={`flex w-full cursor-pointer items-center gap-2.5 rounded-full py-0.5 pl-0.5 pr-3 text-left text-[0.98rem] leading-tight transition-colors ${
-                    tags.has(t) ? pressed : "text-muted hover:bg-hair hover:text-ink"
-                  }`}
+                  className="graph-icon-btn"
+                  aria-label="Clear the search"
+                  onClick={() => {
+                    onQuery("");
+                    input.current?.focus();
+                  }}
                 >
-                  <MedallionImg name={medallionForTag(t)} size={28} />
-                  <span className="min-w-0 truncate">{tagLabel(t)}</span>
+                  <CloseIcon size={14} />
                 </button>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-2 text-[0.98rem] italic leading-snug text-muted">
-            {tags.size ? `${tags.size} of ${present.length} shown` : "All categories"}
-            {tags.size > 0 && (
-              <button type="button" onClick={onClearTags} className="ml-2 cursor-pointer not-italic underline">
-                clear
-              </button>
-            )}
-          </p>
-        </Section>
+              ) : (
+                <kbd className="graph-kbd graph-only-wide" aria-hidden="true">
+                  /
+                </kbd>
+              )}
+            </span>
+          </label>
+          {showHits && (
+            // A press on a result must not take the cursor out of the field first
+            // (Safari does not focus buttons, so the list would close under it).
+            <div className="graph-hits" onMouseDown={(e) => e.preventDefault()}>
+              {hits.length ? (
+                <ul id={listId} role="listbox" aria-label="Matching entities">
+                  {hits.map((h, i) => (
+                    <li key={h.id} role="presentation">
+                      <button
+                        type="button"
+                        id={`${listId}-${i}`}
+                        role="option"
+                        aria-selected={i === at}
+                        tabIndex={-1}
+                        className="graph-hit"
+                        onPointerEnter={() => setCursor(i)}
+                        onClick={() => pick(h.id)}
+                      >
+                        <MedallionImg name={medallionFor(h.tag, h.kind)} size={20} />
+                        <span className="graph-name">{h.name}</span>
+                        {/* the field asks for companies; anything else says what it is */}
+                        {h.kind !== "company" && <span className="graph-hit-kind">{KIND_ONE[h.kind]}</span>}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p id={listId} className="graph-hits-none" role="status">
+                  {active ? "No one by that name among what is shown." : "No one by that name in this window."}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
 
-        <Section title="Agency" note={agency ? undefined : "all"}>
-          <label className="marble flex items-center rounded-full py-1 pl-4 pr-2">
-            <span className="sr-only">Show one agency or office, its awardees and its solicitations</span>
+        {/* Phone: the window and the way into the groups. */}
+        <div className="graph-rail-quick">
+          {windowSeg}
+          <button
+            type="button"
+            className="btn btn-sm graph-float"
+            aria-expanded={open}
+            aria-controls="graph-filter-list"
+            onClick={() => setOpen((was) => !was)}
+          >
+            Filters{active > 0 && ` (${active})`}
+          </button>
+        </div>
+
+        <div id="graph-filter-list" className="graph-rail-body" data-open={open}>
+          {/* What is narrowing the map now, each removable, and one way to drop them all. */}
+          {chips.length > 0 && (
+            <div className="graph-active">
+              <ul aria-label="Filters in use">
+                {chips.map((c) => (
+                  <li key={c.key}>
+                    <span className="chip">
+                      <span>{c.label}</span>
+                      <button type="button" aria-label={`Remove filter: ${c.label}`} onClick={c.remove}>
+                        <CloseIcon size={12} />
+                      </button>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <button type="button" className="graph-clear" onClick={onReset}>
+                Clear
+              </button>
+            </div>
+          )}
+
+          <Group title="Window" value={days ? `Last ${windowLong}` : "Everything on record"} className="graph-only-wide">
+            {windowSeg}
+          </Group>
+
+          <Group title="Categories" value={tags.size ? `${tags.size} of ${present.length}` : "All"}>
+            {/* Several categories share one medallion, so every row carries its name. */}
+            <div className="graph-checklist graph-checklist-scroll" role="group" aria-label="Filter by category">
+              {present.map((t) => (
+                <Check
+                  key={t}
+                  checked={tags.has(t)}
+                  onChange={() => onToggleTag(t)}
+                  icon={<MedallionImg name={medallionForTag(t)} size={16} />}
+                  count={tagCounts[t] ?? 0}
+                >
+                  {tagLabel(t)}
+                </Check>
+              ))}
+            </div>
+          </Group>
+
+          <Group title="Agency" value={agencyName ?? "All"}>
             <select
+              className="field"
+              aria-label="Show one agency or office, its awardees and its solicitations"
               value={agency ?? ""}
               onChange={(e) => onAgency(e.target.value || null)}
-              className="w-full min-w-0 cursor-pointer truncate rounded-full bg-transparent py-0.5 text-[0.98rem] text-ink outline-offset-2"
             >
               <option value="">All agencies</option>
               {top.length > 0 && (
@@ -255,68 +516,65 @@ export function GraphFilters({
                 </optgroup>
               )}
             </select>
-          </label>
-        </Section>
+          </Group>
 
-        <Section title="Awarded at least" note={min ? undefined : "any amount"}>
-          <div className="marble inline-flex rounded-full p-1" role="group" aria-label="Least dollars awarded to a company">
-            {AMOUNTS.map((a) => (
-              <button
-                key={a.min}
-                type="button"
-                aria-pressed={min === a.min}
-                onClick={() => onMin(a.min)}
-                className={`fig cursor-pointer rounded-full px-2.5 py-0.5 text-[0.92rem] transition-colors ${min === a.min ? on : off}`}
-              >
-                {a.label}
-              </button>
-            ))}
-          </div>
-        </Section>
+          <Group title="Minimum awarded" value={min ? `${AMOUNTS.find((a) => a.min === min)?.label} or more` : "Any amount"}>
+            <div className="seg graph-seg" role="group" aria-label="Least dollars awarded to a company in this window">
+              {AMOUNTS.map((a) => (
+                <button key={a.min} type="button" aria-pressed={min === a.min} onClick={() => onMin(a.min)}>
+                  {a.label}
+                </button>
+              ))}
+            </div>
+          </Group>
 
-        <Section title="Show" note={kinds.size === ALL_KINDS.length && !watch ? "everything" : undefined}>
-          <div className="marble flex flex-wrap gap-1 rounded-[1.1rem] p-1" role="group" aria-label="Node types">
-            {ALL_KINDS.map((k) => (
-              <button
-                key={k}
-                type="button"
-                aria-pressed={kinds.has(k)}
-                onClick={() => onToggleKind(k)}
-                className={`cursor-pointer rounded-full px-2.5 py-1 transition-colors ${caps} ${
-                  kinds.has(k) ? pressed : "text-muted hover:bg-hair hover:text-ink"
-                }`}
-              >
-                {KIND_LABEL[k]}
-              </button>
-            ))}
-          </div>
-          <button
-            type="button"
-            aria-pressed={watch}
-            disabled={pins === 0 && !watch}
-            onClick={() => onWatch(!watch)}
-            className={`marble mt-2 cursor-pointer rounded-full px-3.5 py-1.5 transition-colors disabled:cursor-default disabled:opacity-50 ${caps} ${
-              watch ? pressed : "text-ink"
-            }`}
+          <Group
+            title="Show"
+            value={
+              watch
+                ? "Watchlist only"
+                : hiddenKinds.length
+                  ? `${ALL_KINDS.length - hiddenKinds.length} of ${ALL_KINDS.length} kinds`
+                  : "Everything"
+            }
           >
-            Watchlist only
-          </button>
-          <p className="mt-1.5 text-[0.95rem] italic leading-snug text-muted">
-            {pins === 0
-              ? "Nothing is on the chain yet."
-              : watch
-                ? "The chain and its direct neighbors."
-                : `${pins} on the chain.`}
-          </p>
-        </Section>
+            <div className="graph-checklist" role="group" aria-label="Kinds of entity">
+              {ALL_KINDS.map((k) => (
+                <Check key={k} checked={kinds.has(k)} onChange={() => onToggleKind(k)} count={kindCounts[k]}>
+                  {KIND_LABEL[k]}
+                </Check>
+              ))}
+              <div className="graph-rule" role="presentation" />
+              <Check checked={watch} onChange={() => onWatch(!watch)} disabled={pins === 0 && !watch} count={pins}>
+                Watchlist only
+              </Check>
+            </div>
+            <p className="graph-note">
+              {pins === 0
+                ? "Nothing is on your watchlist yet."
+                : watch
+                  ? "Your watchlist and its direct neighbors."
+                  : "Narrows the map to your watchlist and its neighbors."}
+            </p>
+          </Group>
+        </div>
 
-        {active > 0 && (
-          <p>
-            <button type="button" onClick={onReset} className="cursor-pointer text-[0.98rem] underline">
-              Clear all filters
-            </button>
-          </p>
-        )}
+        <div className="graph-rail-foot">
+          <span>
+            <b>{shown.toLocaleString("en-US")}</b> of {total.toLocaleString("en-US")} shown
+          </span>
+          <button
+            ref={hideBtn}
+            type="button"
+            className="graph-icon-btn"
+            aria-label="Hide filters"
+            aria-expanded={true}
+            title="Hide filters"
+            onClick={() => fold(true, "show")}
+          >
+            <RailIcon />
+          </button>
+        </div>
       </div>
     </aside>
   );
