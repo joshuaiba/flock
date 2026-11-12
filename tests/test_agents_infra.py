@@ -40,7 +40,8 @@ def test_settings_defaults():
     s = settings.get_settings()
     assert s.extract_model == config.DEFAULT_EXTRACT_MODEL
     assert s.resolve_model == config.DEFAULT_RESOLVE_MODEL
-    assert s.extract_model == s.resolve_model == "anthropic:claude-haiku-5-5"
+    assert s.extract_model == "anthropic:claude-haiku-5-5"
+    assert s.resolve_model == "anthropic:claude-sonnet-5-5"
     assert s.anthropic_api_key is None and s.gemini_api_key is None
     assert s.sam_api_key is None and s.logfire_token is None
     assert (s.extract_request_limit, s.resolve_tool_calls_limit, s.sam_daily_quota) == (2, 8, 10)
@@ -160,9 +161,9 @@ def test_default_models_need_only_the_anthropic_key(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "a-key")
     settings.reset_settings()
     s = settings.get_settings()
-    for name in (s.extract_model, s.resolve_model):
-        assert settings.build_model(name).model_name == "claude-haiku-5-5"
-        assert settings.model_label(name) == "anthropic:claude-haiku-5-5"
+    assert settings.build_model(s.extract_model).model_name == "claude-haiku-5-5"
+    assert settings.build_model(s.resolve_model).model_name == "claude-sonnet-5-5"
+    assert settings.model_label(s.resolve_model) == "anthropic:claude-sonnet-5-5"
 
 
 # --- budgets ----------------------------------------------------------------

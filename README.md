@@ -106,7 +106,7 @@ and a few other values are read straight from the process environment.
 | `GEMINI_API_KEY` | the same three steps, on Gemini | Optional. Only needed when a model variable names a Gemini model. |
 | `SAM_API_KEY` | resolver's SAM.gov lookups | Optional. Without it that tool reports "unavailable" and the agent works from USAspending and our own data. |
 | `SAM_DAILY_QUOTA` | SAM.gov request cap | Default `10` (personal key, no role). Set `1000` for a key with a role or a system account. |
-| `EXTRACT_MODEL`, `RESOLVE_MODEL` | model choice | `<provider>:<model>`, default `anthropic:claude-haiku-5-5` (`pipeline/config.py`). See [Models and providers](#models-and-providers). |
+| `EXTRACT_MODEL`, `RESOLVE_MODEL` | model choice | `<provider>:<model>`. Defaults: Claude Haiku 5.5 and Claude Sonnet 5.5 (`pipeline/config.py`). See [Models and providers](#models-and-providers). |
 | `MONTHLY_LLM_BUDGET_USD` | spend cap | Default `90`. LLM steps are skipped once the month's estimated spend reaches it. |
 | `LOGFIRE_TOKEN` | tracing | Optional. Also needs `uv sync --group observability`. |
 
@@ -243,7 +243,11 @@ for each step is named as `<provider>:<model>`:
 | Variable | Default | Used by |
 | --- | --- | --- |
 | `EXTRACT_MODEL` | `anthropic:claude-haiku-5-5` | DoD extraction and the classifier |
-| `RESOLVE_MODEL` | `anthropic:claude-haiku-5-5` | The resolver agent |
+| `RESOLVE_MODEL` | `anthropic:claude-sonnet-5-5` | The resolver agent |
+
+Haiku handles the many single-shot calls; Sonnet, at 20 times the price,
+is kept for the resolver, the one step that weighs evidence across several
+tool calls.
 
 `anthropic:` models need `ANTHROPIC_API_KEY` and `gemini:` models need
 `GEMINI_API_KEY`; a step fails with the name of the missing key. A name with
@@ -397,10 +401,11 @@ day per model when this was measured, and one resolver decision takes about
 Measured on 2026-11-10 with `gemini-3.8-flash`, live SAM.gov and USAspending,
 two completed decisions: 2 and 6 model requests, 4 and 7 tool calls, 8,200
 and 25,400 tokens (about 15,500 input and 1,300 output tokens per decision on
-average). At Claude Haiku 5.5's prices that would be about $0.002 a decision,
-but Claude counts tokens differently and thinks before answering, so treat it
-as an order of magnitude. Two decisions is a small sample; run `run --dry-run`
-on real data for a better figure.
+average). At Claude Sonnet 5.5's prices that would be about $0.04 a decision,
+or about $1.10 a night at the default 25 pairs (Haiku 5.5: about $0.002 a
+decision). Claude counts tokens differently and thinks before answering, so
+treat it as an order of magnitude. Two decisions is a small sample; run
+`run --dry-run` on real data for a better figure.
 
 Logfire tracing is optional. Run `uv sync --group observability` and set
 `LOGFIRE_TOKEN`. Without the token nothing is configured or sent.
@@ -479,7 +484,7 @@ Optional repository **variables**:
 | --- | --- | --- |
 | `FLOCK_CONTACT` | none | Appended to the User-Agent |
 | `EXTRACT_MODEL` | `anthropic:claude-haiku-5-5` | Model for extraction and the classifier, as `<provider>:<model>` |
-| `RESOLVE_MODEL` | `anthropic:claude-haiku-5-5` | Model for the resolver agent |
+| `RESOLVE_MODEL` | `anthropic:claude-sonnet-5-5` | Model for the resolver agent |
 | `LLM_MIN_INTERVAL` | `1.0` | Seconds between LLM calls |
 | `MONTHLY_LLM_BUDGET_USD` | `90` | Estimated spend per UTC month at which the LLM steps are skipped |
 | `RESOLVE_LIMIT` | `25` | Max organization pairs sent to the resolver per night |

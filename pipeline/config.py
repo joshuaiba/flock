@@ -9,8 +9,10 @@ CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
 # Default models, as "<provider>:<model>" (a bare name means Gemini; see
 # pipeline.agents.settings.parse_model). Override with the EXTRACT_MODEL /
 # RESOLVE_MODEL env vars; agent modules never hardcode a model.
+# Haiku for the many single-shot calls (extraction, the classifier); Sonnet for
+# the resolver, the one step that weighs evidence across several tool calls.
 DEFAULT_EXTRACT_MODEL = "anthropic:claude-haiku-5-5"
-DEFAULT_RESOLVE_MODEL = "anthropic:claude-haiku-5-5"
+DEFAULT_RESOLVE_MODEL = "anthropic:claude-sonnet-5-5"
 
 
 def load_yaml(name: str) -> dict:
