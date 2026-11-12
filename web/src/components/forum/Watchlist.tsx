@@ -107,7 +107,7 @@ export function Watchlist({ className = "" }: { className?: string }) {
         <Loading />
       ) : pins.length === 0 ? (
         <PanelEmpty>
-          Nothing on your watchlist yet. Open any organization and choose &ldquo;add to chain&rdquo; to follow it here.
+          Nothing on your watchlist yet. Open any organization and choose &ldquo;Add to watchlist&rdquo; to follow it here.
         </PanelEmpty>
       ) : !res ? (
         <Loading />

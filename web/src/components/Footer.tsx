@@ -26,7 +26,7 @@ export function Footer({ sample }: { sample?: boolean }) {
       />
 
       <div className="site-footer-copy relative z-20 mx-auto max-w-6xl px-4 sm:px-6">
-        <div className="pt-10 sm:pt-12" data-flock-avoid>
+        <div className="pt-10 sm:pt-12">
           <div className="grid grid-cols-2 gap-x-8 gap-y-8 sm:grid-cols-[1.4fr_1fr_1fr] sm:gap-10">
             <div className="col-span-2 sm:col-span-1">
               <p className="font-display text-3xl">flock</p>
@@ -35,7 +35,7 @@ export function Footer({ sample }: { sample?: boolean }) {
               </p>
             </div>
             <div>
-              <p className="label">Explore</p>
+              <p className="eyebrow">Explore</p>
               <ul className="mt-3 space-y-1.5">
                 <li>
                   <Link href="/forum">The Forum</Link>
@@ -55,7 +55,7 @@ export function Footer({ sample }: { sample?: boolean }) {
               </ul>
             </div>
             <div>
-              <p className="label">Sources</p>
+              <p className="eyebrow">Sources</p>
               <ul className="mt-3 space-y-1.5">
                 <li>
                   <a href="https://www.usaspending.gov/">USAspending.gov</a>

@@ -44,7 +44,7 @@ export async function HeadlineStats({ days, tag }: PanelProps) {
   const [o, defs] = await Promise.all([getOverview(days, tag), getDefinitions()]);
   if (!o)
     return (
-      <p className="relative z-20 mt-6 border-y border-frame py-6 text-muted" data-flock-avoid>
+      <p className="relative z-20 mt-6 border-y border-frame py-6 text-muted">
         The data service is not answering, so there are no headline figures to show.
       </p>
     );
@@ -55,7 +55,7 @@ export async function HeadlineStats({ days, tag }: PanelProps) {
   // baseline (see "About the numbers"); the overview carries no pct of its own.
   const thinPrior = defs != null && o.prev_amount > 0 && o.prev_amount < defs.min_baseline;
   return (
-    <dl className="forum-kpis relative z-20 mt-6" data-flock-avoid>
+    <dl className="forum-kpis relative z-20 mt-6">
       <Stat label="Awarded" value={money(o.amount)} money>
         <Delta cur={o.amount} prev={o.prev_amount} pct={thinPrior ? null : undefined} env={o} />
       </Stat>

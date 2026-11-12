@@ -60,7 +60,7 @@ async function Forum({ searchParams }: { searchParams: Search }) {
   const p = { days, tag };
   return (
     <>
-      <div className={TOOLBAR} data-flock-avoid>
+      <div className={TOOLBAR}>
         <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1">
           <Suspense key={key} fallback={<span className="skeleton my-1 h-3.5 w-44" aria-hidden="true" />}>
             <AsOfLine {...p} />
@@ -142,9 +142,9 @@ async function ForumFooter({ searchParams }: { searchParams: Search }) {
 export default function ForumPage({ searchParams }: { searchParams: Search }) {
   return (
     <>
-      <main className="mx-auto max-w-6xl px-4 pt-24 sm:px-6 sm:pt-28" data-flock-column>
+      <main className="mx-auto max-w-6xl px-4 pt-24 sm:px-6 sm:pt-28">
         {/* The page's one ornament: the title in its plaque. */}
-        <div className="relative z-20" data-flock-avoid>
+        <div className="relative z-20">
           <h1 className="title-plaque">The Forum</h1>
         </div>
         <Suspense fallback={<ForumSkeleton />}>
