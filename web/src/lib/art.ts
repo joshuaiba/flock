@@ -22,7 +22,6 @@ export const ART = {
   "props/swallow-glide-4": { widths: [133], w: 133, h: 99 },
   "props/swallow-glide-5": { widths: [120], w: 120, h: 84 },
   "medallions/anchor": { widths: [64, 128], w: 128, h: 128 },
-  "medallions/column": { widths: [64, 128], w: 128, h: 128 },
   "medallions/compass": { widths: [64, 128], w: 128, h: 128 },
   "medallions/laurel": { widths: [64, 128], w: 128, h: 128 },
   "medallions/shield": { widths: [64, 128], w: 128, h: 128 },
@@ -52,7 +51,7 @@ export function artSrcSet(name: ArtName, tone: Tone): string {
   return ART[name].widths.map((w) => `/art/${tone}/${name}-${w}.webp ${w}w`).join(", ");
 }
 
-export type MedallionName = "wing" | "anchor" | "compass" | "shield" | "column" | "laurel";
+export type MedallionName = "wing" | "anchor" | "compass" | "shield" | "laurel";
 
 // The medallions are small category icons, one per category family (the
 // families themselves come from the API: config/taxonomy.yaml).

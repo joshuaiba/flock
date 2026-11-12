@@ -52,7 +52,7 @@ JOBS: list[Job] = [
     # Small category icons.
     *[
         (f"medallions/medallion-{n}", f"medallions/{n}", [64, 128], None)
-        for n in ["anchor", "column", "compass", "laurel", "shield", "wing"]
+        for n in ["anchor", "compass", "laurel", "shield", "wing"]
     ],
     # The vignette sits in the left of a wide empty canvas: crop to the drawing.
     ("vignettes/swallow-on-column", "vignettes/swallow-on-column", [280, 560], (24, 100, 930, 920)),
