@@ -42,7 +42,7 @@ function load(src: string): Promise<HTMLImageElement> {
   });
 }
 
-export function spriteUrl(tone: Tone, kind: "award" | "solicitation"): string {
+function spriteUrl(tone: Tone, kind: "award" | "solicitation"): string {
   return `/art/${tone}/sprites/swallow-${kind}-1040.webp`;
 }
 

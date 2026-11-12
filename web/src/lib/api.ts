@@ -140,8 +140,6 @@ export type Digest = {
   }[];
 };
 
-export type SearchHit = { id: number; name: string; kind: OrgKind; uei: string | null };
-
 /** Base URL of the API service. On Vercel (and under `vercel dev`) API_URL is
  *  injected by the web service's binding to the api service (vercel.json); it
  *  resolves at request time only, never during `next build`. Locally it falls
