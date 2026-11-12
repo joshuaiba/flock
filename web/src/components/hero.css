@@ -157,11 +157,6 @@
   line-height: 1.02;
   text-wrap: wrap;
 }
-.hero-stats {
-  margin-top: 2.25rem;
-  font-size: 0.875rem;
-  color: var(--muted);
-}
 @media (min-width: 640px) {
   .hero-copy {
     padding-left: clamp(2rem, 6.67vw, 6rem);

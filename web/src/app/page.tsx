@@ -5,18 +5,6 @@ import { Footer } from "@/components/Footer";
 import { Hero } from "@/components/Hero";
 import { serverGet, type Summary } from "@/lib/api";
 import { FRESCO_CAPTION, FRESCO_CREDIT } from "@/lib/art";
-import { clockET, money, plural } from "@/lib/format";
-
-async function Stats() {
-  const s = await serverGet<Summary>("summary");
-  if (!s) return <p className="hero-stats">The data service is not answering right now.</p>;
-  return (
-    <p className="hero-stats">
-      {plural(s.awards_30d, "award")} tracked this month · <span className="money">{money(s.amount_30d)}</span> · updated{" "}
-      {clockET(s.updated_at)}
-    </p>
-  );
-}
 
 async function FooterWithData() {
   const s = await serverGet<Summary>("summary");
@@ -46,11 +34,8 @@ export default function Home() {
       {/* Hero: the headline, the engraved lake and its two boats along the bottom, and the flock. */}
       <Hero>
         <h1 className="hero-title">Following the money on the frontier of autonomy, from solicitation to production.</h1>
-        <Suspense fallback={<p className="hero-stats">counting the flock…</p>}>
-          <Stats />
-        </Suspense>
         {/* The way in: the Forum is where a visit starts after the hero. */}
-        <p className="mt-8 flex flex-wrap items-center gap-2.5">
+        <p className="mt-10 flex flex-wrap items-center gap-2.5">
           <Link href="/forum" className="btn btn-primary">
             Open the Forum
           </Link>

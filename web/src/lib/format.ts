@@ -26,17 +26,6 @@ export function day(iso: string | null | undefined, short = false): string {
   return short ? `${MONTHS[m - 1]} ${d}` : `${MONTHS[m - 1]} ${d}, ${y}`;
 }
 
-/** "5:04 PM ET", always Eastern: the data is about Washington. */
-export function clockET(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const t = new Intl.DateTimeFormat("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    timeZone: "America/New_York",
-  }).format(new Date(iso));
-  return `${t} ET`;
-}
-
 export function plural(n: number, one: string, many = one + "s"): string {
   return `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
 }
