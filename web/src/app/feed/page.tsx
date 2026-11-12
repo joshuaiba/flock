@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
-import { Cartouche, CornerVine, Fresco, GreekKey } from "@/components/Art";
+import { CornerVine, Fresco, GreekKey } from "@/components/Art";
 import { Empty } from "@/components/Empty";
 import { Footer } from "@/components/Footer";
 import { Letter } from "@/components/Letter";
@@ -11,10 +11,9 @@ import { tagPhrase } from "@/lib/tags";
 
 export const metadata: Metadata = { title: "Field report" };
 
-// Sizes of the art on the letter card, in px.
-const PLAQUE_WIDTH = 520; // the title cartouche; it shrinks to fit narrow screens
-const VINE = 150; // corner vines from the `sm` breakpoint up
-const VINE_SMALL = 96; // corner vines on phones
+// The corner vine by the sign-off, in px: from the `sm` breakpoint up, and on phones.
+const VINE = 150;
+const VINE_SMALL = 96;
 
 function Entity({ id, name }: { id: number | null; name: string | null }) {
   if (!name) return <>an unnamed recipient</>;
@@ -105,41 +104,39 @@ async function Report() {
 
   return (
     <>
-      <article className="paper-card relative z-20 mx-auto max-w-2xl" data-flock-avoid>
-        {/* Top-left over the corner of the fresco; bottom-right beside the
-            sign-off, where the lines are short. */}
-        <CornerVine corner="tl" size={VINE} className="hidden sm:block" />
-        <CornerVine corner="tl" size={VINE_SMALL} className="sm:hidden" />
+      <article className="paper-card relative z-20 mx-auto max-w-2xl overflow-clip">
+        {/* One vine, beside the sign-off, where the lines are short. */}
         <CornerVine corner="br" size={VINE} className="hidden sm:block" />
         <CornerVine corner="br" size={VINE_SMALL} className="sm:hidden" />
 
-        {/* Header panel: the Boscoreale wall, set inside the card's inner rule.
-            No text sits on it. The grain ties the photograph to the drawn art. */}
-        <div className="relative mx-[6px] mt-[6px]">
-          <Fresco variant="wall" eager className="h-56 sm:h-[272px]" />
+        {/* Header panel: the Boscoreale wall. No text sits on it. The grain
+            ties the photograph to the drawn art. */}
+        <div className="relative">
+          <Fresco variant="wall" eager className="h-52 sm:h-64" />
           <div className="grain grain-local fade-bottom" aria-hidden="true" />
         </div>
 
         <Letter week={d.week_of}>
-          {/* The plaque rises a little into the faded foot of the fresco. Its
-              text scales with the plaque, which narrows on phones. */}
-          <div className="px-2 sm:px-12">
-            <Cartouche as="h1" width={PLAQUE_WIDTH} className="relative z-10 -mt-10 sm:-mt-14">
-              <span className="block text-[clamp(1.25rem,6vw,2.3rem)]">
-                Field report, week of {day(d.week_of, true)}
-              </span>
-            </Cartouche>
-          </div>
-          <div className="px-5 pb-12 sm:px-12 sm:pb-16">
-            <GreekKey className="fade-sides mx-auto mt-3 max-w-[400px] sm:max-w-none" />
-            <p className="label mt-4 text-center">
+          {/* The title plaque sits on the faded foot of the fresco. */}
+          <div className="relative z-10 -mt-3 px-4 text-center">
+            <h1 className="title-plaque [--plaque-h:3.5rem] sm:[--plaque-h:4rem]">Field Report</h1>
+            <p className="mt-3 font-display text-[1.5rem] leading-tight">Week of {day(d.week_of, true)}</p>
+            <p className="ui mt-1.5 text-muted">
               {day(d.week_of, true)} to {day(d.through)}
             </p>
+          </div>
+          <div className="px-5 pb-12 sm:px-12 sm:pb-16">
+            <GreekKey className="fade-sides mx-auto mt-6 max-w-[400px] sm:max-w-none" />
             {/* The week's figures come from the same views as the Forum. */}
-            <p className="mt-2 text-center text-[0.95rem] text-muted">
-              The same figures, by quarter: <Link href="/forum">the Forum</Link>
+            <p className="ui mt-5 text-center text-muted">
+              The same figures, by quarter:{" "}
+              <Link href="/forum" className="ui-link">
+                the Forum
+              </Link>
               {" · "}
-              <Link href="/about/numbers">how these are counted</Link>
+              <Link href="/about/numbers" className="ui-link">
+                How these are counted
+              </Link>
             </p>
             <div className="fig mt-8 space-y-4 text-[1.12rem] leading-relaxed">
               {lines.map((line, i) => (
@@ -159,23 +156,28 @@ async function Report() {
       </article>
 
       {recent && recent.length > 0 && (
-        <section className="relative z-20 mx-auto mt-20 max-w-3xl" data-flock-avoid>
-          <div className="flex items-baseline justify-between border-b border-frame pb-2">
-            <h2 className="text-[2rem]">Everything spotted lately</h2>
-            <p className="fig text-muted">one row per bird</p>
+        <section className="relative z-20 mx-auto mt-20 max-w-3xl">
+          <div className="flex items-baseline justify-between border-b border-frame pb-2.5">
+            <h2 className="panel-title">Everything spotted lately</h2>
+            <p className="ui text-muted">One row per bird on the landing page</p>
           </div>
           <ul>
             {recent.map((r) => (
-              <li key={`${r.kind}${r.id}`} className="row grid-cols-[4.5rem_1fr_auto] sm:grid-cols-[5rem_15rem_1fr_auto]">
-                <span className="fig text-muted">{day(r.day, true)}</span>
-                <span className="truncate">
+              <li
+                key={`${r.kind}${r.id}`}
+                className="row grid-cols-[3.75rem_1fr_auto] !py-2 sm:grid-cols-[4rem_15rem_1fr_auto]"
+              >
+                <span className="ui text-muted">{day(r.day, true)}</span>
+                <span className="truncate text-[1.0625rem]">
                   <Entity id={r.org_id} name={r.org_name} />
                 </span>
                 <span className="col-span-3 truncate text-[0.95rem] text-muted sm:col-span-1">
                   {truncate(r.title, 90)}
                 </span>
-                <span className={`fig col-start-3 row-start-1 text-right sm:col-start-4 ${r.kind === "award" ? "text-pompeii" : "text-muted"}`}>
-                  {r.kind === "award" ? money(r.amount) : "solicitation"}
+                <span
+                  className={`ui col-start-3 row-start-1 text-right sm:col-start-4 ${r.kind === "award" ? "text-pompeii" : "text-muted"}`}
+                >
+                  {r.kind === "award" ? money(r.amount) : "Solicitation"}
                 </span>
               </li>
             ))}
@@ -189,7 +191,7 @@ async function Report() {
 export default function FeedPage() {
   return (
     <>
-      <main className="mx-auto max-w-3xl px-4 pt-28 sm:px-8" data-flock-column>
+      <main className="mx-auto max-w-3xl px-4 pt-28 sm:px-8">
         <Suspense fallback={<div className="h-[70vh]" />}>
           <Report />
         </Suspense>
