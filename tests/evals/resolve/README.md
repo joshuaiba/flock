@@ -14,8 +14,8 @@
 - "merge" means the same legal entity. Parent vs subsidiary and joint venture
   vs partner are "separate".
 
-Run it (live LLM and HTTP calls; needs DATABASE_URL and GEMINI_API_KEY, plus
-SAM_API_KEY if you want SAM.gov lookups):
+Run it (live LLM and HTTP calls; needs DATABASE_URL and the API key of
+`RESOLVE_MODEL`'s provider, plus SAM_API_KEY if you want SAM.gov lookups):
 
     uv run --env-file .env python scripts/eval_resolver.py [--limit N] [--json]
 

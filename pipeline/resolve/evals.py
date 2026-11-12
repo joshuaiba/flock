@@ -204,7 +204,8 @@ def _run_one(conn: psycopg.Connection, ex: EvalPair, deps, provider) -> Outcome:
 
 
 def evaluate(examples: list[EvalPair], *, on_result=None) -> tuple[dict, list[Outcome]]:
-    """Run the real agent on every example. Needs DATABASE_URL and GEMINI_API_KEY."""
+    """Run the real agent on every example. Needs DATABASE_URL and the API key of
+    RESOLVE_MODEL's provider (ANTHROPIC_API_KEY by default)."""
     from pipeline.agents import tracing
     from pipeline.db import connect
     from pipeline.http import PoliteClient

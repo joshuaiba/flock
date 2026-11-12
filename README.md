@@ -102,13 +102,15 @@ and a few other values are read straight from the process environment.
 | Variable | Needed for | Notes |
 | --- | --- | --- |
 | `DATABASE_URL` | everything | Postgres connection string |
-| `GEMINI_API_KEY` | extraction, classifier, resolver | |
+| `ANTHROPIC_API_KEY` | extraction, classifier, resolver | The default models are Claude. |
+| `GEMINI_API_KEY` | the same three steps, on Gemini | Optional. Only needed when a model variable names a Gemini model. |
 | `SAM_API_KEY` | resolver's SAM.gov lookups | Optional. Without it that tool reports "unavailable" and the agent works from USAspending and our own data. |
 | `SAM_DAILY_QUOTA` | SAM.gov request cap | Default `10` (personal key, no role). Set `1000` for a key with a role or a system account. |
-| `EXTRACT_MODEL`, `RESOLVE_MODEL` | model choice | Bare Gemini model names. Defaults are in `pipeline/config.py`. |
+| `EXTRACT_MODEL`, `RESOLVE_MODEL` | model choice | `<provider>:<model>`, default `anthropic:claude-haiku-5-5` (`pipeline/config.py`). See [Models and providers](#models-and-providers). |
+| `MONTHLY_LLM_BUDGET_USD` | spend cap | Default `90`. LLM steps are skipped once the month's estimated spend reaches it. |
 | `LOGFIRE_TOKEN` | tracing | Optional. Also needs `uv sync --group observability`. |
 
-`.env.example` lists the rest (budgets, `FLOCK_CONTACT`, Bright Data).
+`.env.example` lists the rest (budgets, `LLM_MIN_INTERVAL`, `FLOCK_CONTACT`, Bright Data).
 
 ## Web UI
 
@@ -233,6 +235,36 @@ the record is skipped for the night. The one exception is a contract number:
 if the model still can't produce one after the retry, the field is stored as
 null with a warning and the rest of the award is kept.
 
+### Models and providers
+
+Two providers are supported, Anthropic Claude and Google Gemini. The model
+for each step is named as `<provider>:<model>`:
+
+| Variable | Default | Used by |
+| --- | --- | --- |
+| `EXTRACT_MODEL` | `anthropic:claude-haiku-5-5` | DoD extraction and the classifier |
+| `RESOLVE_MODEL` | `anthropic:claude-haiku-5-5` | The resolver agent |
+
+`anthropic:` models need `ANTHROPIC_API_KEY` and `gemini:` models need
+`GEMINI_API_KEY`; a step fails with the name of the missing key. A name with
+no prefix (`gemini-3.8-flash`) still means Gemini, so a config written before
+Claude support keeps working. To fall back to Gemini, set both variables to
+`gemini:gemini-3.8-flash`. The label stored with every result
+(`awards.extraction_model`, `classifications.model`, `agent_runs.model`) is
+always the prefixed form.
+
+- **Structured output.** Extraction and the classifier ask for native JSON
+  output on both providers. On Claude the schema is a strict JSON schema, so
+  the classifier's tag `Literal` reaches the API as an `enum` and constrains
+  decoding. The resolver leaves the output mode to Pydantic AI: native JSON
+  next to its tools on Claude, a `final_result` tool call on Gemini.
+- **Retries.** Calls are paced `LLM_MIN_INTERVAL` seconds apart (default 1).
+  429 and 5xx are retried with backoff, plus 529 (overloaded) on Claude. A
+  `retry-after` header is honored, up to 2 minutes.
+- **Prompt caching.** On Claude the classifier's and the resolver's
+  instructions are cached, so repeat calls within five minutes read them at a
+  tenth of the input price. Extraction's instructions are too short to cache.
+
 ### Budgets
 
 Budgets are defined in one place, `pipeline/agents/budgets.py`, from settings
@@ -321,7 +353,23 @@ uv run --env-file .env python -m pipeline.resolve undo 7
 Every LLM call writes one row to `agent_runs`: agent name (`extract:<Schema>`,
 `classifier`, `resolver`), what it ran on, model, status, requests, input and
 output tokens, the tool calls made, the output, and any error. API keys are
-redacted before anything is stored. Tokens per agent per day:
+redacted before anything is stored.
+
+`config/pricing.yaml` holds per-million-token prices by model label, and
+`pipeline/agents/costs.py` turns `agent_runs` into estimated dollars. The
+nightly job summary prints tokens and estimated cost per agent, for that run
+and for the month to date. It is an estimate: cached input is priced as
+ordinary input, so it runs a little high, and a model missing from the price
+list counts as $0 (the summary names it).
+
+`MONTHLY_LLM_BUDGET_USD` (default 90) is checked before extraction, the
+classifier and the resolver start. Once the UTC month's estimated spend
+reaches it, the pass is skipped: the step still succeeds, and the summary
+says it was skipped and why. Nothing is lost: the same records are candidates
+again next month, or as soon as the budget is raised. Fetching, loading, UEI
+auto-merges and the signals refresh need no model and carry on.
+
+Tokens per agent per day:
 
 ```sql
 SELECT started_at::date AS day, agent_name, count(*) AS runs,
@@ -338,18 +386,21 @@ so the pipeline logs every request it sends in `http_requests`, counts them
 per UTC day, and stops calling SAM once `SAM_DAILY_QUOTA` is reached. Cache
 hits don't count.
 
-If Gemini reports that the daily quota is spent, calls stop at once instead
-of backing off, and a resolve pass ends early (`stopped` in its stats); the
-remaining pairs are proposed again next run. A free-tier key allowed 20
-requests a day per model when this was measured, and one resolver decision
-takes about 4, so the nightly needs a paid tier to get through extraction,
-classification and resolution.
+If the provider reports that the account is spent, calls stop at once
+instead of backing off, and the pass ends early (`stopped` in its stats);
+what is left is picked up by the next run. For Claude that is a billing
+error, a credit balance that is too low, or a spend limit set in the Console;
+for Gemini, a spent daily quota. A free-tier Gemini key allowed 20 requests a
+day per model when this was measured, and one resolver decision takes about
+4, so on Gemini the nightly needs a paid tier.
 
 Measured on 2026-11-10 with `gemini-3.8-flash`, live SAM.gov and USAspending,
 two completed decisions: 2 and 6 model requests, 4 and 7 tool calls, 8,200
 and 25,400 tokens (about 15,500 input and 1,300 output tokens per decision on
-average). Multiply by your model's current price; two decisions is a small
-sample, so run `run --dry-run` on real data for a better figure.
+average). At Claude Haiku 5.5's prices that would be about $0.002 a decision,
+but Claude counts tokens differently and thinks before answering, so treat it
+as an order of magnitude. Two decisions is a small sample; run `run --dry-run`
+on real data for a better figure.
 
 Logfire tracing is optional. Run `uv sync --group observability` and set
 `LOGFIRE_TOKEN`. Without the token nothing is configured or sent.
@@ -375,6 +426,10 @@ calls and tokens per decision. It never applies a decision.
   have been run against the real Gemini, SAM.gov and USAspending APIs, on a
   throwaway database. The SAM.gov test fixture is still built from the API
   documentation, not recorded (`tests/fixtures/resolve/README.md`).
+- **Claude has not been run live yet.** The Anthropic path is covered by unit
+  tests and by inspecting the requests Pydantic AI builds, not by real calls.
+  Run the classifier eval (`tests/evals/README.md`) with both providers
+  before relying on it.
 - **Blocking is by the first word of the normalized name.** Duplicates whose
   names start differently ("Sikorsky Aircraft" vs "Lockheed Martin Sikorsky")
   are never proposed.
@@ -412,7 +467,8 @@ Repository **secrets**:
 | Secret | Required | Purpose |
 | --- | --- | --- |
 | `DATABASE_URL` | yes | Postgres connection string |
-| `GEMINI_API_KEY` | yes | DoD extraction, the classifier and the resolver agent |
+| `ANTHROPIC_API_KEY` | yes | DoD extraction, the classifier and the resolver agent |
+| `GEMINI_API_KEY` | no | The same steps, when a model variable names a Gemini model |
 | `BRIGHTDATA_API_KEY`, `BRIGHTDATA_ZONE` | no | Opt-in unlocker for war.gov article pages |
 | `SAM_API_KEY` | no | SAM.gov Entity API lookups for the resolver; without it the agent uses USAspending and our own data |
 | `LOGFIRE_TOKEN` | no | Sends agent traces to Logfire; nothing is sent when unset |
@@ -422,8 +478,10 @@ Optional repository **variables**:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `FLOCK_CONTACT` | none | Appended to the User-Agent |
-| `EXTRACT_MODEL` | `gemini-3.8-flash` | Gemini model for extraction and the classifier |
-| `RESOLVE_MODEL` | `gemini-3.8-flash` | Gemini model for the resolver agent |
+| `EXTRACT_MODEL` | `anthropic:claude-haiku-5-5` | Model for extraction and the classifier, as `<provider>:<model>` |
+| `RESOLVE_MODEL` | `anthropic:claude-haiku-5-5` | Model for the resolver agent |
+| `LLM_MIN_INTERVAL` | `1.0` | Seconds between LLM calls |
+| `MONTHLY_LLM_BUDGET_USD` | `90` | Estimated spend per UTC month at which the LLM steps are skipped |
 | `RESOLVE_LIMIT` | `25` | Max organization pairs sent to the resolver per night |
 | `SAM_DAILY_QUOTA` | `10` | SAM.gov requests allowed per UTC day: 10 for a personal key with no role, 1000 with a role or a system account |
 

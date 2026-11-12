@@ -20,6 +20,9 @@ jobs:
     timeout-minutes: 90
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      # LLM steps: Claude by default. GEMINI_API_KEY is optional, needed only
+      # when EXTRACT_MODEL / RESOLVE_MODEL name a Gemini model.
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       # Optional opt-in for war.gov article pages (see README "Fetching policy").
       BRIGHTDATA_API_KEY: ${{ secrets.BRIGHTDATA_API_KEY }}
@@ -28,6 +31,10 @@ jobs:
       FLOCK_CONTACT: ${{ vars.FLOCK_CONTACT }}
       EXTRACT_MODEL: ${{ vars.EXTRACT_MODEL }}
       RESOLVE_MODEL: ${{ vars.RESOLVE_MODEL }}
+      LLM_MIN_INTERVAL: ${{ vars.LLM_MIN_INTERVAL }}
+      # Estimated dollars per UTC month; at the budget the LLM passes are
+      # skipped (the steps still succeed) and the job summary says so.
+      MONTHLY_LLM_BUDGET_USD: ${{ vars.MONTHLY_LLM_BUDGET_USD }}
       # Resolver: the SAM.gov key is optional (without it the agent works from
       # USAspending and our own data). SAM_DAILY_QUOTA must match the key type.
       SAM_API_KEY: ${{ secrets.SAM_API_KEY }}
@@ -46,6 +53,10 @@ jobs:
 
       - name: Migrate
         run: uv run --no-sync python -m pipeline.db
+
+      # The job summary reports LLM tokens and cost for runs started after this.
+      - name: Mark run start
+        run: echo "FLOCK_RUN_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
 
       - name: USAspending
         id: usaspending
