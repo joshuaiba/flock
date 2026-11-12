@@ -3,8 +3,9 @@
 import { useState } from "react";
 import { MAX_PINS, useStore, type Pin } from "@/lib/store";
 
-/** "Add to chain": pins an entity to the watchlist (up to five). */
-export function PinButton({ entity, className = "" }: { entity: Pin; className?: string }) {
+/** "Add to watchlist": pins an entity to the watchlist chain (up to five).
+ *  Pinned, the button stays pressed and says what pressing it again does. */
+export function PinButton({ entity, small = false, className = "" }: { entity: Pin; small?: boolean; className?: string }) {
   const { pin, unpin, isPinned, pins } = useStore();
   const [note, setNote] = useState("");
   const pinned = isPinned(entity.id);
@@ -13,17 +14,17 @@ export function PinButton({ entity, className = "" }: { entity: Pin; className?:
     <span className={`inline-flex flex-wrap items-center gap-3 ${className}`}>
       <button
         type="button"
-        className="marble pill"
+        className={small ? "btn btn-sm" : "btn"}
         aria-pressed={pinned}
         onClick={() => {
           if (pinned) return unpin(entity.id);
-          setNote(pin(entity) === "full" ? `The chain holds ${MAX_PINS}. Remove one first.` : "");
+          setNote(pin(entity) === "full" ? `The watchlist holds ${MAX_PINS}. Remove one first.` : "");
         }}
       >
-        {pinned ? "on the chain ✓" : "add to chain"}
+        {pinned ? "Remove from watchlist" : "Add to watchlist"}
       </button>
       {full && note && (
-        <span role="status" className="italic text-muted">
+        <span role="status" className="ui text-muted">
           {note}
         </span>
       )}
