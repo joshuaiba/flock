@@ -47,7 +47,7 @@ async function Report() {
   } else {
     lines.push(
       <>
-        {plural(d.awards, "award")} landed this week, worth <span className="text-pompeii">{money(d.amount)}</span>.
+        {plural(d.awards, "award")} landed this week, worth <span className="text-accent">{money(d.amount)}</span>.
         {d.prev_awards > 0 && <> The week before it was {plural(d.prev_awards, "award")} and {money(d.prev_amount)}.</>}
       </>,
     );
@@ -55,7 +55,7 @@ async function Report() {
       lines.push(
         <>
           {i === 0 ? "The largest went to " : i === 1 ? "Then " : "And "}
-          <Entity id={a.org_id} name={a.org_name} />: <span className="text-pompeii">{money(a.amount)}</span>
+          <Entity id={a.org_id} name={a.org_name} />: <span className="text-accent">{money(a.amount)}</span>
           {a.agency_name && (
             <>
               {" "}
@@ -157,7 +157,7 @@ async function Report() {
 
       {recent && recent.length > 0 && (
         <section className="relative z-20 mx-auto mt-20 max-w-3xl">
-          <div className="flex items-baseline justify-between border-b border-frame pb-2.5">
+          <div className="flex items-baseline justify-between border-b border-line2 pb-2.5">
             <h2 className="panel-title">Everything spotted lately</h2>
             <p className="ui text-muted">One row per bird on the landing page</p>
           </div>
@@ -175,7 +175,7 @@ async function Report() {
                   {truncate(r.title, 90)}
                 </span>
                 <span
-                  className={`ui col-start-3 row-start-1 text-right sm:col-start-4 ${r.kind === "award" ? "text-pompeii" : "text-muted"}`}
+                  className={`ui col-start-3 row-start-1 text-right sm:col-start-4 ${r.kind === "award" ? "text-accent" : "text-muted"}`}
                 >
                   {r.kind === "award" ? money(r.amount) : "Solicitation"}
                 </span>

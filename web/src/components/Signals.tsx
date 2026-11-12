@@ -32,7 +32,7 @@ export function Panel({
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} className={`relative z-20 flex flex-col border-t border-frame pt-5 ${className}`}>
+    <section id={id} className={`relative z-20 flex flex-col border-t border-line2 pt-5 ${className}`}>
       <header className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
         <h2 className="panel-title">{title}</h2>
         {more && (
@@ -198,9 +198,9 @@ export function StageTrack({ path, className = "" }: { path: StagePoint[]; class
     <span className={`inline-flex items-center ${className}`} role="img" aria-label={`Stages reached: ${reached.join(", ") || "none"}`}>
       {path.map((p, i) => (
         <span key={p.stage} className="inline-flex items-center" title={`${STAGE_LABEL[p.stage]}${p.day ? `: ${day(p.day)}` : ": not on record"}`}>
-          {i > 0 && <span className={`h-px w-4 sm:w-5 ${p.day && path[i - 1].day ? "bg-cypress" : "bg-frame"}`} />}
+          {i > 0 && <span className={`h-px w-4 sm:w-5 ${p.day && path[i - 1].day ? "bg-ink" : "bg-line2"}`} />}
           <span
-            className={`block h-2.5 w-2.5 rounded-full border ${p.day ? "border-cypress bg-cypress" : "border-muted/60 bg-transparent"}`}
+            className={`block h-2.5 w-2.5 rounded-full border ${p.day ? "border-ink bg-ink" : "border-muted/60 bg-transparent"}`}
           />
         </span>
       ))}
@@ -223,7 +223,7 @@ export function SkeletonRows({ rows = 6, className = "" }: { rows?: number; clas
   return (
     <div className={className} aria-hidden="true">
       {Array.from({ length: rows }, (_, i) => (
-        <div key={i} className="flex h-10 items-center gap-3 border-b border-hair">
+        <div key={i} className="flex h-10 items-center gap-3 border-b border-line">
           <span className="skeleton h-[22px] w-[22px] shrink-0 rounded-full" />
           <span className="skeleton h-3.5" style={{ width: `${46 - ((i * 7) % 22)}%` }} />
           <span className="skeleton ml-auto h-3.5 w-16" />
@@ -236,7 +236,7 @@ export function SkeletonRows({ rows = 6, className = "" }: { rows?: number; clas
 /** A section-shaped placeholder while a signal loads. */
 export function PanelSkeleton({ title, rows = 6, className = "" }: { title: string; rows?: number; className?: string }) {
   return (
-    <section className={`relative z-20 border-t border-frame pt-5 ${className}`} aria-busy="true">
+    <section className={`relative z-20 border-t border-line2 pt-5 ${className}`} aria-busy="true">
       <h2 className="panel-title">{title}</h2>
       <span className="sr-only">Loading</span>
       <span className="skeleton mt-3 h-3.5 w-full max-w-md" aria-hidden="true" />

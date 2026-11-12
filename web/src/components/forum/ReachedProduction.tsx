@@ -47,13 +47,13 @@ export async function ReachedProduction({ days, tag, className = "" }: PanelProp
         </NoRows>
       ) : (
         <>
-          <ul className="forum-rows border-t border-frame">
+          <ul className="forum-rows border-t border-line2">
             {d.items.map((t) => (
               <li key={t.org.id} className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 py-2.5">
                 <div className="forum-name min-w-0">
                   <OrgLink org={t.org} size={22} className="max-w-full" />
                 </div>
-                <span className="forum-num self-center text-right text-pompeii">{money(t.amount)}</span>
+                <span className="forum-num self-center text-right text-accent">{money(t.amount)}</span>
                 <div className="ui flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5 text-muted">
                   <StageTrack path={t.path} />
                   <span>

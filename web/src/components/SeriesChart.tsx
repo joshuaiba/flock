@@ -17,7 +17,7 @@ export function SeriesChart({
   split,
   format = "count",
   unit = "",
-  color = "var(--pompeii)",
+  color = "var(--accent)",
   height = 56,
   max,
   title,
@@ -87,9 +87,9 @@ export function SeriesChart({
             <rect x={cut} y="0" width={W - cut} height={H} />
           </clipPath>
         </defs>
-        <line x1="0" x2={W} y1={bottom} y2={bottom} stroke="var(--frame)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+        <line x1="0" x2={W} y1={bottom} y2={bottom} stroke="var(--line2)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
         {cut > 0 && (
-          <line x1={cut} x2={cut} y1={top - 2} y2={bottom} stroke="var(--hair)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+          <line x1={cut} x2={cut} y1={top - 2} y2={bottom} stroke="var(--line)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
         )}
         <g clipPath={`url(#${clip}-prev)`} opacity="0.45">
           <path d={area} fill={color} opacity="0.1" />
@@ -133,7 +133,7 @@ function Dot({ left, top, color, height }: { left: number; top: number; color: s
         transform: "translate(-50%, -50%)",
         background: color,
         // a ring in the page's own color lifts the dot off the line
-        boxShadow: "0 0 0 2px var(--paper)",
+        boxShadow: "0 0 0 2px var(--bg)",
       }}
     />
   );

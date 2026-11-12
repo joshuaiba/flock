@@ -123,9 +123,9 @@ const HEAVY_EDGES = 1500;
 const LIGHT_EDGES = 1200; // how many award edges are still drawn in that case
 
 const NAME_CLASS =
-  "pointer-events-none absolute left-0 top-0 whitespace-nowrap font-display text-[17px] font-medium leading-none opacity-0 transition-opacity duration-200 [text-shadow:0_0_3px_var(--paper),0_0_3px_var(--paper),0_0_5px_var(--paper)]";
+  "pointer-events-none absolute left-0 top-0 whitespace-nowrap font-display text-[17px] font-medium leading-none opacity-0 transition-opacity duration-200 [text-shadow:0_0_3px_var(--bg),0_0_3px_var(--bg),0_0_5px_var(--bg)]";
 const REGION_CLASS =
-  "pointer-events-none absolute left-0 top-0 whitespace-nowrap font-caps text-[11px] uppercase leading-none tracking-[2.4px] text-muted opacity-0 transition-opacity duration-200 [text-shadow:0_0_3px_var(--paper),0_0_4px_var(--paper)]";
+  "pointer-events-none absolute left-0 top-0 whitespace-nowrap font-caps text-[11px] uppercase leading-none tracking-[2.4px] text-muted opacity-0 transition-opacity duration-200 [text-shadow:0_0_3px_var(--bg),0_0_4px_var(--bg)]";
 
 type Batch = {
   object: LineSegments | LineSegments2;
@@ -613,7 +613,7 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
     if (t.kind !== kind) {
       t.kind = kind;
       t.el.className = kind === 2 ? REGION_CLASS : NAME_CLASS;
-      t.el.style.color = kind === 1 ? "var(--cypress)" : kind === 0 ? "var(--ink)" : "";
+      t.el.style.color = kind === 1 ? "var(--text)" : kind === 0 ? "var(--text)" : "";
     }
     x = Math.round(x * 2) / 2;
     y = Math.round(y * 2) / 2;

@@ -77,7 +77,7 @@ export async function Rising({ days, tag, className = "" }: PanelProps) {
                     {r.org ? <OrgLink org={r.org} size={22} className="max-w-full align-middle" /> : "Unnamed recipient"}
                   </td>
                   <td className="num leading-tight">
-                    <span className="text-pompeii">{money(r.amount)}</span>
+                    <span className="text-accent">{money(r.amount)}</span>
                     <span className="block text-[0.75rem] text-muted sm:hidden">
                       <span className="sr-only">change </span>
                       {signedMoney(r.delta)}

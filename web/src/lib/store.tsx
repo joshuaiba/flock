@@ -3,14 +3,16 @@
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 
 // Preferences and the watchlist live in localStorage. They are read through
-// useSyncExternalStore so server HTML and hydration always agree (day mode, no
+// useSyncExternalStore so server HTML and hydration always agree (dark mode, no
 // pins), and the stored values arrive in a normal re-render right after.
 
 export type Pin = { id: number; name: string; tag: string | null; kind: string };
 export const MAX_PINS = 5;
 
-type Persisted = { theme: "day" | "dusk"; still: boolean; pins: Pin[] };
-const SERVER: Persisted = { theme: "day", still: false, pins: [] };
+/** The two modes: light lines on a near-black page, or ink on paper. */
+export type Theme = "dark" | "paper";
+type Persisted = { theme: Theme; still: boolean; pins: Pin[] };
+const SERVER: Persisted = { theme: "dark", still: false, pins: [] };
 
 let state = SERVER;
 let loaded = false;
@@ -38,7 +40,7 @@ function snapshot(): Persisted {
     const root = document.documentElement;
     const pins = read<Pin[]>("flock.pins", []);
     state = {
-      theme: root.dataset.theme === "dusk" ? "dusk" : "day",
+      theme: root.dataset.theme === "paper" ? "paper" : "dark",
       still: root.hasAttribute("data-still"),
       pins: Array.isArray(pins) ? pins.slice(0, MAX_PINS) : [],
     };
@@ -61,9 +63,9 @@ function subscribeReduced(l: () => void): () => void {
   return () => mq.removeEventListener("change", l);
 }
 
-function toggleTheme(): void {
+function setTheme(next: Theme): void {
   const root = document.documentElement;
-  const next = snapshot().theme === "dusk" ? "day" : "dusk";
+  if (snapshot().theme === next) return;
   const apply = () => {
     root.dataset.theme = next;
     write("flock.theme", next);
@@ -110,8 +112,8 @@ export function useStore() {
   return useMemo(
     () => ({
       theme: s.theme,
-      toggleTheme,
-      /** user chose "still" (low-power): flock frozen, physics settled */
+      setTheme,
+      /** user chose "still" (low-power): the flock is a frozen formation */
       still: s.still,
       toggleStill,
       /** false when the user or the OS asked for no motion */

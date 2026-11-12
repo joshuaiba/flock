@@ -7,8 +7,8 @@
 .forum-kpis {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  border-top: 1px solid var(--frame);
-  border-bottom: 1px solid var(--frame);
+  border-top: 1px solid var(--line2);
+  border-bottom: 1px solid var(--line2);
 }
 .forum-kpi {
   min-width: 0;
@@ -20,10 +20,10 @@
     padding-left: 0;
   }
   .forum-kpi:nth-child(even) {
-    border-left: 1px solid var(--hair);
+    border-left: 1px solid var(--line);
   }
   .forum-kpi:nth-child(n + 3) {
-    border-top: 1px solid var(--hair);
+    border-top: 1px solid var(--line);
   }
 }
 /* Four across: a rule between each, the first flush with the page's edge. */
@@ -33,7 +33,7 @@
   }
   .forum-kpi {
     padding: 1.1rem 1.5rem 1.2rem;
-    border-left: 1px solid var(--hair);
+    border-left: 1px solid var(--line);
   }
   .forum-kpi:first-child {
     padding-left: 0;
@@ -85,7 +85,7 @@
 
 /* ---- Lists that read like ledgers (topics, agencies, production) ---- */
 .forum-rows > li {
-  border-bottom: 1px solid var(--hair);
+  border-bottom: 1px solid var(--line);
 }
 .forum-rows > li:hover {
   background-color: color-mix(in srgb, var(--ochre) 13%, transparent);
@@ -93,7 +93,7 @@
 /* A column header row over a grid list, matching .ledger th. */
 .forum-cols {
   padding-bottom: 0.4rem;
-  border-bottom: 1px solid var(--frame);
+  border-bottom: 1px solid var(--line2);
   font-family: var(--font-sans);
   font-size: 0.75rem;
   font-weight: 500;
@@ -129,7 +129,7 @@
   display: flex;
   flex-wrap: wrap;
   column-gap: 1.5rem;
-  border-bottom: 1px solid var(--frame);
+  border-bottom: 1px solid var(--line2);
 }
 .forum-tab {
   display: inline-block;
@@ -147,11 +147,11 @@
     border-color 0.15s;
 }
 .forum-tab:hover {
-  color: var(--ink);
+  color: var(--text);
 }
 .forum-tab[aria-current] {
-  border-bottom-color: var(--ink);
-  color: var(--ink);
+  border-bottom-color: var(--text);
+  color: var(--text);
 }
 
 /* The sort mark in a ledger header: a small caret that keeps its place. */

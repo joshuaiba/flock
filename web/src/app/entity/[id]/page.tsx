@@ -24,7 +24,7 @@ const BANNER = "h-40 sm:h-[200px]";
  *  beside it, then the content. No card and no ornament. */
 function Section({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {
   return (
-    <section className="relative z-20 mt-14 border-t border-frame pt-7">
+    <section className="relative z-20 mt-14 border-t border-line2 pt-7">
       <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
         <h2 className="panel-title">{title}</h2>
         {note && <p className="ui text-muted">{note}</p>}
@@ -109,7 +109,7 @@ async function Sheet({ params }: { params: Promise<{ id: string }> }) {
       <header>
         {/* The painted garland, as a strip. Nothing is written on it; the
             medallion hangs over its lower edge. */}
-        <Fresco variant="band" eager className={`fade-sides z-0 w-full border-y border-frame ${BANNER}`} />
+        <Fresco variant="band" eager className={`fade-sides z-0 w-full border-y border-line2 ${BANNER}`} />
         <div className="relative z-20 flex flex-col items-center text-center">
           <div className="-mt-14">
             <Medallion id={org.id} tag={org.tag} kind={org.kind} size={112} morph="always" />
@@ -137,7 +137,7 @@ async function Sheet({ params }: { params: Promise<{ id: string }> }) {
 
       <div>
         <div className="relative z-20 mt-8">
-          <dl className="grid grid-cols-2 border-y border-frame sm:grid-cols-4">
+          <dl className="grid grid-cols-2 border-y border-line2 sm:grid-cols-4">
             {[
               { k: company ? "Awarded" : "Obligated", v: money(org.total), money: true },
               { k: "Awards", v: String(org.award_count) },
@@ -146,10 +146,10 @@ async function Sheet({ params }: { params: Promise<{ id: string }> }) {
             ].map((s, i) => (
               <div
                 key={s.k}
-                className={`px-4 py-4 text-center ${i % 2 ? "border-l border-hair" : ""} ${i > 1 ? "border-t border-hair sm:border-t-0" : ""} ${i === 2 ? "sm:border-l" : ""}`}
+                className={`px-4 py-4 text-center ${i % 2 ? "border-l border-line" : ""} ${i > 1 ? "border-t border-line sm:border-t-0" : ""} ${i === 2 ? "sm:border-l" : ""}`}
               >
                 <dt className="label">{s.k}</dt>
-                <dd className={`mt-1 font-display text-[1.75rem] leading-tight ${s.money ? "text-pompeii" : ""}`}>{s.v}</dd>
+                <dd className={`mt-1 font-display text-[1.75rem] leading-tight ${s.money ? "text-accent" : ""}`}>{s.v}</dd>
               </div>
             ))}
           </dl>
@@ -239,7 +239,7 @@ async function Sheet({ params }: { params: Promise<{ id: string }> }) {
           <Section title="Source documents" note="Where each record came from">
             <ul className="grid gap-x-10 sm:grid-cols-2">
               {org.sources.map((s) => (
-                <li key={s.url} className="flex items-baseline justify-between gap-4 border-b border-hair py-1.5 text-[1.0625rem]">
+                <li key={s.url} className="flex items-baseline justify-between gap-4 border-b border-line py-1.5 text-[1.0625rem]">
                   <a href={s.url} target="_blank" rel="noreferrer" className="truncate">
                     {s.label}
                   </a>

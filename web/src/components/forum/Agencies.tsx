@@ -100,7 +100,7 @@ export async function Agencies({ days, tag, className = "" }: PanelProps) {
           <li key={f} className="inline-flex items-center gap-1.5">
             <span
               className="block h-2.5 w-2.5 rounded-[2px]"
-              style={{ background: `var(--chart-${f})`, boxShadow: "inset 0 0 0 1px var(--frame)" }}
+              style={{ background: `var(--chart-${f})`, boxShadow: "inset 0 0 0 1px var(--line2)" }}
               aria-hidden="true"
             />
             {FAMILY_LABEL[f]}

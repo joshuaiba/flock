@@ -89,7 +89,7 @@ export async function LargestAwards({ days, tag, className = "" }: PanelProps) {
                         {a.description ?? "—"}
                       </span>
                     </td>
-                    <td className="num text-pompeii">{money(a.amount)}</td>
+                    <td className="num text-accent">{money(a.amount)}</td>
                     <td className="hidden text-right sm:table-cell">{source}</td>
                   </tr>
                 );

@@ -85,7 +85,7 @@ function Topic({
         labels={labels}
         split={Math.floor(r.series.length / 2)}
         unit="posted"
-        color="var(--cypress)"
+        color="var(--text)"
         height={32}
         title={`${name}, solicitations posted`}
       />
@@ -194,7 +194,7 @@ export async function HeatingUp({ days, tag, className = "" }: PanelProps) {
           )}
         </div>
       ) : (
-        <ul className="forum-rows grid gap-x-12 border-t border-frame lg:grid-cols-2">{rest.map(row)}</ul>
+        <ul className="forum-rows grid gap-x-12 border-t border-line2 lg:grid-cols-2">{rest.map(row)}</ul>
       )}
     </Panel>
   );

@@ -42,24 +42,26 @@ export type Palette = Record<
   string
 > & { night: boolean };
 
-/** The palette from CSS variables (all plain #rrggbb). */
+/** The palette from CSS variables (all plain #rrggbb). The names are the
+ *  painted design's; until the canvases are redrawn for the engraving design
+ *  each one reads the token that took its place. */
 export function readPalette(): Palette {
   const s = getComputedStyle(document.documentElement);
   const v = (n: string) => s.getPropertyValue(n).trim();
   return {
-    paper: v("--paper"),
-    card: v("--card"),
-    ink: v("--ink"),
+    paper: v("--bg"),
+    card: v("--surface"),
+    ink: v("--text"),
     muted: v("--muted"),
-    sage: v("--sage"),
-    cypress: v("--cypress"),
-    sky: v("--sky"),
-    lake: v("--lake"),
-    terracotta: v("--terracotta"),
-    ochre: v("--ochre"),
-    pompeii: v("--pompeii"),
-    marble: v("--marble"),
-    gold: v("--gold"),
-    night: document.documentElement.dataset.theme === "dusk",
+    sage: v("--faint"),
+    cypress: v("--text"),
+    sky: v("--surface"),
+    lake: v("--surface"),
+    terracotta: v("--accent"),
+    ochre: v("--muted"),
+    pompeii: v("--accent"),
+    marble: v("--surface"),
+    gold: v("--muted"),
+    night: document.documentElement.dataset.theme !== "paper",
   };
 }

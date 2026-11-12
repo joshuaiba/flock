@@ -11,7 +11,7 @@ async function Stats() {
   if (!s) return <p className="fig mt-6 text-muted">The data service is not answering right now.</p>;
   return (
     <p className="fig mt-6 text-muted">
-      {plural(s.awards_30d, "award")} tracked this month · <span className="text-pompeii">{money(s.amount_30d)}</span> · updated{" "}
+      {plural(s.awards_30d, "award")} tracked this month · <span className="text-accent">{money(s.amount_30d)}</span> · updated{" "}
       {clockET(s.updated_at)}
       {s.sample && " · sample data"}
     </p>
@@ -79,11 +79,11 @@ export default function Home() {
           </p>
         </div>
 
-        <div className="relative z-20 mx-6 mt-16 grid border-t border-frame sm:mx-0 sm:mt-24 md:grid-cols-3">
+        <div className="relative z-20 mx-6 mt-16 grid border-t border-line2 sm:mx-0 sm:mt-24 md:grid-cols-3">
           {ABOUT.map((a) => (
             <div
               key={a.title}
-              className="border-b border-hair py-8 md:border-b-0 md:border-l md:px-8 md:py-10 md:first:border-l-0 md:first:pl-0 md:last:pr-0"
+              className="border-b border-line py-8 md:border-b-0 md:border-l md:px-8 md:py-10 md:first:border-l-0 md:first:pl-0 md:last:pr-0"
             >
               <h3 className="text-[1.75rem]">{a.title}</h3>
               <p className="mt-3 text-[1.0625rem] leading-[1.6] text-muted">{a.body}</p>

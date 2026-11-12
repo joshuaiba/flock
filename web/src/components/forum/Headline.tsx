@@ -32,7 +32,7 @@ function Stat({
   return (
     <div className="forum-kpi">
       <dt className="label">{label}</dt>
-      <dd className={`forum-kpi-value ${isMoney ? "text-pompeii" : ""}`}>{value}</dd>
+      <dd className={`forum-kpi-value ${isMoney ? "text-accent" : ""}`}>{value}</dd>
       <dd className="forum-kpi-delta">{children}</dd>
     </div>
   );
@@ -44,7 +44,7 @@ export async function HeadlineStats({ days, tag }: PanelProps) {
   const [o, defs] = await Promise.all([getOverview(days, tag), getDefinitions()]);
   if (!o)
     return (
-      <p className="relative z-20 mt-6 border-y border-frame py-6 text-muted">
+      <p className="relative z-20 mt-6 border-y border-line2 py-6 text-muted">
         The data service is not answering, so there are no headline figures to show.
       </p>
     );

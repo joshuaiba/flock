@@ -109,7 +109,7 @@ function among(tag: string | null): string {
 
 /** Dollars awarded: the one place Pompeian red is used. */
 function Awarded({ v }: { v: number }) {
-  return <span className="text-pompeii">{dollars(v)}</span>;
+  return <span className="text-accent">{dollars(v)}</span>;
 }
 
 /** A change with its sign, "+12%" or "−$1,204": the sign carries the

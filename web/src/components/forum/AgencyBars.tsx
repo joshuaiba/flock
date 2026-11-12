@@ -35,7 +35,7 @@ const TIP_ROOM = "5.5rem";
 export function AgencyBars({ bars }: { bars: AgencyBar[] }) {
   const [at, setAt] = useState<{ row: number; seg: number } | null>(null);
   return (
-    <ul className="border-t border-frame">
+    <ul className="border-t border-line2">
       {bars.map((b, i) => {
         const open = at?.row === i ? b.segments[at.seg] : undefined;
         // where the open piece's middle sits along the bar, 0 to 1
@@ -43,7 +43,7 @@ export function AgencyBars({ bars }: { bars: AgencyBar[] }) {
         // and along the whole row, to keep the tooltip inside the panel
         const across = mid * b.frac * 0.8;
         return (
-          <li key={b.org.id} className="border-b border-hair py-2.5">
+          <li key={b.org.id} className="border-b border-line py-2.5">
             {/* On a phone the count drops to its own line, so the name keeps
                 the row: "Department of the Army" and "Department of the Air
                 Force" must not both be cut to "Department of…". */}
@@ -90,7 +90,7 @@ export function AgencyBars({ bars }: { bars: AgencyBar[] }) {
                           style={{
                             background: `var(--chart-${s.family})`,
                             // a fine ink outline keeps the palest washes visible on plaster
-                            boxShadow: "inset 0 0 0 1px var(--frame)",
+                            boxShadow: "inset 0 0 0 1px var(--line2)",
                           }}
                         />
                       </span>
@@ -114,7 +114,7 @@ export function AgencyBars({ bars }: { bars: AgencyBar[] }) {
                     </div>
                   )}
                 </div>
-                <span className="forum-num shrink-0 text-pompeii">{money(b.amount)}</span>
+                <span className="forum-num shrink-0 text-accent">{money(b.amount)}</span>
               </div>
             ) : (
               <p className="ui mt-1 text-muted">no awards in this window</p>

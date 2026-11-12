@@ -13,7 +13,7 @@ export function FlightPath({ stages }: { stages: Stage[] }) {
   // A stretch is flown only when there is a record at both ends; the rest are gaps.
   const flown = (i: number) => i >= 0 && i < stages.length - 1 && stages[i].reached && stages[i + 1].reached;
   const seg = (on: boolean, hidden: boolean) =>
-    `flex-1 border-t border-dashed ${hidden ? "border-transparent" : on ? "border-ink" : "border-frame"}`;
+    `flex-1 border-t border-dashed ${hidden ? "border-transparent" : on ? "border-ink" : "border-line2"}`;
   return (
     <ol className="grid grid-cols-4" aria-label="Path to production">
       {stages.map((s, i) => (
@@ -35,10 +35,10 @@ export function FlightPath({ stages }: { stages: Stage[] }) {
             <span
               className={`mx-1.5 h-4 w-4 shrink-0 rounded-full border ${
                 s.reached
-                  ? "border-ink bg-cypress shadow-[inset_0_0_0_2px_var(--card)]"
+                  ? "border-ink bg-ink shadow-[inset_0_0_0_2px_var(--card)]"
                   : i < furthest
                     ? "border-dashed border-muted"
-                    : "border-frame"
+                    : "border-line2"
               }`}
             />
             <span className={seg(flown(i), i === stages.length - 1)} />
@@ -50,7 +50,7 @@ export function FlightPath({ stages }: { stages: Stage[] }) {
               {s.amount > 0 && (
                 <>
                   <br />
-                  <span className="text-pompeii">{money(s.amount)}</span>
+                  <span className="text-accent">{money(s.amount)}</span>
                   {s.n > 1 && ` · ${s.n} awards`}
                 </>
               )}

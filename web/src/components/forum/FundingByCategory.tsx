@@ -74,7 +74,7 @@ export async function FundingByCategory({ days, tag, className = "" }: PanelProp
                 {chosen && <span className="label ml-2 whitespace-nowrap">selected</span>}
               </h3>
               <p className="mt-0.5 flex flex-wrap items-baseline gap-x-2.5">
-                <span className="forum-num text-pompeii">{money(c.amount)}</span>
+                <span className="forum-num text-accent">{money(c.amount)}</span>
                 <Delta cur={c.amount} prev={c.prev_amount} pct={c.pct} env={d} short />
               </p>
               <SeriesChart

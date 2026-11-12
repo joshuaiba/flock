@@ -354,9 +354,9 @@ export function GraphExplorer() {
   const shared = { graph, hidden, tags, selected, query: needle, ready, api, onSelect: setSelected };
 
   return (
-    <div data-graph-root data-rail={railFolded ? "closed" : "open"} className="fixed inset-0 z-20 overflow-hidden bg-paper">
+    <div data-graph-root data-rail={railFolded ? "closed" : "open"} className="fixed inset-0 z-20 overflow-hidden bg-bg">
       {/* Plain parchment. A hairline frame; labels keep clear of it. */}
-      <div aria-hidden="true" className="pointer-events-none absolute inset-3 rounded-sm border border-hair" />
+      <div aria-hidden="true" className="pointer-events-none absolute inset-3 rounded-sm border border-line" />
       {view === "flat" ? (
         <GraphFlat {...shared} onReady={readyFlat} />
       ) : (
@@ -382,7 +382,7 @@ export function GraphExplorer() {
         <div className="pointer-events-none absolute inset-0 grid place-items-center">
           <Empty title="Nothing matches these filters">
             Loosen one of them, or{" "}
-            <button type="button" onClick={reset} className="pointer-events-auto cursor-pointer text-cypress underline">
+            <button type="button" onClick={reset} className="pointer-events-auto cursor-pointer text-ink underline">
               clear them all
             </button>
             .
@@ -494,7 +494,7 @@ export function GraphExplorer() {
             ) : (
               <dl className="graph-facts">
                 <dt>{days ? `Awarded, ${span}` : "Awarded, on record"}</dt>
-                <dd className="text-pompeii">{money(detail.node.total)}</dd>
+                <dd className="text-accent">{money(detail.node.total)}</dd>
                 <dt>Awards</dt>
                 <dd>{detail.node.awards}</dd>
                 {detail.node.uei && (

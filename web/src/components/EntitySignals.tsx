@@ -53,7 +53,7 @@ export async function EntitySignals({
     <Frame>
       <dl className={`grid gap-x-8 gap-y-8 sm:grid-cols-2 ${company ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
         <Reading label={`${company ? "Awarded" : "Obligated"}, last ${windowLabel(s.window_days)}`}>
-          <p className={`${BIG} text-pompeii`}>{money(s.amount)}</p>
+          <p className={`${BIG} text-accent`}>{money(s.amount)}</p>
           <p className={SMALL}>
             {/* The API withholds a percentage when the prior period is too
                 small to divide by; then only the dollar change is shown. */}
@@ -125,7 +125,7 @@ export async function EntitySignals({
         </Reading>
       </dl>
 
-      <div className="mt-8 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 border-t border-hair pt-4">
+      <div className="mt-8 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 border-t border-line pt-4">
         <AsOf env={s} />
         <Link href="/about/numbers" className="ui-link">
           How these are counted

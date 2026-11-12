@@ -123,7 +123,7 @@ export function Watchlist({ className = "" }: { className?: string }) {
               will be listed from your next visit.
             </p>
           )}
-          <ul className="forum-rows border-t border-frame">
+          <ul className="forum-rows border-t border-line2">
             {data.items.map((w) => (
               <Watched key={w.org.id} w={w} since={data.since} />
             ))}
@@ -189,7 +189,7 @@ function Watched({ w, since }: { w: WatchRow; since: string | null }) {
               <p>
                 {capped ? `${AWARD_CAP} or more new awards` : plural(w.new_awards.length, "new award")}
                 {" · "}
-                <span className="text-pompeii">{money(w.new_amount)}</span>
+                <span className="text-accent">{money(w.new_amount)}</span>
                 {capped && <span className="text-muted"> in the newest {AWARD_CAP}</span>}
               </p>
               <ul className="mt-1 text-muted">
@@ -198,7 +198,7 @@ function Watched({ w, since }: { w: WatchRow; since: string | null }) {
                     {/* With the year: an award new to the record can carry an
                         old date (a late filing, a newly loaded source). */}
                     <span className="shrink-0 whitespace-nowrap">{day(a.day)}</span>
-                    <span className="shrink-0 text-pompeii">{money(a.amount)}</span>
+                    <span className="shrink-0 text-accent">{money(a.amount)}</span>
                     <span className="min-w-0 truncate">{truncate(a.description, 90)}</span>
                   </li>
                 ))}

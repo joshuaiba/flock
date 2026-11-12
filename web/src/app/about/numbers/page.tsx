@@ -71,13 +71,13 @@ async function Numbers() {
       </header>
 
       {/* What the record holds. */}
-      <dl className="mt-9 grid grid-cols-3 border-y border-frame">
+      <dl className="mt-9 grid grid-cols-3 border-y border-line2">
         {[
           { k: "First award on record", v: d.first_award_day ? day(d.first_award_day) : "None yet" },
           { k: "Awards", v: count(d.awards) },
           { k: "Solicitations", v: count(d.opportunities) },
         ].map((x, i) => (
-          <div key={x.k} className={`px-3 py-4 text-center ${i ? "border-l border-hair" : ""}`}>
+          <div key={x.k} className={`px-3 py-4 text-center ${i ? "border-l border-line" : ""}`}>
             <dt className="label">{x.k}</dt>
             <dd className="mt-1 font-display text-2xl leading-tight">{x.v}</dd>
           </div>
@@ -93,18 +93,18 @@ async function Numbers() {
 
       {/* One section per definition, in the API's own words. */}
       {d.items.map((it) => (
-        <section key={it.key} id={it.key} className="mt-8 scroll-mt-24 border-t border-hair pt-6">
+        <section key={it.key} id={it.key} className="mt-8 scroll-mt-24 border-t border-line pt-6">
           <h2 className="text-[1.75rem] leading-tight">{it.name}</h2>
           <p className="mt-2.5">{it.text}</p>
           {it.tables.length > 0 && <p className="ui mt-2.5 text-muted">Source tables: {it.tables.join(", ")}</p>}
         </section>
       ))}
 
-      <section id="limits" className="mt-14 scroll-mt-24 border-t border-frame pt-8">
+      <section id="limits" className="mt-14 scroll-mt-24 border-t border-line2 pt-8">
         <h2 className="text-[2rem] leading-tight">What these numbers cannot tell you</h2>
         <ul className="mt-4">
           {limits(d).map((l) => (
-            <li key={l.lead} className="border-b border-hair py-3.5 last:border-b-0">
+            <li key={l.lead} className="border-b border-line py-3.5 last:border-b-0">
               <span className="text-ink">{l.lead}</span> <span className="text-muted">{l.rest}</span>
             </li>
           ))}

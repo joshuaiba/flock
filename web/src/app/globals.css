@@ -1,175 +1,202 @@
 @import "tailwindcss";
 
-/* One artist's world: pen-and-ink and Roman fresco, sun-faded pastel washes on
-   parchment. All decoration comes from the illustration pack in /public/art.
-   Day is a lakeside morning; "dusk" is the same scene at evening.
-   This file is the shared base. Component-specific rules live in plain stylesheets beside the component
-   (CSS Modules are not available: every .css file goes through the Tailwind loader). */
+/* The engraving design: a near-black page in one color, with classical line
+   engravings ghosted at the edges and the data in quiet, plain UI. Dark is the
+   default; "paper" is the same site in ink on a paper ground (the Display
+   menu). The only hue is the accent, and it means one thing: dollars awarded.
+   This file is the shared base. Component-specific rules live in plain
+   stylesheets beside the component (CSS Modules are not available: every .css
+   file goes through the Tailwind loader). */
 :root {
-  --paper: #f5efe2; /* parchment: the page */
-  --card: #ede4d3; /* plaster: cards */
-  --marble: #faf8f3; /* surfaces you can hold */
-  --ink: #3a2f26;
-  --muted: #7a6b5c;
-  --sage: #a8bfa0;
-  --cypress: #4f6b4a; /* links, selected */
-  --sky: #c8dbe3;
-  --lake: #b7d3cf;
-  --terracotta: #d08c6a;
-  --ochre: #d9b26f;
-  --pompeii: #b9655a; /* faded Pompeian red: money awarded only */
-  --gold: #c9a45c;
-  --frame: rgb(58 47 38 / 0.2);
-  --hair: rgb(58 47 38 / 0.1);
-  /* The art is painted for daylight. At dusk it is darkened with a multiply
-     tint of the evening sky; these set how strongly. */
-  --tint: 0;
-  --grain-opacity: 0.055;
-  --grain-blend: multiply;
+  --bg: #131312; /* the page */
+  --surface: #1a1a18; /* only for things that float: side card, menus, tooltips */
+  --text: #e9e4d8; /* text, filled controls, graph nodes */
+  --muted: #948f83; /* secondary text, column headers */
+  --faint: #5f5b53; /* ranks, counts, disabled */
+  --line: rgb(233 228 216 / 0.1); /* row hairlines, column dividers */
+  --line2: rgb(233 228 216 / 0.22); /* control borders, section rules */
+  --accent: #d68a6a; /* dollars awarded only: amounts, award edges, award birds */
+  --art: 0.42; /* default opacity of engravings */
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-  /* Charts that color by category use five families (see lib/signals.ts), in
-     this fixed order. Pompeian red stays reserved for money. */
-  --chart-aerial: var(--terracotta);
-  --chart-maritime: #8fb3c7; /* the sky, a step deeper: the page's own is lost on plaster */
-  --chart-navigation: var(--ochre);
-  --chart-counter: var(--cypress);
-  --chart-other: var(--sage);
+  /* The Forum's money chart is the one place with category hues: five category
+     families in this fixed order. The values passed colorblind, contrast and
+     separation checks as neighbors in this order; do not adjust them by eye. */
+  --chart-aerial: #ca7d5f;
+  --chart-maritime: #5697cc;
+  --chart-navigation: #b18e40;
+  --chart-counter: #9674bb;
+  --chart-other: #60a26f;
+  --chart-uncategorized: #7d7a73;
+  --chart-on-segment: #1d1e29; /* the share printed inside a segment */
+  --gutter-art-opacity: 0.24; /* the Forum's margin figures */
 }
 
-[data-theme="dusk"] {
-  --paper: #2b2c3d;
-  --card: #34354a;
-  --marble: #3f4057;
-  --ink: #efe6d6;
-  --muted: #b9ae9c;
-  --sage: #5d7361;
-  --cypress: #b3c9a6;
-  --sky: #3c4258;
-  --lake: #3b4a58;
-  --terracotta: #d99a78;
-  --ochre: #e2b66f; /* lamp light */
-  --pompeii: #dd8b7c;
-  --gold: #d9b56a;
-  --frame: rgb(239 230 214 / 0.2);
-  --hair: rgb(239 230 214 / 0.09);
-  --tint: 1;
-  --grain-opacity: 0.09;
-  --grain-blend: soft-light; /* multiply vanishes on a dark page */
-  /* the footer painting's top fade, longer at dusk (see components/footer.css) */
-  --terrace-mask: linear-gradient(to bottom, transparent 0%, rgb(0 0 0 / 0.38) 30%, #000 56%);
-  /* the page's dusk sky and cypress are too dark to read as chart marks */
-  --chart-maritime: #a9c2dc;
-  --chart-counter: #5d7361;
-  --chart-other: #b3c9a6;
+[data-theme="paper"] {
+  --bg: #f3eee3;
+  --surface: #ebe5d8;
+  --text: #1b1a17;
+  --muted: #6f6a60;
+  --faint: #a39d91;
+  --line: rgb(27 26 23 / 0.11);
+  --line2: rgb(27 26 23 / 0.25);
+  --accent: #a8583e;
+  --art: 0.5;
+  --chart-aerial: #b45f3d;
+  --chart-maritime: #266ea4;
+  --chart-navigation: #a4771c;
+  --chart-counter: #734f99;
+  --chart-other: #3b834e;
+  --chart-uncategorized: #8f877a;
+  --chart-on-segment: #fbf8f1;
+  --gutter-art-opacity: 0.3;
 }
 
+/* Utility names for the tokens. The text color is `ink` in class names
+   (text-ink, bg-ink, border-ink), which reads better than text-text. */
 @theme inline {
-  --color-paper: var(--paper);
-  --color-card: var(--card);
-  --color-ink: var(--ink);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-ink: var(--text);
   --color-muted: var(--muted);
-  --color-sage: var(--sage);
-  --color-cypress: var(--cypress);
-  --color-sky: var(--sky);
-  --color-lake: var(--lake);
-  --color-terracotta: var(--terracotta);
-  --color-ochre: var(--ochre);
-  --color-pompeii: var(--pompeii);
-  --color-marble: var(--marble);
-  --color-frame: var(--frame);
-  --color-hair: var(--hair);
+  --color-faint: var(--faint);
+  --color-line: var(--line);
+  --color-line2: var(--line2);
+  --color-accent: var(--accent);
+  /* Identity: the wordmark, titles, entity names, large figures. */
   --font-display: var(--font-cormorant), "Iowan Old Style", Georgia, serif;
+  /* Reading: the Field Report, About copy, captions (italic). */
   --font-serif: var(--font-garamond), "Iowan Old Style", Georgia, serif;
-  --font-caps: var(--font-cinzel), var(--font-cormorant), serif;
-  /* The interface face: controls, column headers, figures in tables. The
-     serifs keep headings, names and prose. */
+  /* Interface: everything else. */
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
 @layer base {
   html {
-    background: var(--paper);
-    color: var(--ink);
-    color-scheme: light;
-    scroll-behavior: smooth;
-  }
-  html[data-theme="dusk"] {
+    background: var(--bg);
+    color: var(--text);
     color-scheme: dark;
   }
+  html[data-theme="paper"] {
+    color-scheme: light;
+  }
+  /* The page speaks in the interface face: Inter at 13px with tabular
+     figures. Serif is asked for by name, where the design calls for it. */
   body {
-    background: var(--paper);
-    font-family: var(--font-serif);
+    background: var(--bg);
+    font-family: var(--font-sans);
     font-weight: 400;
-    font-size: 1.1875rem;
-    line-height: 1.55;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    font-feature-settings: "tnum";
     overflow-x: hidden;
   }
   h1,
   h2,
   h3 {
     font-family: var(--font-display);
-    font-weight: 500; /* never bold */
+    font-weight: 400; /* never bold; section titles take 500 */
     line-height: 1.08;
-    letter-spacing: -0.005em;
+    letter-spacing: 0;
+    font-feature-settings: normal;
     text-wrap: balance;
   }
   p {
     text-wrap: pretty;
   }
   a {
-    color: var(--cypress);
+    color: inherit;
     text-decoration: underline;
     text-decoration-thickness: 1px;
-    text-decoration-color: color-mix(in srgb, var(--cypress) 40%, transparent);
-    text-underline-offset: 0.2em;
-    transition: text-decoration-color 0.2s;
+    text-decoration-color: var(--line2);
+    text-underline-offset: 0.22em;
+    transition: text-decoration-color 0.15s;
   }
   a:hover {
-    text-decoration-color: var(--cypress);
+    text-decoration-color: currentColor;
   }
   :focus-visible {
-    outline: 1.5px solid var(--cypress);
+    outline: 1.5px solid var(--text);
     outline-offset: 3px;
     border-radius: 4px;
   }
   ::selection {
-    background: color-mix(in srgb, var(--ochre) 45%, transparent);
+    background: color-mix(in srgb, var(--text) 22%, transparent);
   }
 }
 
 @layer components {
-  /* Full-page paper grain: above the art (z 0-12), below the text (z 20+). It is
-     what ties the illustrations and the real fresco together. */
-  .grain {
-    position: fixed;
-    inset: 0;
-    z-index: 15;
-    pointer-events: none;
-    opacity: var(--grain-opacity);
-    mix-blend-mode: var(--grain-blend);
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' seed='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)'/%3E%3C/svg%3E");
-  }
-  /* The same grain inside a container that covers the page (the graph). */
-  .grain-local {
-    position: absolute;
-    z-index: auto;
-  }
+  /* ---- Type roles ---- */
 
-  /* Numbers, dollar amounts, IDs and dates: the book serif with tabular lining
-     figures, used everywhere a figure appears. */
-  .fig {
-    font-family: var(--font-serif);
-    font-variant-numeric: tabular-nums lining-nums;
-    font-size: 1rem;
-    letter-spacing: 0.01em;
+  /* A page title: the display serif, plainly. 46px at desktop width. */
+  .page-title {
+    font-family: var(--font-display);
+    font-size: clamp(2.25rem, 1.6rem + 2.4vw, 2.875rem);
+    font-weight: 400;
+    line-height: 1.05;
   }
-  /* Interface text: the quiet sans at 13px, with tabular figures. */
+  /* A section's title. */
+  .panel-title {
+    font-family: var(--font-display);
+    font-size: 1.4375rem;
+    font-weight: 500;
+    line-height: 1.2;
+  }
+  /* The sentence under a section's title: what the data says, or what is
+     being counted. */
+  .lede {
+    max-width: 46rem;
+    font-size: 0.875rem;
+    line-height: 1.55;
+    color: var(--muted);
+  }
+  /* A name that links somewhere, in a table or a list: the display serif at
+     17px. */
+  .name {
+    font-family: var(--font-display);
+    font-size: 1.0625rem;
+    font-weight: 500;
+    line-height: 1.3;
+    font-feature-settings: normal;
+  }
+  .name a {
+    text-decoration-color: transparent;
+  }
+  .name a:hover {
+    text-decoration-color: var(--line2);
+  }
+  /* A large figure: a total, a rank, a stage. 40px at desktop width. */
+  .figure {
+    font-family: var(--font-display);
+    font-size: clamp(2rem, 1.5rem + 1.6vw, 2.5rem);
+    font-weight: 400;
+    line-height: 1;
+    font-variant-numeric: lining-nums;
+    font-feature-settings: normal;
+  }
+  /* Long reading text: the Field Report, About copy. */
+  .reading {
+    font-family: var(--font-serif);
+    font-size: 1.25rem;
+    line-height: 1.65;
+    font-feature-settings: normal;
+  }
+  /* The small italic line under a piece of art that has a real-world source,
+     and the landing page's note about the birds. */
+  .caption {
+    font-family: var(--font-serif);
+    font-style: italic;
+    font-size: 0.875rem;
+    line-height: 1.4;
+    font-feature-settings: normal;
+    color: var(--muted);
+  }
+  /* Interface text at its base size, for elements that sit inside serif text. */
   .ui {
     font-family: var(--font-sans);
     font-size: 0.8125rem;
-    line-height: 1.4;
+    line-height: 1.5;
     letter-spacing: 0;
-    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
   }
   /* A label for a control, a column or a small group: sentence case, muted. */
   .label {
@@ -177,7 +204,6 @@
     font-size: 0.75rem;
     font-weight: 500;
     line-height: 1.35;
-    letter-spacing: 0.01em;
     color: var(--muted);
   }
   /* A small link in the interface face: "How these are counted". */
@@ -188,86 +214,65 @@
     color: var(--muted);
     text-decoration: underline;
     text-decoration-thickness: 1px;
-    text-decoration-color: var(--frame);
+    text-decoration-color: var(--line2);
     text-underline-offset: 0.24em;
     transition:
       color 0.15s,
       text-decoration-color 0.15s;
   }
   .ui-link:hover {
-    color: var(--ink);
+    color: var(--text);
     text-decoration-color: currentColor;
   }
-  /* Spaced capitals. Rare on purpose: the footer's column heads and the
-     constellation names in the graph, never a control. */
-  .eyebrow {
-    font-family: var(--font-caps);
-    font-size: 0.68rem;
-    font-weight: 400;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: var(--muted);
+  /* Dollars awarded: the one use of the accent in text. */
+  .money {
+    color: var(--accent);
   }
-  /* A margin note in the painter's hand. */
-  .note {
-    font-family: var(--font-display);
-    font-style: italic;
-    font-size: 1.35rem;
-    line-height: 1.1;
-    color: var(--muted);
-  }
-  /* Text that sits on a piece of light-colored art (a cartouche, a medallion):
-     always sepia, in day and at dusk. */
-  .on-art {
-    color: #3a2f26;
+  /* A signed change, "+12%" or "−3": the sign carries the direction, in plain
+     text and tabular figures. Never green or red, never an arrow. */
+  .delta {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
 
-  /* A plaster card: one hairline, one surface. Use it for something that is
-     held apart from the page (a letter, a detail sheet), not around every
-     section; sections are separated by rules and space. */
-  .paper-card {
-    background: var(--card);
-    border: 1px solid var(--frame);
-    border-radius: 8px;
-  }
-  /* A floating surface (popover, tooltip, the graph's panels). */
+  /* A floating surface (menu, tooltip, the graph's side card): the only
+     things that are cards. Sections of a page are separated by hairlines and
+     space. */
   .surface {
-    background: var(--paper);
-    border: 1px solid var(--frame);
+    background: var(--surface);
+    border: 1px solid var(--line2);
     border-radius: 8px;
-    box-shadow: 0 12px 28px -18px rgb(40 30 22 / 0.55);
   }
 
-  /* The top bar: a flat strip of page color, so its words stay readable over
-     the painting and over a page scrolling under it. */
+  /* The top bar has no box: a veil of page color, so its words stay readable
+     when a page scrolls under it. At the top of a page it cannot be seen. */
   .site-nav {
-    border: 1px solid var(--hair);
-    border-radius: 8px;
-    background: color-mix(in srgb, var(--paper) 84%, transparent);
+    background: color-mix(in srgb, var(--bg) 86%, transparent);
     -webkit-backdrop-filter: blur(10px);
     backdrop-filter: blur(10px);
   }
 
   /* ---- Controls: one family, in the interface face ---- */
 
-  /* A button says what it does in plain words. */
+  /* A button is 36px tall with a 6px radius and a 1px outline. One button on
+     a screen may be primary: filled with the text color. */
   .btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 0.45rem;
     height: 2.25rem;
-    padding: 0 0.95rem;
+    padding: 0 1rem;
     white-space: nowrap;
-    border: 1px solid var(--frame);
+    border: 1px solid var(--line2);
     border-radius: 6px;
-    background: var(--marble);
+    background: transparent;
     font-family: var(--font-sans);
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
     font-weight: 500;
     line-height: 1;
     letter-spacing: 0;
-    color: var(--ink);
+    color: var(--text);
     text-decoration: none;
     cursor: pointer;
     transition:
@@ -276,37 +281,33 @@
       color 0.15s;
   }
   .btn:hover {
-    border-color: color-mix(in srgb, var(--ink) 42%, transparent);
+    border-color: color-mix(in srgb, var(--text) 50%, transparent);
   }
-  .btn:active {
-    background: var(--card);
-  }
+  .btn:active,
   .btn[aria-pressed="true"] {
-    border-color: color-mix(in srgb, var(--cypress) 70%, transparent);
-    background: color-mix(in srgb, var(--sage) 34%, var(--marble));
+    background: color-mix(in srgb, var(--text) 8%, transparent);
   }
   .btn:disabled,
   .btn[aria-disabled="true"] {
-    opacity: 0.45;
+    color: var(--faint);
     cursor: default;
     pointer-events: none;
   }
   .btn-primary {
-    border-color: var(--ink);
-    background: var(--ink);
-    color: var(--paper);
+    border-color: var(--text);
+    background: var(--text);
+    color: var(--bg);
   }
   .btn-primary:hover {
-    border-color: var(--ink);
-    background: color-mix(in srgb, var(--ink) 86%, var(--paper));
+    border-color: var(--text);
+    background: color-mix(in srgb, var(--text) 88%, var(--bg));
   }
   .btn-primary:active {
-    background: color-mix(in srgb, var(--ink) 78%, var(--paper));
+    background: color-mix(in srgb, var(--text) 78%, var(--bg));
   }
   .btn-sm {
     height: 1.875rem;
     padding: 0 0.7rem;
-    font-size: 0.8125rem;
   }
   /* A square button that holds one 16px icon; it always carries an aria-label. */
   .btn-icon {
@@ -315,27 +316,27 @@
     padding: 0;
   }
 
-  /* A segmented control: a few exclusive choices in one track. Mark the chosen
-     one with aria-pressed, aria-checked or aria-current. */
+  /* A segmented control: a few exclusive choices in one outlined track, the
+     chosen one filled with the text color. Mark it with aria-pressed,
+     aria-checked or aria-current. */
   .seg {
     display: inline-flex;
-    gap: 2px;
-    padding: 2px;
-    border-radius: 7px;
-    background: color-mix(in srgb, var(--ink) 8%, transparent);
+    overflow: hidden;
+    border: 1px solid var(--line2);
+    border-radius: 6px;
   }
   .seg > * {
     display: inline-flex;
     flex: 1 1 auto;
     align-items: center;
     justify-content: center;
-    height: 1.625rem;
-    padding: 0 0.65rem;
+    height: 1.75rem;
+    padding: 0 0.75rem;
     white-space: nowrap;
-    border-radius: 5px;
+    border-left: 1px solid var(--line);
     font-family: var(--font-sans);
     font-size: 0.8125rem;
-    font-weight: 500;
+    font-weight: 400;
     line-height: 1;
     letter-spacing: 0;
     font-variant-numeric: tabular-nums;
@@ -346,58 +347,65 @@
       color 0.15s,
       background-color 0.15s;
   }
+  .seg > :first-child {
+    border-left: 0;
+  }
   .seg > *:hover {
-    color: var(--ink);
+    color: var(--text);
   }
   .seg > [aria-pressed="true"],
   .seg > [aria-checked="true"],
   .seg > [aria-current] {
-    background: var(--marble);
-    color: var(--ink);
-    box-shadow:
-      0 0 0 1px var(--hair),
-      0 1px 2px rgb(40 30 22 / 0.14);
+    background: var(--text);
+    color: var(--bg);
+    font-weight: 500;
+  }
+  .seg > :focus-visible {
+    outline-offset: -3px;
   }
 
   /* A text field or a select. */
   .field {
-    height: 2.125rem;
+    height: 1.875rem;
     padding: 0 0.7rem;
-    border: 1px solid var(--frame);
+    border: 1px solid var(--line2);
     border-radius: 6px;
-    background: var(--marble);
+    background: transparent;
     font-family: var(--font-sans);
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
     letter-spacing: 0;
-    color: var(--ink);
-    transition:
-      border-color 0.15s,
-      box-shadow 0.15s;
+    color: var(--text);
+    transition: border-color 0.15s;
   }
   .field::placeholder {
     color: var(--muted);
     opacity: 1;
   }
   .field:hover {
-    border-color: color-mix(in srgb, var(--ink) 34%, transparent);
+    border-color: color-mix(in srgb, var(--text) 40%, transparent);
   }
   .field:focus-visible {
     outline: none;
-    border-color: var(--cypress);
+    border-color: var(--text);
     border-radius: 6px;
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--cypress) 20%, transparent);
   }
   select.field {
     appearance: none;
     padding-right: 1.9rem;
     cursor: pointer;
     text-overflow: ellipsis;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%237a6b5c' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4.5 6.5 3.5 3.5 3.5-3.5'/%3E%3C/svg%3E");
+    font-weight: 500;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%23948f83' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4.5 6.5 3.5 3.5 3.5-3.5'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
     background-position: right 0.5rem center;
   }
-  [data-theme="dusk"] select.field {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%23b9ae9c' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4.5 6.5 3.5 3.5 3.5-3.5'/%3E%3C/svg%3E");
+  [data-theme="paper"] select.field {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%236f6a60' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4.5 6.5 3.5 3.5 3.5-3.5'/%3E%3C/svg%3E");
+  }
+  /* The native list of options takes the floating surface, not the system's. */
+  select.field option {
+    background: var(--surface);
+    color: var(--text);
   }
 
   /* An active filter, removable: a label and a small close button. */
@@ -408,14 +416,14 @@
     max-width: 100%;
     height: 1.5rem;
     padding: 0 0.2rem 0 0.5rem;
-    border-radius: 5px;
-    background: color-mix(in srgb, var(--sage) 32%, transparent);
+    border: 1px solid var(--line2);
+    border-radius: 4px;
     font-family: var(--font-sans);
     font-size: 0.75rem;
     font-weight: 500;
     line-height: 1;
     letter-spacing: 0;
-    color: var(--ink);
+    color: var(--text);
   }
   .chip > span {
     min-width: 0;
@@ -429,183 +437,100 @@
     place-items: center;
     width: 1.125rem;
     height: 1.125rem;
-    border-radius: 4px;
+    border-radius: 3px;
     color: var(--muted);
     cursor: pointer;
   }
   .chip > button:hover {
-    background: color-mix(in srgb, var(--ink) 10%, transparent);
-    color: var(--ink);
+    background: color-mix(in srgb, var(--text) 10%, transparent);
+    color: var(--text);
   }
 
-  /* A signed change, "+12%" or "−3": the sign carries the direction, in
-     tabular figures. Never an arrow or a triangle. */
-  .delta {
-    font-family: var(--font-sans);
-    font-size: 0.8125rem;
-    font-variant-numeric: tabular-nums;
-    letter-spacing: 0;
-    white-space: nowrap;
-  }
-
-  /* ---- The title plaque (pack: ornaments/frame-d) ----
-     Fine double rules with a notch at each end, drawn for border-image. The
-     source is 982x158; 40px at each end hold the notches and are never
-     stretched, and the plain rules between them stretch to any width. It keeps
-     its height, so it frames one line: a page title, or a short callout. Set
-     --plaque-h to scale it; the ends scale with it, so nothing distorts.
-     Used sparingly: one per page. */
-  .title-plaque {
-    --plaque-h: 4rem;
-    --plaque-end: calc(var(--plaque-h) * 40 / 158);
-    display: inline-flex;
+  /* A checklist row: a real checkbox drawn as a small square (filled with
+     the text color when checked), its label, and an optional count at the
+     right. Checklists replace toggle chips.
+       <label class="check"><input type="checkbox" /><span>Maritime</span><span class="check-count">41</span></label> */
+  .check {
+    display: flex;
     align-items: center;
-    justify-content: center;
-    box-sizing: border-box;
-    max-width: 100%;
-    height: var(--plaque-h);
-    padding: 0 calc(var(--plaque-end) + var(--plaque-h) * 0.34);
-    white-space: nowrap;
-    border-style: solid;
-    border-width: 0 var(--plaque-end);
-    border-image: url("/art/ornaments/frame-d-ink.png") 0 40 fill / 0 var(--plaque-end) stretch;
-    font-family: var(--font-display);
-    font-size: calc(var(--plaque-h) * 0.46);
-    font-weight: 500;
-    line-height: 1;
-    letter-spacing: 0;
+    gap: 0.6rem;
+    min-height: 1.625rem;
+    font-size: 0.8125rem;
+    line-height: 1.3;
+    color: var(--muted);
+    cursor: pointer;
+    transition: color 0.15s;
   }
-  [data-theme="dusk"] .title-plaque {
-    border-image-source: url("/art/ornaments/frame-d-light.png");
+  .check:hover,
+  .check:has(input:checked) {
+    color: var(--text);
+  }
+  .check > input {
+    appearance: none;
+    flex: none;
+    width: 0.8125rem;
+    height: 0.8125rem;
+    margin: 0;
+    border: 1px solid var(--line2);
+    border-radius: 3px;
+    background: transparent;
+    cursor: pointer;
+    transition:
+      background-color 0.15s,
+      border-color 0.15s;
+  }
+  .check > input:checked {
+    border-color: var(--text);
+    background: var(--text);
+  }
+  .check > input:focus-visible {
+    outline-offset: 2px;
+  }
+  .check > :nth-child(2) {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .check-count {
+    flex: none;
+    font-variant-numeric: tabular-nums;
+    color: var(--faint);
   }
 
+  /* A row in a plain list: a hairline under it and nothing else. */
   .row {
     display: grid;
     align-items: baseline;
     gap: 0.25rem 1.25rem;
     padding: 0.7rem 0;
-    border-bottom: 1px solid var(--hair);
+    border-bottom: 1px solid var(--line);
   }
 
-  /* ---- Art from the pack (see components/Art.tsx) ---- */
-
-  /* An illustration and its dusk tint. The wrapper isolates blending, so the
-     multiply tint darkens only this picture, through the picture's own alpha. */
-  .art {
-    position: relative;
-    display: block;
-    isolation: isolate;
-  }
-  .art > img {
-    display: block;
-    width: 100%;
-    height: 100%;
-  }
-  .art-tint {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    background: #2b2c3d;
-    mix-blend-mode: multiply;
-    opacity: calc(var(--tint) * var(--tint-strength, 0.45));
-    transition: opacity 1.2s ease;
-    -webkit-mask-size: 100% 100%;
-    mask-size: 100% 100%;
-    -webkit-mask-repeat: no-repeat;
-    mask-repeat: no-repeat;
-  }
-
-  /* Greek-key rule: the border tiles horizontally from the center at its own
-     shape, never stretched. The cut ends are dissolved with .fade-sides. */
-  .greek-key {
-    height: 22px;
-    background-repeat: repeat-x;
-    background-position: center;
-    background-size: auto 100%;
-    background-image: image-set(url("/art/ornaments/greek-key-278.webp") 1x, url("/art/ornaments/greek-key-556.webp") 2x);
-    opacity: calc(1 - var(--tint) * 0.25);
-  }
-
-  /* The real fresco stays almost still: one soft diagonal highlight crosses it. */
-  .fresco {
-    position: relative;
-    overflow: hidden;
-    isolation: isolate;
-  }
-  .fresco::after {
-    content: "";
-    position: absolute;
-    inset: -20% -60%;
-    pointer-events: none;
-    background: linear-gradient(105deg, transparent 42%, rgb(255 244 214 / 0.06) 50%, transparent 58%);
-    animation: fresco-sweep 26s linear infinite;
-  }
-
-  /* Edges that dissolve into the parchment instead of ending in a rectangle. */
-  .fade-bottom {
-    -webkit-mask-image: linear-gradient(to bottom, #000 55%, transparent 98%);
-    mask-image: linear-gradient(to bottom, #000 55%, transparent 98%);
-  }
-  .fade-sides {
-    -webkit-mask-image: linear-gradient(to right, transparent, #000 8%, #000 92%, transparent);
-    mask-image: linear-gradient(to right, transparent, #000 8%, #000 92%, transparent);
-  }
-
-  /* Garland and cartouche fade in once, the first time they scroll into view. */
-  .reveal {
-    opacity: 0;
-    transform: translateY(10px);
-    transition:
-      opacity 0.6s ease,
-      transform 0.6s var(--ease-out);
-  }
-  .reveal[data-shown] {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-/* ---- the Forum: panels, ledgers, charts ---- */
-@layer components {
-  /* A section's title: the display serif, plainly. */
-  .panel-title {
-    font-family: var(--font-display);
-    font-size: 1.6rem;
-    font-weight: 500;
-    letter-spacing: -0.005em;
-    line-height: 1.1;
-  }
-  /* The one-line reading of a chart, computed from its data. */
-  .takeaway {
-    font-family: var(--font-display);
-    font-style: italic;
-    font-size: 1.2rem;
-    line-height: 1.25;
-    color: var(--ink);
-  }
-
-  /* A ledger: no boxes, fine hairlines, compact rows, and a faint ochre wash on
-     the row under the pointer. Column heads are in the interface face; numbers
-     go in cells marked .num and line up on tabular figures. */
+  /* ---- Tables ----
+     A ledger: no boxes, 12px column heads over a rule, hairline rows. Names
+     take .name (the display serif); numbers go in cells marked .num and line
+     up on tabular figures. */
   .ledger {
     width: 100%;
     border-collapse: collapse;
     text-align: left;
+    font-size: 0.875rem;
+    line-height: 1.4;
   }
   .ledger th {
-    padding: 0.4rem 1rem 0.4rem 0;
-    font-family: var(--font-sans);
+    padding: 0.45rem 1rem 0.45rem 0;
     font-size: 0.75rem;
     font-weight: 500;
-    letter-spacing: 0.01em;
     white-space: nowrap;
     color: var(--muted);
-    border-bottom: 1px solid var(--frame);
+    border-bottom: 1px solid var(--line2);
   }
   .ledger td {
-    padding: 0.5rem 1rem 0.5rem 0;
+    padding: 0.6rem 1rem 0.6rem 0;
     vertical-align: middle;
-    border-bottom: 1px solid var(--hair);
+    border-bottom: 1px solid var(--line);
   }
   .ledger th:last-child,
   .ledger td:last-child {
@@ -615,58 +540,70 @@
     transition: background-color 0.15s;
   }
   .ledger tbody tr:hover {
-    background-color: color-mix(in srgb, var(--ochre) 13%, transparent);
+    background-color: color-mix(in srgb, var(--text) 3.5%, transparent);
   }
   .ledger .num {
     text-align: right;
     white-space: nowrap;
-    font-family: var(--font-sans);
-    font-size: 0.875rem;
-    letter-spacing: 0;
     font-variant-numeric: tabular-nums lining-nums;
-  }
-  /* a numeric column's head is a head first: the same size as the others */
-  .ledger th.num {
-    font-size: 0.75rem;
   }
   .ledger th a,
   .ledger th button {
     color: inherit;
     text-decoration: none;
-    letter-spacing: inherit;
-    text-transform: inherit;
     font: inherit;
     cursor: pointer;
   }
   .ledger th[aria-sort="ascending"],
   .ledger th[aria-sort="descending"] {
-    color: var(--ink);
+    color: var(--text);
   }
 
-  /* Loading: plaster-colored blocks that breathe, never a spinner. */
+  /* Loading: quiet blocks that breathe, never a spinner. */
   .skeleton {
     display: block;
     border-radius: 4px;
-    background-color: color-mix(in srgb, var(--ink) 9%, var(--card));
+    background-color: color-mix(in srgb, var(--text) 8%, transparent);
     animation: skeleton-breathe 1.5s ease-in-out infinite alternate;
   }
 
-  /* A chart tooltip: a small parchment card. */
+  /* A chart or flock tooltip: a small floating surface. */
   .tip {
     position: absolute;
     z-index: 30;
     pointer-events: none;
     padding: 0.4rem 0.65rem;
     white-space: nowrap;
-    border: 1px solid var(--frame);
-    border-radius: 4px;
-    background: var(--paper);
-    box-shadow: 0 10px 22px -14px rgb(40 30 22 / 0.6);
+    border: 1px solid var(--line2);
+    border-radius: 6px;
+    background: var(--surface);
     font-family: var(--font-sans);
     font-variant-numeric: tabular-nums lining-nums;
     font-size: 0.8125rem;
-    line-height: 1.35;
-    color: var(--ink);
+    line-height: 1.4;
+    color: var(--text);
+  }
+
+  /* ---- Art (see components/Art.tsx) ----
+     Every engraving is one flat color with transparency, in two tones: light
+     lines for the dark page and ink lines for paper. Both are in the markup;
+     the mode shows one. An engraving sits at a page edge at --art opacity
+     (or its own), fades toward the content with a mask, never sits behind a
+     table, a chart, a filter or the graph, and never moves. */
+  .art {
+    display: block;
+    pointer-events: none;
+    user-select: none;
+    opacity: var(--art);
+  }
+  .art > img {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  :root[data-theme="paper"] .art > .art-on-dark,
+  :root:not([data-theme="paper"]) .art > .art-on-light {
+    display: none;
   }
 }
 
@@ -679,48 +616,19 @@
   }
 }
 
-@keyframes fresco-sweep {
-  from {
-    transform: translateX(-45%);
-  }
-  to {
-    transform: translateX(45%);
-  }
-}
-
-/* Field report: lines write on the first time the report is opened each week. */
-@keyframes type-on {
-  from {
-    clip-path: inset(0 100% 0 0);
-  }
-  to {
-    clip-path: inset(0 0 0 0);
-  }
-}
-.typing .type-line {
-  clip-path: inset(0 100% 0 0);
-  animation: type-on 0.7s var(--ease-out) forwards;
-  animation-delay: calc(var(--i) * 0.42s);
-}
-
-/* Day and dusk cross-fade over 1.2s. The birds fade with the rest of the page,
-   so they keep their place between the lake and the leafy frame. */
+/* Dark and paper cross-fade quickly: opacity only, like every other
+   transition in the interface (opacity and a 4px move, 150 to 200ms). */
 ::view-transition {
   pointer-events: none;
 }
 html.theme-fade::view-transition-old(root),
 html.theme-fade::view-transition-new(root) {
-  animation-duration: 1.2s;
+  animation-duration: 0.2s;
   animation-timing-function: ease;
 }
-/* A medallion growing into an entity header. */
-::view-transition-group(.coin-morph) {
-  animation-duration: 0.55s;
-  animation-timing-function: var(--ease-out);
-}
 
-/* Reduced motion (the OS setting, or Motion: Off in the Display menu): every
-   scene is a still composition and all ambient animation is off. */
+/* Reduced motion (the OS setting, or Motion: Off in the Display menu): the
+   flock is a still formation and nothing animates. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -731,16 +639,6 @@ html.theme-fade::view-transition-new(root) {
     animation: none !important;
     transition-duration: 0s !important;
   }
-  .typing .type-line {
-    clip-path: none;
-  }
-  .reveal {
-    opacity: 1;
-    transform: none;
-  }
-  html {
-    scroll-behavior: auto;
-  }
 }
 html[data-still] *,
 html[data-still] *::before,
@@ -750,20 +648,4 @@ html[data-still]::view-transition-new(*),
 html[data-still]::view-transition-group(*) {
   animation: none !important;
   transition-duration: 0s !important;
-}
-html[data-still] .typing .type-line {
-  clip-path: none;
-}
-html[data-still] .reveal {
-  opacity: 1;
-  transform: none;
-}
-/* On paper nothing scrolls into view, so every heading and garland is shown.
-   Unlayered on purpose, like the rules above, to win over the layered .reveal.
-   (Without scripts the same is done by a <noscript> style in app/layout.tsx.) */
-@media print {
-  .reveal {
-    opacity: 1;
-    transform: none;
-  }
 }
