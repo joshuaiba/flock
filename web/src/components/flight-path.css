@@ -1,0 +1,95 @@
+/* The entity page's path to production (see FlightPath.tsx): one line with
+   the four stages spread along it, the first at its left end and the last at
+   its right end. */
+.path {
+  position: relative;
+}
+
+/* The line, the time written over each stretch, and the swallow. Its bottom
+   edge is where the line runs. */
+.path-rail {
+  position: relative;
+  height: 4.25rem;
+}
+.path-stretch {
+  position: absolute;
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  border-bottom: 1px solid var(--line2);
+}
+.path-stretch[data-flown] {
+  border-bottom: 1.5px solid var(--text);
+}
+.path-gap {
+  padding-bottom: 0.7rem;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  color: var(--faint);
+}
+.path-bird {
+  position: absolute;
+  bottom: 0.3rem;
+}
+
+/* The stages: six equal tracks, shared 1:2:2:1, so the two middle stages sit
+   a third and two thirds of the way along, and the two ends sit at the ends. */
+.path-stages {
+  display: grid;
+  grid-template-columns: 1fr 2fr 2fr 1fr;
+}
+.path-stages > li {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.path-stages > li[data-end="first"] {
+  align-items: flex-start;
+  text-align: left;
+}
+.path-stages > li[data-end="last"] {
+  align-items: flex-end;
+  text-align: right;
+}
+/* A dot sits on the line: filled when the stage is on record, hollow when not. */
+.path-dot {
+  width: 11px;
+  height: 11px;
+  margin-top: -6px;
+  border: 1px solid var(--muted);
+  border-radius: 50%;
+  background: var(--bg);
+}
+.path-stages > li[data-reached] > .path-dot {
+  border-color: var(--text);
+  background: var(--text);
+}
+.path-name {
+  margin-top: 0.8rem;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  font-feature-settings: normal;
+  color: var(--muted);
+}
+.path-stages > li[data-reached] > .path-name {
+  color: var(--text);
+}
+.path-when {
+  margin-top: 0.2rem;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+@media (min-width: 640px) {
+  .path-name {
+    font-size: 1.25rem;
+  }
+  .path-when {
+    font-size: 0.8125rem;
+  }
+}

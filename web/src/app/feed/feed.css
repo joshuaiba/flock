@@ -1,0 +1,33 @@
+/* The Field Report: a 620px reading column in the book serif, then the table
+   of everything spotted. */
+.feed-title {
+  font-size: clamp(2.75rem, 2rem + 3vw, 3.875rem);
+  line-height: 1.02;
+}
+.feed-body > p + p {
+  margin-top: 1.4em;
+}
+.feed-body a {
+  text-decoration-color: color-mix(in srgb, var(--text) 45%, transparent);
+}
+.feed-body a:hover {
+  text-decoration-color: currentColor;
+}
+
+/* The vine engraving: the bottom left corner of the window, in the margin
+   beside the reading column. Only on a window wide enough to have that
+   margin (the column is 620px; the vine is 360px). */
+.feed-vine {
+  position: fixed;
+  z-index: -1;
+  left: 0;
+  bottom: 0;
+  display: none;
+  width: 360px;
+  aspect-ratio: 586 / 725;
+}
+@media (min-width: 1400px) {
+  .feed-vine {
+    display: block;
+  }
+}

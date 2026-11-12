@@ -33,7 +33,7 @@ function limits(d: Definitions): { lead: string; rest: string }[] {
     },
     {
       lead: "An award with two categories counts in both.",
-      rest: "Category totals can therefore add up to more than the overall total.",
+      rest: "Category totals can therefore add up to more than the overall total. The one exception is the Forum's \u201cWhere the money went\u201d, which has to add up: there each award's dollars are split evenly across the category families it is tagged with.",
     },
     {
       lead: "Offices are not rolled up into their parent agency.",
@@ -61,29 +61,29 @@ async function Numbers() {
     );
 
   return (
-    <article className="relative z-20 mx-auto max-w-2xl">
-      <header className="text-center">
-        <h1 className="title-plaque">About the numbers</h1>
-        <p className="ui mt-4 text-muted">
+    <article>
+      <header>
+        <h1 className="page-title">About the numbers</h1>
+        <p className="mt-3 text-muted">
           As of {day(d.as_of)}
           {d.sample && " · sample data"}
         </p>
       </header>
 
       {/* What the record holds. */}
-      <dl className="mt-9 grid grid-cols-3 border-y border-line2">
+      <dl className="mt-9 grid grid-cols-3 border-b border-t border-line border-t-line2">
         {[
           { k: "First award on record", v: d.first_award_day ? day(d.first_award_day) : "None yet" },
           { k: "Awards", v: count(d.awards) },
           { k: "Solicitations", v: count(d.opportunities) },
         ].map((x, i) => (
-          <div key={x.k} className={`px-3 py-4 text-center ${i ? "border-l border-line" : ""}`}>
-            <dt className="label">{x.k}</dt>
-            <dd className="mt-1 font-display text-2xl leading-tight">{x.v}</dd>
+          <div key={x.k} className={`py-4 ${i ? "border-l border-line pl-4 sm:pl-6" : ""}`}>
+            <dt className="text-muted">{x.k}</dt>
+            <dd className="mt-1.5 font-display text-[1.75rem] leading-tight">{x.v}</dd>
           </div>
         ))}
       </dl>
-      <p className="mt-6 text-muted">
+      <p className="reading mt-7 !text-[1.125rem] text-muted">
         The figures defined below are computed from these records, once a night. Only awards and solicitations
         tagged as autonomy are in them.
         {d.opportunities === 0 && " No solicitation source is loaded, so the solicitation count is zero."}
@@ -94,15 +94,15 @@ async function Numbers() {
       {/* One section per definition, in the API's own words. */}
       {d.items.map((it) => (
         <section key={it.key} id={it.key} className="mt-8 scroll-mt-24 border-t border-line pt-6">
-          <h2 className="text-[1.75rem] leading-tight">{it.name}</h2>
-          <p className="mt-2.5">{it.text}</p>
-          {it.tables.length > 0 && <p className="ui mt-2.5 text-muted">Source tables: {it.tables.join(", ")}</p>}
+          <h2 className="panel-title">{it.name}</h2>
+          <p className="reading mt-2 !text-[1.125rem]">{it.text}</p>
+          {it.tables.length > 0 && <p className="mt-2.5 text-muted">Source tables: {it.tables.join(", ")}</p>}
         </section>
       ))}
 
       <section id="limits" className="mt-14 scroll-mt-24 border-t border-line2 pt-8">
         <h2 className="text-[2rem] leading-tight">What these numbers cannot tell you</h2>
-        <ul className="mt-4">
+        <ul className="reading mt-4 !text-[1.125rem]">
           {limits(d).map((l) => (
             <li key={l.lead} className="border-b border-line py-3.5 last:border-b-0">
               <span className="text-ink">{l.lead}</span> <span className="text-muted">{l.rest}</span>
@@ -123,12 +123,12 @@ async function Numbers() {
 export default function AboutNumbersPage() {
   return (
     <>
-      <main className="mx-auto max-w-3xl px-4 pt-28 sm:px-8">
+      <main className="mx-auto max-w-[41.75rem] px-4 pt-28 sm:px-6 sm:pt-32">
         <Suspense
           fallback={
-            <section className="relative z-20 mx-auto min-h-[70vh] max-w-2xl" aria-busy="true">
+            <section className="min-h-[70vh]" aria-busy="true">
               <span className="sr-only">Loading</span>
-              <span className="skeleton mx-auto h-16 w-80 max-w-full" />
+              <span className="skeleton h-12 w-80 max-w-full" />
               <div className="mt-10 space-y-4" aria-hidden="true">
                 {[92, 100, 84, 96, 70, 88, 62].map((w, i) => (
                   <span key={i} className="skeleton h-4" style={{ width: `${w}%` }} />
@@ -140,7 +140,7 @@ export default function AboutNumbersPage() {
           <Numbers />
         </Suspense>
       </main>
-      <Footer />
+      <Footer width="reading" />
     </>
   );
 }

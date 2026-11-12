@@ -5,11 +5,11 @@ import { priorLabel, signalPath, STAGE_LABEL, windowLabel, type OrgSignals } fro
 import { tagLabel } from "@/lib/tags";
 import { AsOf, Delta, RankChange, StageTrack } from "./Signals";
 
-// The entity page's "Signals" block: how one organization stands in the last
-// 90 days. Four readings for a company (momentum, rank, stage reached, time
-// since the last award), three for an agency or office (no stages). Every
-// figure comes from GET /api/signals/orgs/ID, which reads the same views as
-// the Forum, so the two cannot disagree.
+// The entity page's signals row: how one organization stands in the last 90
+// days. Four readings for a company (dollars, rank, stage reached, the last
+// award), three for an agency or office (no stages), in one hairline row like
+// the Forum's summary. Every figure comes from GET /api/signals/orgs/ID,
+// which reads the same views as the Forum, so the two cannot disagree.
 
 /** 1 -> "1st", 2 -> "2nd", 11 -> "11th", 23 -> "23rd". */
 function ordinal(n: number): string {
@@ -21,19 +21,19 @@ function ordinal(n: number): string {
 /** One reading: a quiet label, the figure, and the lines that qualify it. */
 function Reading({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="min-w-0">
-      <dt className="label">{label}</dt>
-      <dd className="mt-1.5">{children}</dd>
+    <div className="forum-kpi">
+      <dt className="forum-kpi-label">{label}</dt>
+      <dd>{children}</dd>
     </div>
   );
 }
 
-const BIG = "font-display text-3xl leading-tight";
-const SMALL = "ui mt-1 text-muted";
+const BIG = "figure mt-2 !text-[2rem]";
+const SMALL = "mt-1.5 text-muted";
 
-/** The frame is the page's own section wrapper (cartouche title and plaster
- *  card), passed in so this block can leave the page without a trace: it
- *  renders nothing when the API is down or the organization has no awards. */
+/** The frame is the page's own wrapper, passed in so this block can leave the
+ *  page without a trace: it renders nothing when the API is down or the
+ *  organization has no awards. */
 export async function EntitySignals({
   id,
   Frame,
@@ -51,9 +51,9 @@ export async function EntitySignals({
 
   return (
     <Frame>
-      <dl className={`grid gap-x-8 gap-y-8 sm:grid-cols-2 ${company ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
+      <dl className={`forum-kpis ${company ? "" : "forum-kpis-3"}`}>
         <Reading label={`${company ? "Awarded" : "Obligated"}, last ${windowLabel(s.window_days)}`}>
-          <p className={`${BIG} text-accent`}>{money(s.amount)}</p>
+          <p className={`${BIG} money`}>{money(s.amount)}</p>
           <p className={SMALL}>
             {/* The API withholds a percentage when the prior period is too
                 small to divide by; then only the dollar change is shown. */}
@@ -65,7 +65,7 @@ export async function EntitySignals({
           </p>
           {/* With nothing before, the change would only repeat the figure above. */}
           {compared && s.prev_amount > 0 && s.delta !== 0 && (
-            <p className={SMALL}>
+            <p className="text-muted">
               a change of{" "}
               <span className="delta text-ink">
                 {s.delta > 0 ? "+" : "−"}
@@ -86,12 +86,18 @@ export async function EntitySignals({
             </>
           ) : (
             <>
-              <p className={BIG}>
-                {ordinal(s.rank)} {compared && <RankChange rank={s.rank} prev={s.prev_rank} />}
+              <p className={BIG}>{ordinal(s.rank)}</p>
+              <p className={SMALL}>
+                of {peers}
+                {compared && (
+                  <>
+                    {" "}
+                    <RankChange rank={s.rank} prev={s.prev_rank} />
+                  </>
+                )}
               </p>
-              <p className={SMALL}>of {peers}</p>
               {s.category && s.category_rank != null && (
-                <p className={SMALL}>
+                <p className="text-muted">
                   <span className="text-ink">{ordinal(s.category_rank)}</span> in{" "}
                   <Link href={`/forum/leaderboards?tag=${encodeURIComponent(s.category)}`}>{tagLabel(s.category)}</Link>{" "}
                   {compared && <RankChange rank={s.category_rank} prev={s.category_prev_rank} />}
@@ -102,30 +108,30 @@ export async function EntitySignals({
         </Reading>
 
         {company && (
-          <Reading label="Stage reached">
+          <Reading label="Furthest stage">
             {s.stage ? (
               <>
                 <p className={BIG}>{STAGE_LABEL[s.stage]}</p>
-                <StageTrack path={s.path} className="mt-2" />
-                <p className={SMALL}>first seen there {day(s.stage_day)}</p>
+                <StageTrack path={s.path} className="mt-2.5" />
+                <p className="mt-1 text-muted">first seen there {day(s.stage_day)}</p>
               </>
             ) : (
               <>
                 <p className={`${BIG} text-muted`}>none on record</p>
-                <StageTrack path={s.path} className="mt-2" />
-                <p className={SMALL}>no award description names a stage</p>
+                <StageTrack path={s.path} className="mt-2.5" />
+                <p className="mt-1 text-muted">no award description names a stage</p>
               </>
             )}
           </Reading>
         )}
 
-        <Reading label="Since the last award">
-          <p className={BIG}>{since == null ? "—" : since <= 0 ? "today" : plural(since, "day")}</p>
-          <p className={SMALL}>last award {day(s.last_award_day)}</p>
+        <Reading label="Last award">
+          <p className={BIG}>{since == null ? "—" : since <= 0 ? "today" : `${plural(since, "day")} ago`}</p>
+          <p className={SMALL}>{day(s.last_award_day)}</p>
         </Reading>
       </dl>
 
-      <div className="mt-8 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 border-t border-line pt-4">
+      <div className="mt-3 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
         <AsOf env={s} />
         <Link href="/about/numbers" className="ui-link">
           How these are counted
@@ -135,17 +141,14 @@ export async function EntitySignals({
   );
 }
 
-/** The same grid as plaster blocks while the readings load. */
+/** The same row as quiet blocks while the readings load. */
 export function EntitySignalsSkeleton({ company }: { company: boolean }) {
   return (
     <div aria-busy="true">
       <span className="sr-only">Loading signals</span>
-      <div
-        className={`grid gap-x-8 gap-y-8 sm:grid-cols-2 ${company ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}
-        aria-hidden="true"
-      >
+      <div className={`forum-kpis ${company ? "" : "forum-kpis-3"}`} aria-hidden="true">
         {Array.from({ length: company ? 4 : 3 }, (_, i) => (
-          <div key={i}>
+          <div key={i} className="forum-kpi">
             <span className="skeleton h-3 w-28" />
             <span className="skeleton mt-3 h-8 w-24" />
             <span className="skeleton mt-3 h-3.5 w-40 max-w-full" />
