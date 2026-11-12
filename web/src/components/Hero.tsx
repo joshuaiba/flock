@@ -102,6 +102,9 @@ export function Hero({ children }: { children: React.ReactNode }) {
           </div>
         </div>
         <Art name="hero/midground" sizes={SCENE_SIZES} tint={SCENE_TINT} eager maskFull className="hero-layer hero-mid" />
+        {/* Where the village is, for the flock: with motion off the frozen V is
+            placed clear of it, in open sky or over the far hills. Not drawn. */}
+        <div className="hero-village" data-flock-village />
         <div className="hero-layer hero-boats">
           <Art
             name="props/sailboat"

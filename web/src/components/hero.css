@@ -210,6 +210,17 @@ html[data-theme="dusk"] .hero-glow {
   }
 }
 
+/* Not a layer and never painted: the part of the box the village fills (its
+   roofs start 18% down, its bank reaches the box's middle). Flock.tsx reads
+   its rectangle. */
+.hero-village {
+  position: absolute;
+  left: 49%;
+  right: 0;
+  top: 18%;
+  bottom: 0;
+}
+
 /* z 4: boats, in the box's coordinates so they scale and move with the lake.
    The water runs from 88% of the box to 120%; the mist takes the last tenth. */
 .hero-boats {

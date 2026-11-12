@@ -97,7 +97,7 @@ const V = {
   x0: 0.3, // where the lead bird may go
   x1: 0.9,
   y0: 0.16,
-  y1: 0.6,
+  y1: 0.66,
   cols: 13, // grid of places tried
   rows: 9,
   dx: 0.046, // gap between ranks, as a share of the window width...
@@ -622,8 +622,9 @@ export function Flock() {
     };
 
     // Motion off on the landing page: a loose V heading right, placed in the
-    // open sky of the hero, clear of the text, the navigation and the corner
-    // where the watchlist chain hangs. It scrolls with the hero.
+    // open sky of the hero (or over the far hills), clear of the text, the
+    // village, the navigation and the corner where the watchlist chain hangs.
+    // It scrolls with the hero.
     const layoutV = () => {
       const n = order.length;
       if (!n) return;
@@ -638,6 +639,11 @@ export function Flock() {
         const r = el.getBoundingClientRect();
         if (r.width > 0 && r.bottom > top && r.top < top + tall)
           boxes.push({ left: r.left - V.clear, right: r.right + V.clear, top: r.top - V.clear, bottom: r.bottom + V.clear });
+      });
+      // Still birds over the village's roofs and trees are lost in the drawing.
+      heroEl?.querySelectorAll<HTMLElement>("[data-flock-village]").forEach((el) => {
+        const r = el.getBoundingClientRect();
+        if (r.width > 0) boxes.push({ left: r.left, right: r.right, top: r.top, bottom: r.bottom });
       });
       const ranks = Math.ceil((n - 1) / 2);
       const wantX = W * V.x;
