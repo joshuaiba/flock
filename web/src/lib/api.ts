@@ -50,7 +50,19 @@ export type GraphEdge = {
   amount: number;
   n: number;
 };
-export type Graph = { days: number; nodes: GraphNode[]; edges: GraphEdge[] };
+export type Graph = {
+  days: number;
+  /** the window ends on the newest award on record, not today */
+  recent?: boolean;
+  /** the window's first and last day; no first day for everything on record */
+  since?: string | null;
+  through?: string | null;
+  /** the day of the newest award on record, and how many days ago that was */
+  latest?: string | null;
+  age?: number | null;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+};
 
 export type Stage = {
   key: "solicitation" | "phase_1" | "phase_2" | "production";

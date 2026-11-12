@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type { GraphNode, NodeKind } from "@/lib/api";
+import { ago, day } from "@/lib/format";
 import { tagLabel } from "@/lib/tags";
 import "./graph-rail.css";
 
@@ -13,17 +14,51 @@ import "./graph-rail.css";
 // map by one hairline: the search stays at the top, then the filters in force
 // as removable chips, then the groups, each under a hairline with its name on
 // the left and what it is set to on the right. Exclusive choices are segmented
-// controls; everything else is a checklist. The foot says how much of the map
+// controls; everything else is a checklist. The window opens on "Recent" (see
+// WINDOWS) and says how fresh the record is. The foot says how much of the map
 // is shown. It folds to a strip of three icon buttons. On a phone the search
 // and the window float over the map and the groups fold behind a "Filters"
 // button, so the map stays visible. Layout and looks are in graph-rail.css.
 
+// The windows of the map. The record is not loaded on a fixed schedule, so a
+// stretch of the calendar can be empty: "Recent" is the newest stretch of the
+// record itself, the 90 days up to its newest award. It always has something
+// in it, and it is what the map opens on. The others end today; `days: 0` is
+// everything on record.
 export const WINDOWS = [
-  { days: 30, label: "30d", long: "30 days" },
-  { days: 90, label: "90d", long: "90 days" },
-  { days: 365, label: "1y", long: "1 year" },
-  { days: 0, label: "All", long: "everything on record" },
-];
+  { key: "recent", days: 90, recent: true, label: "Recent", long: "the 90 days up to the newest award" },
+  { key: "30d", days: 30, recent: false, label: "30d", long: "the last 30 days" },
+  { key: "90d", days: 90, recent: false, label: "90d", long: "the last 90 days" },
+  { key: "1y", days: 365, recent: false, label: "1y", long: "the last year" },
+  { key: "all", days: 0, recent: false, label: "All", long: "everything on record" },
+] as const;
+export type WindowKey = (typeof WINDOWS)[number]["key"];
+export type Window = (typeof WINDOWS)[number];
+export const DEFAULT_WINDOW: WindowKey = "recent";
+
+export function windowOf(key: WindowKey): Window {
+  return WINDOWS.find((w) => w.key === key) ?? WINDOWS[0];
+}
+
+/** A window in words, to follow "Awarded," or to stand alone capitalized:
+ *  "90 days to Oct 3", "last 30 days", "last year", "everything on record".
+ *  `latest` is the day of the newest award on record. */
+export function windowPhrase(w: Window, latest: string | null | undefined): string {
+  if (w.recent) {
+    if (!latest) return `latest ${w.days} days`;
+    // the year only when it is not this one
+    const thisYear = Number(latest.slice(0, 4)) === new Date().getFullYear();
+    return `${w.days} days to ${day(latest, thisYear)}`;
+  }
+  return w.long.replace(/^the /, "");
+}
+
+/** True when no award on record falls in a window that ends today. */
+function awardless(w: Window, age: number | null): boolean {
+  return !w.recent && w.days > 0 && age != null && age > w.days;
+}
+
+const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** Minimum-dollar steps: companies awarded less in the window are hidden. */
 export const AMOUNTS = [
@@ -97,6 +132,34 @@ const SlidersIcon = () => (
   </Icon>
 );
 
+/** The window, drawn: a line for the record, today at its right end, the
+ *  chosen window as a bar on it and the newest award as a ring. When the
+ *  record is fresh the ring sits at the right end; when it is not, the gap
+ *  between ring and end is how stale it is, and a bar that misses the ring is
+ *  a window with no awards in it. Under it, the same in words. */
+function WindowRecord({ w, latest, age }: { w: Window; latest: string | null; age: number | null }) {
+  if (latest == null || age == null) return null;
+  const recent = WINDOWS[0];
+  // The line reaches a year back, or far enough to hold the Recent window.
+  const reach = Math.max(365, age + recent.days);
+  const to = w.recent ? age : 0; // days ago the window ends
+  const len = w.days ? Math.min(w.days, reach - to) : reach;
+  const pct = (days: number) => `${((days / reach) * 100).toFixed(2)}%`;
+  return (
+    <div className="graph-record">
+      <div className="graph-record-line" aria-hidden="true" data-open={w.days === 0}>
+        <span className="graph-record-span" style={{ right: pct(to), width: pct(len) }} />
+        <span className="graph-record-newest" style={{ right: pct(age) }} />
+      </div>
+      {/* within the year a short date and how long ago; past that, the full date */}
+      <p className="graph-record-note">
+        <span>Newest award</span>
+        <span>{age < 300 ? `${day(latest, true)} · ${ago(age)}` : day(latest)}</span>
+      </p>
+    </div>
+  );
+}
+
 /** A filter group that folds away. Its header always says what it is set to. */
 function Group({
   title,
@@ -151,8 +214,10 @@ export function GraphFilters({
   onQuery,
   hits,
   onPick,
-  days,
-  onDays,
+  win,
+  onWin,
+  latest,
+  age,
   present,
   tagCounts,
   tags,
@@ -179,8 +244,11 @@ export function GraphFilters({
   /** entities on the map whose name matches the search */
   hits: GraphNode[];
   onPick: (id: string) => void;
-  days: number;
-  onDays: (days: number) => void;
+  win: WindowKey;
+  onWin: (win: WindowKey) => void;
+  /** the day of the newest award on record, and how many days ago that was */
+  latest: string | null;
+  age: number | null;
   /** categories present in this window */
   present: string[];
   /** companies and solicitations in each category, under the other filters */
@@ -234,7 +302,7 @@ export function GraphFilters({
   const setRow = (row: (typeof rows)[number], on: boolean) => {
     for (const k of row.kinds) if (kinds.has(k) !== on) onToggleKind(k);
   };
-  const windowLong = WINDOWS.find((w) => w.days === days)?.long ?? `${days} days`;
+  const chosen = windowOf(win);
 
   const typing = query.trim().length > 0;
   const at = hits.length ? Math.min(cursor, hits.length - 1) : -1;
@@ -304,11 +372,22 @@ export function GraphFilters({
 
   const windowSeg = (
     <div className="seg graph-seg graph-float" role="group" aria-label="Time window">
-      {WINDOWS.map((w) => (
-        <button key={w.days} type="button" aria-pressed={days === w.days} aria-label={w.long} onClick={() => onDays(w.days)}>
-          {w.label}
-        </button>
-      ))}
+      {WINDOWS.map((w) => {
+        const none = awardless(w, age);
+        return (
+          <button
+            key={w.key}
+            type="button"
+            aria-pressed={win === w.key}
+            aria-label={none ? `${capital(w.long)}: no awards` : capital(w.long)}
+            title={none ? `No awards in ${w.long}` : undefined}
+            data-empty={none}
+            onClick={() => onWin(w.key)}
+          >
+            {w.label}
+          </button>
+        );
+      })}
     </div>
   );
 
@@ -474,8 +553,9 @@ export function GraphFilters({
             </div>
           )}
 
-          <Group title="Window" value={days ? `Last ${windowLong}` : "Everything on record"} className="graph-only-wide">
+          <Group title="Window" value={capital(windowPhrase(chosen, latest))} className="graph-only-wide">
             {windowSeg}
+            <WindowRecord w={chosen} latest={latest} age={age} />
           </Group>
 
           <Group title="Categories" value={tags.size ? `${tags.size} of ${present.length}` : "All"}>

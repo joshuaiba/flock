@@ -26,6 +26,14 @@ export function day(iso: string | null | undefined, short = false): string {
   return short ? `${MONTHS[m - 1]} ${d}` : `${MONTHS[m - 1]} ${d}, ${y}`;
 }
 
+/** How long ago, from a count of days: "today", "12 days ago", "5 months ago". */
+export function ago(days: number): string {
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 60) return `${days} days ago`;
+  return `${Math.round(days / 30.44)} months ago`;
+}
+
 export function plural(n: number, one: string, many = one + "s"): string {
   return `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
 }

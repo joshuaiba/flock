@@ -11,7 +11,7 @@ import { ALL_KINDS, hiddenNodes, stressGraph } from "@/lib/graphLayout";
 import { useStore } from "@/lib/store";
 import { tagLabel, TAGS } from "@/lib/tags";
 import { Empty } from "./Empty";
-import { CloseIcon, GraphFilters, WINDOWS } from "./GraphFilters";
+import { CloseIcon, DEFAULT_WINDOW, GraphFilters, windowOf, windowPhrase, WINDOWS, type WindowKey } from "./GraphFilters";
 import { GraphFlat } from "./GraphFlat";
 import { NO_API, type GraphViewApi } from "./GraphView";
 import { PinButton } from "./PinButton";
@@ -155,7 +155,10 @@ export function GraphExplorer() {
   const [no3d, setNo3d] = useState(false); // this browser cannot draw the 3D view
   const view: ViewName = no3d || params.get("view") === "flat" ? "flat" : "3d";
 
-  const [days, setDays] = useState(90);
+  // The window opens on "Recent": the newest stretch of the record, which has
+  // something in it however long ago the data was last loaded.
+  const [win, setWin] = useState<WindowKey>(DEFAULT_WINDOW);
+  const chosen = windowOf(win);
   const [graph, setGraph] = useState<Graph | null>(null);
   const [readyIn, setReadyIn] = useState<ViewName | null>(null); // which view has drawn the current graph
   const [failed, setFailed] = useState(false);
@@ -197,7 +200,8 @@ export function GraphExplorer() {
     const ac = new AbortController();
     setFailed(false);
     setReadyIn(null);
-    (stress ? Promise.resolve(stressGraph(stress)) : clientGet<Graph>(`graph?days=${days}`, ac.signal))
+    const path = `graph?days=${chosen.days}${chosen.recent ? "&recent=true" : ""}`;
+    (stress ? Promise.resolve(stressGraph(stress)) : clientGet<Graph>(path, ac.signal))
       .then((g) => {
         if (!alive) return;
         // A selection that is not in the new graph would dim the whole map.
@@ -211,7 +215,7 @@ export function GraphExplorer() {
       alive = false;
       ac.abort();
     };
-  }, [days, stress]);
+  }, [chosen, stress]);
 
   // A bird clicked on the landing page lands on its node here.
   useEffect(() => {
@@ -220,13 +224,14 @@ export function GraphExplorer() {
       focused.current = focus;
       setSelected(focus);
       requestAnimationFrame(() => api.current.focusOn(focus, true));
-    } else if (days !== 0 && days < 365 && widened.current !== focus) {
+    } else if (chosen.days !== 0 && (chosen.recent || chosen.days < 365) && widened.current !== focus) {
       // older than the window: widen it once (once per focus, so a node that is
-      // never found does not hold the window at a year)
+      // never found does not hold the window open). A year, unless the record
+      // is so stale that the year would not reach what Recent shows.
       widened.current = focus;
-      setDays(365);
+      setWin((graph.age ?? 0) + WINDOWS[0].days > 365 ? "all" : "1y");
     }
-  }, [graph, ready, focus, days]);
+  }, [graph, ready, focus, chosen]);
 
   // After a switch of view, the new one brings the selection into view.
   useEffect(() => {
@@ -372,7 +377,9 @@ export function GraphExplorer() {
   const readyFlat = useCallback((ok: boolean) => setReadyIn(ok ? "flat" : null), []);
   const noWebGL = useCallback(() => setNo3d(true), []);
 
-  const span = WINDOWS.find((w) => w.days === days)?.long ?? `${days} days`;
+  const latest = graph?.latest ?? null;
+  const age = graph?.age ?? null;
+  const span = windowPhrase(chosen, latest);
   const shown = graph ? graph.nodes.length - hidden.size : 0;
   const empty = ready && graph && graph.nodes.length === 0;
   const filteredOut = ready && graph && graph.nodes.length > 0 && shown === 0;
@@ -399,7 +406,19 @@ export function GraphExplorer() {
       )}
       {empty && (
         <div className="pointer-events-none absolute inset-0 grid place-items-center">
-          <Empty title="Nothing landed in this window">Try a longer stretch of time.</Empty>
+          <Empty title="Nothing landed in this window">
+            {latest && !chosen.recent ? (
+              <>
+                The newest award on record is from {day(latest)}.{" "}
+                <button type="button" onClick={() => setWin("recent")} className="pointer-events-auto cursor-pointer text-ink underline">
+                  Show the most recent
+                </button>
+                .
+              </>
+            ) : (
+              "Try a longer stretch of time."
+            )}
+          </Empty>
         </div>
       )}
       {filteredOut && (
@@ -419,8 +438,10 @@ export function GraphExplorer() {
         onQuery={setQuery}
         hits={hits}
         onPick={select}
-        days={days}
-        onDays={setDays}
+        win={win}
+        onWin={setWin}
+        latest={latest}
+        age={age}
         present={present}
         tagCounts={tagCounts}
         tags={tags}
@@ -526,7 +547,7 @@ export function GraphExplorer() {
             ) : (
               <dl className="graph-facts">
                 <div>
-                  <dt>{days ? `Awarded, ${days === 365 ? "last year" : `last ${span}`}` : "Awarded, on record"}</dt>
+                  <dt>{chosen.days ? `Awarded, ${span}` : "Awarded, on record"}</dt>
                   <dd className="money">{money(detail.node.total)}</dd>
                 </div>
                 <div>
@@ -598,7 +619,7 @@ export function GraphExplorer() {
       </AnimatePresence>
       <span className="sr-only" aria-live="polite">
         {ready && graph
-          ? `${shown} of ${graph.nodes.length} entities shown, ${days ? `last ${days} days` : "everything on record"}, ${view === "3d" ? "3D" : "flat"} view`
+          ? `${shown} of ${graph.nodes.length} entities shown, ${span}, ${view === "3d" ? "3D" : "flat"} view`
           : "Drawing the map"}
       </span>
     </div>

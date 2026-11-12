@@ -346,10 +346,87 @@
 .graph-seg > * {
   padding: 0 0.4rem;
 }
+/* a window that ends today and holds no awards: still there to press */
+.graph-seg > [data-empty="true"]:not([aria-pressed="true"]) {
+  color: var(--faint);
+}
 .graph-note {
   margin-top: 0.4rem;
   font-size: 0.75rem;
   color: var(--faint);
+}
+
+/* ---- The window, drawn (WindowRecord in GraphFilters.tsx): the record as a
+   hairline with today at its right end, the chosen window as a bar on it, the
+   newest award as a ring. Positions are set inline, as shares of the line. ---- */
+
+.graph-record {
+  margin-top: 0.85rem;
+}
+.graph-record-line {
+  position: relative;
+  height: 0.5625rem;
+}
+/* the record, and today: a short tick closing its right end */
+.graph-record-line::before,
+.graph-record-line::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  background: var(--line2);
+}
+.graph-record-line::before {
+  left: 0;
+  top: 50%;
+  height: 1px;
+  translate: 0 -50%;
+}
+.graph-record-line::after {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+}
+.graph-record-span {
+  position: absolute;
+  top: 50%;
+  height: 3px;
+  min-width: 3px;
+  border-radius: 1.5px;
+  background: var(--text);
+  translate: 0 -50%;
+  transition:
+    right 0.2s var(--ease-out),
+    width 0.2s var(--ease-out);
+}
+/* everything on record runs off the left end of the line */
+.graph-record-line[data-open="true"] > .graph-record-span {
+  border-radius: 0 1.5px 1.5px 0;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 28%);
+  mask-image: linear-gradient(to right, transparent, #000 28%);
+}
+.graph-record-newest {
+  position: absolute;
+  top: 50%;
+  width: 0.5625rem;
+  height: 0.5625rem;
+  border: 1.5px solid var(--text);
+  border-radius: 50%;
+  background: var(--bg);
+  translate: 50% -50%;
+}
+.graph-record-note {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--faint);
+}
+.graph-record-note > :last-child {
+  color: var(--muted);
 }
 
 /* ---- Checklists: the shared .check rows, with two more states ---- */
