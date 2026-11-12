@@ -1,4 +1,5 @@
 import Link from "next/link";
+import "../forum/forum.css";
 import { Empty } from "@/components/Empty";
 import { NoRows, Panel, SkeletonRows } from "@/components/Signals";
 import { serverGet } from "@/lib/api";
@@ -24,7 +25,8 @@ import {
 // table with its sortable headers, the paging line, and the states around it
 // (nothing to show, nothing to compare with, API not answering).
 
-const CARD = "scroll-mt-24";
+// The tabs' own rule sits right above, so the section draws none of its own.
+const CARD = "scroll-mt-24 border-t-0! pt-0!";
 
 /** Are two neighbouring values in the order asked for? Names are compared
  *  loosely: the database's alphabet is not exactly JavaScript's, and this must
@@ -70,16 +72,16 @@ async function load<R, P extends Page<R>>(board: Board<R, P>, view: View, sort: 
   return value && !inOrder(page.items, value, sort.order) ? null : page;
 }
 
-/** The plaster card while its rows load. It carries the ledger's id: a paging
- *  link jumps to `#ledger` when the navigation commits, and this is what is on
+/** The section while its rows load. It carries the ledger's id: a paging link
+ *  jumps to `#ledger` when the navigation commits, and this is what is on
  *  screen then. */
 export function LedgerSkeleton({ title }: { title?: string }) {
   return (
-    <section id={LEDGER_ID} className={`paper-card relative z-20 px-5 py-7 sm:px-8 ${CARD}`} aria-busy="true">
+    <section id={LEDGER_ID} className={`relative z-20 ${CARD}`} aria-busy="true">
       {title ? <h2 className="panel-title">{title}</h2> : <span className="skeleton h-7 w-52" />}
       <span className="sr-only">Loading</span>
-      <span className="skeleton mt-3 h-4 w-full max-w-xl" />
-      <SkeletonRows rows={10} className="mt-8" />
+      <span className="skeleton mt-3 h-3.5 w-full max-w-xl" />
+      <SkeletonRows rows={10} className="mt-5" />
     </section>
   );
 }
@@ -106,17 +108,27 @@ function Head<R, P>({
   const { href, next } = sortHref(view, col.sort, active);
   return (
     <th scope="col" className={align} title={col.hint} aria-sort={on ? (on === "asc" ? "ascending" : "descending") : undefined}>
-      <Link href={href} scroll={false} className="group inline-flex items-baseline gap-1 hover:text-ink">
+      {/* On a column of figures the caret sits before the word, so the word
+          ends where the figures do. */}
+      <Link href={href} scroll={false} className={`inline-flex items-center gap-1 hover:text-ink ${col.num ? "flex-row-reverse" : ""}`}>
         {col.head}
         <span className="sr-only">: sort {next === "asc" ? "ascending" : "descending"}</span>
-        {/* The mark keeps its place on every sortable header, so the columns
-            do not shift when the sort moves; it shows faintly on hover. */}
-        <span
+        {/* The caret keeps its place on every sortable header, so the columns
+            do not shift when the sort moves; it shows faintly on hover. It
+            points up for ascending, down for descending. */}
+        <svg
+          viewBox="0 0 10 10"
+          className="forum-sort"
+          data-on={on ? "" : undefined}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
           aria-hidden="true"
-          className={on ? "" : "opacity-0 transition-opacity group-hover:opacity-50 group-focus-visible:opacity-50"}
         >
-          {(on ?? next) === "asc" ? "▲" : "▼"}
-        </span>
+          <path d={(on ?? next) === "asc" ? "M2 6.5 5 3.5l3 3" : "M2 3.5 5 6.5l3-3"} />
+        </svg>
       </Link>
     </th>
   );
@@ -129,28 +141,25 @@ function Pager<R>({ page, view }: { page: Page<R>; view: View }) {
   const to = page.offset + page.items.length;
   const step = (label: string, target: number, on: boolean) =>
     on ? (
-      <Link href={viewHref(view, { page: target }, LEDGER_ID)} className="marble pill">
+      <Link href={viewHref(view, { page: target }, LEDGER_ID)} className="btn btn-sm">
         {label}
       </Link>
     ) : (
-      // No such page: a faded word the size of a pill, so the row does not
-      // jump between pages. Hidden from screen readers, which have the count.
-      <span
-        className="inline-flex min-h-9 items-center px-[0.9rem] font-caps text-[0.68rem] uppercase tracking-[0.13em] text-muted opacity-60"
-        aria-hidden="true"
-      >
+      // No such page: the same button, faded, so the row does not jump
+      // between pages. Hidden from screen readers, which have the count.
+      <span className="btn btn-sm" aria-disabled="true" aria-hidden="true">
         {label}
       </span>
     );
   return (
-    <nav className="mt-6 flex flex-wrap items-center justify-between gap-x-6 gap-y-3" aria-label="Pages of this leaderboard">
-      <p className="fig text-muted">
-        rows {n(from)} to {n(to)} of {n(page.total)}
+    <nav className="mt-4 flex flex-wrap items-center justify-between gap-x-6 gap-y-3" aria-label="Pages of this leaderboard">
+      <p className="ui text-muted">
+        Rows {n(from)} to {n(to)} of {n(page.total)}
       </p>
       {page.total > PAGE_SIZE && (
         <div className="flex items-center gap-2">
-          {step("← previous", view.page - 1, view.page > 1)}
-          {step("next →", view.page + 1, to < page.total)}
+          {step("Previous", view.page - 1, view.page > 1)}
+          {step("Next", view.page + 1, to < page.total)}
         </div>
       )}
     </nav>
@@ -229,18 +238,18 @@ export async function Ledger<R, P extends Page<R>>({ board, view }: { board: Boa
 
   return (
     <Panel title={title} note={note} id={LEDGER_ID} className={CARD}>
-      {!prior && columns.length < board.columns.length && <p className="fig mb-3 max-w-3xl text-muted">{noPrior} Changes are not shown.</p>}
+      {!prior && columns.length < board.columns.length && <p className="ui mb-3 max-w-3xl text-muted">{noPrior} Changes are not shown.</p>}
       {fellBack && (
-        <p className="fig mb-3 max-w-3xl text-muted" role="status">
+        <p className="ui mb-3 max-w-3xl text-muted" role="status">
           The data service could not sort by that column just now, so the list is in its usual order.
         </p>
       )}
-      {/* A wide ledger scrolls inside the card, never the page. The region can
+      {/* A wide ledger scrolls inside its section, never the page. The region can
           take focus, so it also scrolls from the keyboard. It is `relative` so
           the visually hidden labels inside far-right cells (absolutely
           positioned) are clipped with the table instead of widening the page. */}
       <div className="relative overflow-x-auto" tabIndex={0} role="region" aria-label={`${caption}: table`}>
-        <table className={`ledger fig ${board.width}`}>
+        <table className={`ledger forum-ledger ${board.width}`}>
           <caption className="sr-only">{caption}</caption>
           <thead>
             <tr>

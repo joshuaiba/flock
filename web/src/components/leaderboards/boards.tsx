@@ -112,7 +112,8 @@ function Awarded({ v }: { v: number }) {
   return <span className="text-pompeii">{dollars(v)}</span>;
 }
 
-/** A change with its direction: ▲ or ▼ in ink, then the figure. */
+/** A change with its sign, "+12%" or "−$1,204": the sign carries the
+ *  direction. A multiple ("13×") is growth by definition and takes none. */
 function Move({ v, text, title }: { v: number; text: string; title?: string }) {
   if (v === 0)
     return (
@@ -123,8 +124,8 @@ function Move({ v, text, title }: { v: number; text: string; title?: string }) {
     );
   return (
     <span className="whitespace-nowrap text-ink" title={title}>
-      <span aria-hidden="true">{v > 0 ? "▲" : "▼"}</span>
-      <span className="sr-only">{v > 0 ? "up" : "down"}</span> {text}
+      {text.endsWith("×") ? "" : v > 0 ? "+" : "−"}
+      {text}
     </span>
   );
 }
@@ -133,10 +134,10 @@ const Dash = () => <span className="text-muted">—</span>;
 
 /** A company or agency: medallion, name, and the "show in graph" link. */
 function Who({ org }: { org: SignalOrg | null }) {
-  return org ? <OrgLink org={org} className="max-w-[15rem] sm:max-w-[22rem]" /> : <Dash />;
+  return org ? <OrgLink org={org} size={22} className="forum-name max-w-[15rem] sm:max-w-[22rem]" /> : <Dash />;
 }
 function Category({ org }: { org: SignalOrg | null }) {
-  return org?.tag ? <span className="text-[0.98rem] text-muted">{tagLabel(org.tag)}</span> : <Dash />;
+  return org?.tag ? <span className="text-muted">{tagLabel(org.tag)}</span> : <Dash />;
 }
 
 /** The row's place in the list as it is ordered now. */
@@ -179,7 +180,7 @@ export const RECIPIENTS: Board<FundingRow, FundingPage> = {
       hint: "By award dollars in the window",
       className: "w-px",
       cell: (r, { page }) => (
-        <span className="inline-flex items-baseline gap-2 whitespace-nowrap">
+        <span className="inline-grid grid-cols-[minmax(1.25rem,auto)_auto] items-baseline gap-2 whitespace-nowrap [&>:first-child]:text-right">
           <span>{r.rank ?? "—"}</span>
           {page.coverage.prior_complete && <RankChange rank={r.rank} prev={r.prev_rank} />}
         </span>
@@ -445,7 +446,7 @@ export const AGENCIES: Board<AgencyRow, Page<AgencyRow>> = {
       hint: "By award dollars in the window",
       className: "w-px",
       cell: (r, { page }) => (
-        <span className="inline-flex items-baseline gap-2 whitespace-nowrap">
+        <span className="inline-grid grid-cols-[minmax(1.25rem,auto)_auto] items-baseline gap-2 whitespace-nowrap [&>:first-child]:text-right">
           {/* An agency that only posted solicitations has no place by dollars. */}
           <span>{r.rank ?? "—"}</span>
           {page.coverage.prior_complete && <RankChange rank={r.rank} prev={r.prev_rank} />}
@@ -468,7 +469,7 @@ export const AGENCIES: Board<AgencyRow, Page<AgencyRow>> = {
     {
       key: "mix",
       head: "Category mix",
-      className: "min-w-[15rem] text-[0.98rem] text-muted",
+      className: "min-w-[15rem] text-muted",
       cell: (r, { page }) => mix(r, page.tag != null) || <Dash />,
     },
   ],
@@ -517,8 +518,8 @@ export const TOPICS: Board<TopicRow, TopicPage> = {
       sort: "category",
       value: (r) => r.category,
       cell: (r, { view }) => (
-        <span className="inline-flex items-center gap-2.5">
-          <MedallionImg name={medallionForTag(r.category)} size={30} />
+        <span className="forum-name inline-flex items-center gap-2">
+          <MedallionImg name={medallionForTag(r.category)} size={22} />
           <Link
             href={viewHref(view, { tab: "recipients", tag: r.category, sort: "amount", order: "desc", page: 1 })}
             title={`Top recipients in ${tagPhrase(r.category)}`}

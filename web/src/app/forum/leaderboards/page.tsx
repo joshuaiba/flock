@@ -17,7 +17,7 @@ type Query = Promise<Record<string, string | string[] | undefined>>;
 /** "As of Nov 11, 2026". Says nothing when the API is down: the ledger does. */
 async function Stamp() {
   const record = await getRecord();
-  return record ? <AsOf env={record} className="mt-3" /> : null;
+  return record ? <AsOf env={record} /> : null;
 }
 
 /** The leaderboard the URL asks for. */
@@ -46,7 +46,7 @@ async function Boards({ searchParams }: { searchParams: Query }) {
   const tab = tabOf(view.tab);
   return (
     <>
-      <div className="relative z-20 mt-8" data-flock-avoid>
+      <div className="relative z-20 mt-6" data-flock-avoid>
         <SignalFilters
           basePath={BASE}
           window={view.window}
@@ -77,24 +77,29 @@ async function FooterWithData() {
 export default function LeaderboardsPage({ searchParams }: { searchParams: Query }) {
   return (
     <>
-      <main className="mx-auto max-w-6xl px-4 pt-28 sm:px-8" data-flock-column>
+      <main className="mx-auto max-w-6xl px-4 pt-24 sm:px-6 sm:pt-28" data-flock-column>
         {/* Left-aligned and short, so the watchlist chain that hangs top-right
             stays clear of it. */}
         <header className="relative z-20 sm:pr-28" data-flock-avoid>
-          <Link href="/forum" className="label no-underline hover:text-ink">
-            ← The Forum
-          </Link>
-          <h1 className="mt-2 text-5xl sm:text-6xl">Leaderboards</h1>
-          <Suspense fallback={<span className="skeleton mt-3 h-5 w-44" />}>
-            <Stamp />
-          </Suspense>
+          <h1 className="title-plaque">Leaderboards</h1>
+          <div className="mt-5 flex flex-wrap items-baseline gap-x-5 gap-y-1">
+            <Suspense fallback={<span className="skeleton h-3.5 w-44" />}>
+              <Stamp />
+            </Suspense>
+            <Link href="/forum" className="ui-link">
+              Back to the Forum
+            </Link>
+            <Link href="/about/numbers" className="ui-link">
+              How these are counted
+            </Link>
+          </div>
         </header>
         <Suspense
           fallback={
-            <div className="mt-8">
+            <div className="mt-6">
               {/* Above the birds and the paper grain, like the controls they stand in for. */}
               <div className="relative z-20" aria-hidden="true">
-                <span className="skeleton h-10 w-72 max-w-full rounded-full" />
+                <span className="skeleton h-[1.875rem] w-80 max-w-full" />
                 <span className="skeleton mt-6 h-9 w-full" />
               </div>
               <div className="mt-6">
