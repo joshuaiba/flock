@@ -164,8 +164,14 @@ class Org(BaseModel):
 class Coverage(BaseModel):
     first_award_day: date | None
     # False when our data starts after the prior period does: changes against
-    # the prior period would compare a full window with a partial one.
+    # the prior period would compare a full window with a partial one. On the
+    # topics endpoint, which counts only solicitations, this is judged from the
+    # first solicitation on record instead of the first award.
     prior_complete: bool
+    # The same test for solicitations, which can start on a different day than
+    # awards (a solicitation source may be added long after the award sources).
+    first_solicitation_day: date | None
+    solicitations_prior_complete: bool
 
 
 class Envelope(BaseModel):
@@ -413,6 +419,7 @@ Window = Annotated[int, Query(description="Window in days: 7, 30, 90 or 365.")]
 Tag = Annotated[str | None, Query(description="Category slug from /api/tags.")]
 Limit = Annotated[int, Query(ge=1, le=100)]
 Offset = Annotated[int, Query(ge=0)]
+Order = Literal["asc", "desc"]
 
 router = APIRouter(prefix="/api/signals", tags=["signals"])
 
@@ -436,10 +443,21 @@ def _check(window: int, tag: str | None) -> str:
     return tag or ""
 
 
-def _envelope(conn: psycopg.Connection, window: int, tag: str | None, sources: list[str]) -> dict:
+def _envelope(
+    conn: psycopg.Connection,
+    window: int,
+    tag: str | None,
+    sources: list[str],
+    *,
+    basis: Literal["awards", "solicitations"] = "awards",
+) -> dict:
+    """`basis` says which record `coverage.prior_complete` is judged from."""
     meta = _rows(conn, "SELECT * FROM signal_meta")[0]
     first = meta["first_award_day"]
+    first_opp = _rows(conn, "SELECT min(day) AS d FROM signal_opportunities")[0]["d"]
     prior_starts = meta["as_of"] - timedelta(days=2 * window - 1)
+    awards_ok = first is not None and first <= prior_starts
+    opps_ok = first_opp is not None and first_opp <= prior_starts
     return {
         "as_of": meta["as_of"],
         "refreshed_at": meta["refreshed_at"],
@@ -449,9 +467,20 @@ def _envelope(conn: psycopg.Connection, window: int, tag: str | None, sources: l
         "sources": sources,
         "coverage": {
             "first_award_day": first,
-            "prior_complete": first is not None and first <= prior_starts,
+            "prior_complete": opps_ok if basis == "solicitations" else awards_ok,
+            "first_solicitation_day": first_opp,
+            "solicitations_prior_complete": opps_ok,
         },
     }
+
+
+def _order_by(allowed: dict[str, str], sort: str, order: str) -> str:
+    """The leading ORDER BY term for a `sort` / `order` pair. `sort` is looked
+    up in a fixed table of SQL expressions and `order` is one of two words, so
+    nothing the caller typed ever reaches the query text."""
+    if sort not in allowed:
+        raise HTTPException(422, f"sort must be one of {', '.join(allowed)}")
+    return f"{allowed[sort]} {'ASC' if order == 'asc' else 'DESC'} NULLS LAST"
 
 
 def _org(row: dict, prefix: str = "org_") -> dict | None:
@@ -586,9 +615,7 @@ def _funding(
     offset: int,
 ) -> FundingPage:
     sl = _check(window, tag)
-    if sort not in FUNDING_SORT:
-        raise HTTPException(422, f"sort must be one of {', '.join(FUNDING_SORT)}")
-    direction = "ASC" if order == "asc" else "DESC"
+    by_sort = _order_by(FUNDING_SORT, sort, order)
     if by == "category":
         # Categories are the 'total' rows that carry a slice; `tag` does not apply.
         scope = "f.subject_type = 'total' AND f.slice <> ''"
@@ -609,7 +636,7 @@ def _funding(
         SELECT f.*, o.id AS org_id, COALESCE(o.canonical_name, f.slice) AS name,
                o.canonical_name AS org_name, o.kind AS org_kind, c.tags[1] AS org_tag
         {base}
-        ORDER BY {FUNDING_SORT[sort]} {direction} NULLS LAST, f.amount DESC, f.org_id, f.slice
+        ORDER BY {by_sort}, f.amount DESC, f.org_id, f.slice
         LIMIT %(limit)s OFFSET %(offset)s
         """,
         **params,
@@ -650,7 +677,7 @@ def funding(
     window: Window = 90,
     tag: Tag = None,
     sort: str = "amount",
-    order: Literal["asc", "desc"] = "desc",
+    order: Order = "desc",
     limit: Limit = 25,
     offset: Offset = 0,
 ) -> FundingPage:
@@ -676,11 +703,16 @@ def momentum(
     tag: Tag = None,
     sort: Literal["pct", "delta"] = "pct",
     direction: Literal["rising", "falling", "all"] = "rising",
+    order: Annotated[
+        Order | None, Query(description="Default: biggest move first for the direction.")
+    ] = None,
     limit: Limit = 25,
     offset: Offset = 0,
 ) -> FundingPage:
     """Signal 2: change against the prior period. Sorting by `pct` leaves out
-    anything whose prior period is under `min_baseline` dollars."""
+    anything whose prior period is under `min_baseline` dollars. Without
+    `order` the biggest move comes first: the largest rise, or for
+    `direction=falling` the largest fall."""
     where = {"rising": "f.delta > 0", "falling": "f.delta < 0", "all": "true"}[direction]
     if sort == "pct":
         where += " AND f.pct IS NOT NULL"
@@ -690,11 +722,20 @@ def momentum(
         window=window,
         tag=tag,
         sort=sort,
-        order="asc" if direction == "falling" else "desc",
+        order=order or ("asc" if direction == "falling" else "desc"),
         where=where,
         limit=limit,
         offset=offset,
     )
+
+
+ENTRANT_SORT = {
+    "amount": "c.amount",
+    "first_day": "c.first_day",
+    "first_amount": "c.first_amount",
+    "awards": "c.awards",
+    "name": "o.canonical_name",
+}
 
 
 @router.get("/new-entrants")
@@ -702,12 +743,14 @@ def new_entrants(
     conn: Conn,
     window: Window = 90,
     tag: Tag = None,
-    sort: Literal["amount", "first_day"] = "amount",
+    sort: str = "amount",
+    order: Order = "desc",
     limit: Limit = 25,
     offset: Offset = 0,
 ) -> EntrantPage:
     """Signal 3: companies whose first autonomy award in our data is in the window."""
     sl = _check(window, tag)
+    by = _order_by(ENTRANT_SORT, sort, order)
     base = """
         FROM signal_companies c
         JOIN signal_windows w ON w.window_days = %(w)s
@@ -716,12 +759,11 @@ def new_entrants(
           AND (%(sl)s = '' OR %(sl)s = ANY(c.tags))
     """
     total = _rows(conn, f"SELECT count(*) AS n {base}", w=window, sl=sl)[0]["n"]
-    by = "c.amount DESC" if sort == "amount" else "c.first_day DESC"
     rows = _rows(
         conn,
         f"""SELECT c.*, o.id AS org_id, o.canonical_name AS org_name, o.kind AS org_kind,
                    c.tags[1] AS org_tag
-            {base} ORDER BY {by}, c.org_id LIMIT %(limit)s OFFSET %(offset)s""",
+            {base} ORDER BY {by}, c.amount DESC, c.org_id LIMIT %(limit)s OFFSET %(offset)s""",
         w=window,
         sl=sl,
         limit=limit,
@@ -808,12 +850,29 @@ def transitions(
     )
 
 
+TRANSITION_COMPANY_SORT = {
+    "transitions": "x.transitions",
+    "transitions_total": "x.transitions_total",
+    "stage": "x.top",
+    "latest_day": "x.latest_day",
+    "days_total": "x.days_total",
+    "name": "o.canonical_name",
+}
+
+
 @router.get("/transitions/companies")
 def transition_companies(
-    conn: Conn, window: Window = 90, tag: Tag = None, limit: Limit = 25, offset: Offset = 0
+    conn: Conn,
+    window: Window = 90,
+    tag: Tag = None,
+    sort: str = "transitions",
+    order: Order = "desc",
+    limit: Limit = 25,
+    offset: Offset = 0,
 ) -> TransitionCompanyPage:
     """Signal 4 as a ranking: companies by stage-to-stage moves inside the window."""
     sl = _check(window, tag)
+    by = _order_by(TRANSITION_COMPANY_SORT, sort, order)
     base = """
         FROM (
             SELECT t.org_id,
@@ -822,7 +881,10 @@ def transition_companies(
                    ) AS transitions,
                    count(*) FILTER (WHERE t.from_stage IS NOT NULL) AS transitions_total,
                    max(t.stage_order) AS top, max(t.day) AS latest_day,
-                   max(t.day) - min(COALESCE(t.from_day, t.day)) AS days_total
+                   -- first stage on record to the furthest one (not to the latest
+                   -- date: a linked solicitation can be posted after production)
+                   (array_agg(t.day ORDER BY t.stage_order DESC))[1]
+                       - min(COALESCE(t.from_day, t.day)) AS days_total
             FROM signal_transitions t JOIN signal_windows w ON w.window_days = %(w)s
             GROUP BY t.org_id
         ) x
@@ -836,7 +898,7 @@ def transition_companies(
         f"""SELECT x.*, o.id AS org_id, o.canonical_name AS org_name, o.kind AS org_kind,
                    c.tags[1] AS org_tag, {PATH_SQL.format(org="x.org_id")} AS path
             {base}
-            ORDER BY x.transitions DESC, x.transitions_total DESC, x.top DESC,
+            ORDER BY {by}, x.transitions DESC, x.transitions_total DESC, x.top DESC,
                      x.latest_day DESC, x.org_id
             LIMIT %(limit)s OFFSET %(offset)s""",
         w=window,
@@ -864,21 +926,39 @@ def transition_companies(
     )
 
 
+TOPIC_SORT = {
+    "delta": "s.posted - s.prev_posted",
+    "posted": "s.posted",
+    "prev_posted": "s.prev_posted",
+    "open": "s.open",
+    "amount": "COALESCE(f.amount, 0)",
+    "category": "s.slice",
+}
+
+
 @router.get("/topics")
-def topics(conn: Conn, window: Window = 90, limit: Limit = 25, offset: Offset = 0) -> TopicPage:
+def topics(
+    conn: Conn,
+    window: Window = 90,
+    sort: str = "delta",
+    order: Order = "desc",
+    limit: Limit = 25,
+    offset: Offset = 0,
+) -> TopicPage:
     """Signal 5: solicitations posted per category, this period against the last.
     Rising topics first. Demand shows up here before it shows up as awards."""
     _check(window, None)
+    by = _order_by(TOPIC_SORT, sort, order)
     rows = _rows(
         conn,
-        """
+        f"""
         SELECT s.slice, s.posted, s.prev_posted, s.open, COALESCE(f.amount, 0) AS amount
         FROM signal_solicitations s
         LEFT JOIN signal_funding f
           ON f.window_days = s.window_days AND f.subject_type = 'total' AND f.slice = s.slice
         WHERE s.window_days = %(w)s AND s.subject_type = 'total' AND s.slice <> ''
           AND s.posted + s.prev_posted > 0
-        ORDER BY s.posted - s.prev_posted DESC, s.posted DESC, s.slice
+        ORDER BY {by}, s.posted - s.prev_posted DESC, s.posted DESC, s.slice
         """,
         w=window,
     )
@@ -902,7 +982,7 @@ def topics(conn: Conn, window: Window = 90, limit: Limit = 25, offset: Offset = 
         for r in rows
     ]
     return TopicPage(
-        **_envelope(conn, window, None, OPP_TABLES),
+        **_envelope(conn, window, None, OPP_TABLES, basis="solicitations"),
         total=len(items),
         limit=limit,
         offset=offset,
@@ -962,17 +1042,30 @@ def largest_awards(
     )
 
 
+# An agency that only posted solicitations has no funding row, and one that only
+# awarded has no solicitation row: a missing side counts as zero.
+AGENCY_SORT = {
+    "amount": "COALESCE(f.amount, 0)",
+    "awards": "COALESCE(f.awards, 0)",
+    "posted": "COALESCE(s.posted, 0)",
+    "delta": "COALESCE(f.delta, 0)",
+    "name": "o.canonical_name",
+}
+
+
 @router.get("/agencies")
 def agencies(
     conn: Conn,
     window: Window = 90,
     tag: Tag = None,
-    sort: Literal["amount", "awards", "posted"] = "amount",
+    sort: str = "amount",
+    order: Order = "desc",
     limit: Limit = 25,
     offset: Offset = 0,
 ) -> AgencyPage:
     """Signal 7: which agencies and offices are buying and asking, and for what."""
     sl = _check(window, tag)
+    by = _order_by(AGENCY_SORT, sort, order)
     # An agency belongs here if it awarded or posted anything in the window.
     base = """
         FROM (
@@ -991,11 +1084,6 @@ def agencies(
          AND s.org_id = k.org_id
     """
     total = _rows(conn, f"SELECT count(*) AS n {base}", w=window, sl=sl)[0]["n"]
-    by = {
-        "amount": "COALESCE(f.amount, 0) DESC",
-        "awards": "COALESCE(f.awards, 0) DESC",
-        "posted": "COALESCE(s.posted, 0) DESC",
-    }[sort]
     rows = _rows(
         conn,
         f"""SELECT o.id AS org_id, o.canonical_name AS org_name, o.kind AS org_kind,

@@ -156,6 +156,54 @@ def get(client: TestClient, path: str, **params) -> dict:
     return r.json()
 
 
+def names(body: dict) -> list[str]:
+    return [i["org"]["name"] for i in body["items"]]
+
+
+def _tag(db, kind: str, entity_id: int, slugs: tuple[str, ...]) -> None:
+    for slug in (ROOT, *slugs):
+        db.execute(
+            """INSERT INTO taggings (entity_type, entity_id, tag_id, source, source_id)
+               SELECT %s, %s, id, 'test', %s FROM tags WHERE slug = %s""",
+            (kind, entity_id, f"{kind}:{entity_id}:{slug}", slug),
+        )
+
+
+def add_award(db, ids, key, company, agency, age, amount, text, slugs=()) -> None:
+    """One more autonomy award on top of the fixture, for the sorting tests:
+    with only the fixture's rows, most columns put the rows in the same order."""
+    (aid,) = db.execute(
+        """INSERT INTO awards (recipient_id, agency_id, amount, signed_at, description,
+                               source, source_id)
+           VALUES (%s, %s, %s, %s, %s, 'test', %s) RETURNING id""",
+        (
+            ids[company] if company else None,
+            ids[agency],
+            amount,
+            ids["today"] - timedelta(days=age),
+            text,
+            key,
+        ),
+    ).fetchone()
+    _tag(db, "award", aid, slugs)
+
+
+def add_opp(db, ids, key, agency, posted, closes=None, slugs=()) -> None:
+    """One more autonomy solicitation; `posted` and `closes` are days ago."""
+    (oid,) = db.execute(
+        """INSERT INTO opportunities (title, agency_id, posted_at, closes_at, source, source_id)
+           VALUES (%s, %s, %s, %s, 'test', %s) RETURNING id""",
+        (
+            key,
+            ids[agency],
+            ids["today"] - timedelta(days=posted),
+            ids["today"] - timedelta(days=closes) if closes is not None else None,
+            key,
+        ),
+    ).fetchone()
+    _tag(db, "opportunity", oid, slugs)
+
+
 def test_every_response_says_when_and_from_what(world):
     client, _, ids = world
     for path in [
@@ -181,12 +229,19 @@ def test_every_response_says_when_and_from_what(world):
             "organizations",
         }
         assert body["sample"] is False
-        # Data starts at T-200: enough for a 90-day prior period, not a 365-day one.
+        # Awards start at T-200: enough for a 90-day prior period, not a 365-day
+        # one. Solicitations start at T-150, inside the prior period (it opens at
+        # T-179), so solicitation counts have no full prior period to compare with.
+        # The topics endpoint counts only solicitations and is judged by them.
         assert body["coverage"] == {
             "first_award_day": str(ids["today"] - timedelta(days=200)),
-            "prior_complete": True,
-        }
+            "prior_complete": path != "topics",
+            "first_solicitation_day": str(ids["today"] - timedelta(days=150)),
+            "solicitations_prior_complete": False,
+        }, path
     assert get(client, "overview", window=365)["coverage"]["prior_complete"] is False
+    month = get(client, "topics", window=30)["coverage"]
+    assert month["prior_complete"] is True and month["solicitations_prior_complete"] is True
 
 
 def test_overview_headline_figures(world):
@@ -268,6 +323,25 @@ def test_momentum_leaves_tiny_baselines_out_of_percentages(world):
     assert {i["org"]["name"] for i in year["items"]} == {"Alpha", "Bravo", "Charlie", "Delta"}
 
 
+def test_momentum_order_can_be_reversed(world):
+    client, _, _ = world
+    # Biggest rise first unless asked otherwise.
+    assert names(get(client, "momentum", sort="delta")) == ["Charlie", "Alpha", "Bravo"]
+    assert names(get(client, "momentum", sort="delta", order="desc")) == [
+        "Charlie",
+        "Alpha",
+        "Bravo",
+    ]
+    assert names(get(client, "momentum", sort="delta", order="asc")) == [
+        "Bravo",
+        "Alpha",
+        "Charlie",
+    ]
+    # Reversing the order does not bring tiny baselines back into the percentages.
+    assert names(get(client, "momentum", sort="pct", order="asc")) == ["Alpha"]
+    assert get(client, "momentum", sort="delta", direction="falling", order="desc")["items"] == []
+
+
 def test_new_entrants(world):
     client, _, ids = world
     e = get(client, "new-entrants")
@@ -278,6 +352,43 @@ def test_new_entrants(world):
     assert get(client, "new-entrants", tag="uas")["items"] == []
     year = get(client, "new-entrants", window=365)
     assert [i["org"]["name"] for i in year["items"]] == ["Charlie", "Alpha", "Delta", "Bravo"]
+
+
+def test_new_entrants_sorting(world):
+    """Over a year all four companies are new:
+
+    company  first award  first-day dollars  total       awards
+    Alpha    T-100        $400,000           $1,400,000  2
+    Bravo    T-120        $20,000            $70,000     2
+    Charlie  T-3          $5,000,000         $5,000,000  1
+    Delta    T-200        $300,000           $300,000    1
+    """
+    client, db, ids = world
+
+    def order(**params) -> list[str]:
+        return names(get(client, "new-entrants", window=365, **params))
+
+    assert order() == order(sort="amount", order="desc") == ["Charlie", "Alpha", "Delta", "Bravo"]
+    assert order(sort="amount", order="asc") == ["Bravo", "Delta", "Alpha", "Charlie"]
+    assert order(sort="first_day") == ["Charlie", "Alpha", "Bravo", "Delta"]  # newest first
+    assert order(sort="first_day", order="asc") == ["Delta", "Bravo", "Alpha", "Charlie"]
+    assert order(sort="first_amount") == ["Charlie", "Alpha", "Delta", "Bravo"]
+    assert order(sort="first_amount", order="asc") == ["Bravo", "Delta", "Alpha", "Charlie"]
+    # Equal award counts fall back to total dollars, largest first.
+    assert order(sort="awards") == ["Alpha", "Bravo", "Charlie", "Delta"]
+    assert order(sort="awards", order="asc") == ["Charlie", "Delta", "Alpha", "Bravo"]
+    assert order(sort="name", order="asc") == ["Alpha", "Bravo", "Charlie", "Delta"]
+    assert order(sort="name", order="desc") == ["Delta", "Charlie", "Bravo", "Alpha"]
+    # Sorting happens before paging.
+    assert order(sort="name", order="asc", limit=2, offset=1) == ["Bravo", "Charlie"]
+
+    # A second award takes Delta to two awards and $6,300,000: among the three
+    # companies with two awards, the one with the most dollars leads.
+    add_award(db, ids, "d2", "Delta", "Air Force", 50, 6_000_000, "Research and development")
+    db.commit()
+    refresher.refresh(db)
+    assert order(sort="awards") == ["Delta", "Alpha", "Bravo", "Charlie"]
+    assert order(sort="awards", order="asc") == ["Charlie", "Delta", "Alpha", "Bravo"]
 
 
 def test_transitions_and_entries(world):
@@ -318,6 +429,64 @@ def test_transitions_and_entries(world):
     ] == [("Alpha", 2, "phase_2", 140)]
 
 
+def test_transition_companies_sorting(world):
+    """Bravo gets two more awards, so two companies have moved between stages:
+
+    company  stages on record                           moves in 90d  on record  first to furthest
+    Alpha    solicitation T-150, Phase I T-100,         1             2          140 days
+             Phase II T-10
+    Bravo    Phase I T-60, production T-20              1             1          40 days
+    """
+    client, db, ids = world
+    add_award(db, ids, "b3", "Bravo", "Air Force", 60, 100_000, "SBIR Phase I study")
+    add_award(db, ids, "b4", "Bravo", "Air Force", 20, 900_000, "Production of air vehicles")
+    db.commit()
+    refresher.refresh(db)
+
+    def order(**params) -> list[str]:
+        return names(get(client, "transitions/companies", **params))
+
+    rows = get(client, "transitions/companies")["items"]
+    assert [
+        (i["org"]["name"], i["transitions"], i["transitions_total"], i["stage"], i["days_total"])
+        for i in rows
+    ] == [("Alpha", 1, 2, "phase_2", 140), ("Bravo", 1, 1, "production", 40)]
+    # One move each in the window: the tie goes to more moves on record.
+    assert order(sort="transitions", order="desc") == ["Alpha", "Bravo"]
+    assert order(sort="transitions", order="asc") == ["Alpha", "Bravo"]
+    assert order(sort="transitions", order="asc", window=365) == ["Bravo", "Alpha"]
+    assert order(sort="transitions_total") == ["Alpha", "Bravo"]
+    assert order(sort="transitions_total", order="asc") == ["Bravo", "Alpha"]
+    assert order(sort="stage") == ["Bravo", "Alpha"]  # production is further than Phase II
+    assert order(sort="stage", order="asc") == ["Alpha", "Bravo"]
+    assert order(sort="latest_day") == ["Alpha", "Bravo"]
+    assert order(sort="latest_day", order="asc") == ["Bravo", "Alpha"]
+    assert order(sort="days_total") == ["Alpha", "Bravo"]
+    assert order(sort="days_total", order="asc") == ["Bravo", "Alpha"]
+    assert order(sort="name", order="asc") == ["Alpha", "Bravo"]
+    assert order(sort="name", order="desc") == ["Bravo", "Alpha"]
+    assert order(sort="name", order="desc", limit=1, offset=1) == ["Alpha"]
+
+
+def test_days_total_runs_to_the_furthest_stage_not_the_latest_date(world):
+    """Bravo: Phase I T-60, production T-20, and the production award is linked
+    to a solicitation posted afterwards (T-5). First stage to furthest is still
+    the 40 days from Phase I to production, not the 55 to the solicitation."""
+    client, db, ids = world
+    add_award(db, ids, "b3", "Bravo", "Air Force", 60, 100_000, "SBIR Phase I study")
+    add_award(db, ids, "b4", "Bravo", "Air Force", 20, 900_000, "Production of air vehicles")
+    add_opp(db, ids, "late", "Air Force", 5)
+    db.execute(
+        """UPDATE awards
+           SET opportunity_id = (SELECT id FROM opportunities WHERE source_id = 'late')
+           WHERE source_id = 'b4'"""
+    )
+    db.commit()
+    refresher.refresh(db)
+    rows = get(client, "transitions/companies")["items"]
+    assert {i["org"]["name"]: i["days_total"] for i in rows} == {"Alpha": 140, "Bravo": 40}
+
+
 def test_topic_heat_counts_solicitations(world):
     client, _, _ = world
     t = get(client, "topics")
@@ -333,6 +502,50 @@ def test_topic_heat_counts_solicitations(world):
         half = signals.SERIES_BUCKETS // 2
         assert sum(i["series"][half:]) == i["posted"]
     assert t["bucket_days"] == 15 and t["items"][0]["amount"] == 6_000_000
+
+
+def test_topics_sorting(world):
+    """Three more solicitations, so the columns disagree about the order:
+
+    category  posted  prior  change  open now  award dollars
+    maritime  2       1      +1      2         $6,000,000   (O2, O3; O1)
+    swarming  1       0      +1      0         $5,000,000   (O8, already closed)
+    uas       0       3      -3      1         $50,000      (O4, O6 still open, O7)
+    """
+    client, db, ids = world
+    add_opp(db, ids, "O6", "Air Force", 95, None, ("uas",))
+    add_opp(db, ids, "O7", "Air Force", 130, 100, ("uas",))
+    add_opp(db, ids, "O8", "Navy", 2, 1, ("swarming",))
+    db.commit()
+    refresher.refresh(db)
+
+    def order(**params) -> list[str]:
+        return [i["category"] for i in get(client, "topics", **params)["items"]]
+
+    t = get(client, "topics")
+    assert [
+        (i["category"], i["posted"], i["prev_posted"], i["delta"], i["open"], i["amount"])
+        for i in t["items"]
+    ] == [
+        ("maritime", 2, 1, 1, 2, 6_000_000),  # same rise as swarming, more postings
+        ("swarming", 1, 0, 1, 0, 5_000_000),
+        ("uas", 0, 3, -3, 1, 50_000),
+    ]
+    assert [i["pct"] for i in t["items"]] == [None, None, -1.0]  # only uas had 3 before
+    assert order(sort="delta", order="desc") == ["maritime", "swarming", "uas"]
+    assert order(sort="delta", order="asc") == ["uas", "maritime", "swarming"]
+    assert order(sort="posted") == ["maritime", "swarming", "uas"]
+    assert order(sort="posted", order="asc") == ["uas", "swarming", "maritime"]
+    assert order(sort="prev_posted") == ["uas", "maritime", "swarming"]
+    assert order(sort="prev_posted", order="asc") == ["swarming", "maritime", "uas"]
+    assert order(sort="open") == ["maritime", "uas", "swarming"]
+    assert order(sort="open", order="asc") == ["swarming", "uas", "maritime"]
+    assert order(sort="amount") == ["maritime", "swarming", "uas"]
+    assert order(sort="amount", order="asc") == ["uas", "swarming", "maritime"]
+    assert order(sort="category", order="asc") == ["maritime", "swarming", "uas"]
+    assert order(sort="category", order="desc") == ["uas", "swarming", "maritime"]
+    page = get(client, "topics", sort="prev_posted", limit=1, offset=1)
+    assert [i["category"] for i in page["items"]] == ["maritime"] and page["total"] == 3
 
 
 def test_largest_awards(world):
@@ -368,6 +581,42 @@ def test_agency_appetite_and_mix(world):
     )
     by_posted = get(client, "agencies", sort="posted")
     assert by_posted["items"][0]["org"]["name"] == "Navy"
+
+
+def test_agencies_sorting(world):
+    """More rows for both agencies, so the columns disagree about the order:
+
+    agency     dollars     awards  posted  prior dollars  change
+    Navy       $6,000,000  2       2       $6,300,000     -$300,000  (a $5.9M award at T-100)
+    Air Force  $52,000     3       3       $20,000        +$32,000   (two $1,000 awards, 3 postings)
+    """
+    client, db, ids = world
+    add_award(db, ids, "n1", None, "Navy", 100, 5_900_000, "Research and development")
+    add_award(db, ids, "f1", None, "Air Force", 7, 1_000, "Research and development")
+    add_award(db, ids, "f2", None, "Air Force", 7, 1_000, "Research and development")
+    for key in ("P1", "P2", "P3"):
+        add_opp(db, ids, key, "Air Force", 10)
+    db.commit()
+    refresher.refresh(db)
+
+    def order(**params) -> list[str]:
+        return names(get(client, "agencies", **params))
+
+    a = get(client, "agencies")
+    assert [
+        (i["org"]["name"], i["amount"], i["awards"], i["posted"], i["delta"]) for i in a["items"]
+    ] == [("Navy", 6_000_000, 2, 2, -300_000), ("Air Force", 52_000, 3, 3, 32_000)]
+    assert order(sort="amount", order="desc") == ["Navy", "Air Force"]
+    assert order(sort="amount", order="asc") == ["Air Force", "Navy"]
+    assert order(sort="awards") == ["Air Force", "Navy"]
+    assert order(sort="awards", order="asc") == ["Navy", "Air Force"]
+    assert order(sort="posted") == ["Air Force", "Navy"]
+    assert order(sort="posted", order="asc") == ["Navy", "Air Force"]
+    assert order(sort="delta") == ["Air Force", "Navy"]
+    assert order(sort="delta", order="asc") == ["Navy", "Air Force"]
+    assert order(sort="name", order="asc") == ["Air Force", "Navy"]
+    assert order(sort="name", order="desc") == ["Navy", "Air Force"]
+    assert order(sort="name", order="desc", limit=1, offset=1) == ["Air Force"]
 
 
 def test_category_series_adds_up(world):
@@ -428,6 +677,12 @@ def test_bad_parameters_are_rejected(world):
     assert client.get("/api/signals/funding", params={"sort": "id; drop"}).status_code == 422
     assert client.get("/api/signals/funding", params={"limit": 0}).status_code == 422
     assert client.get("/api/signals/funding", params={"by": "program"}).status_code == 422
+    # Sort columns come from a fixed list on every endpoint; anything else is refused.
+    for path in ["momentum", "new-entrants", "transitions/companies", "topics", "agencies"]:
+        url = f"/api/signals/{path}"
+        assert client.get(url, params={"sort": "id; drop"}).status_code == 422, path
+        assert client.get(url, params={"sort": "org_id"}).status_code == 422, path
+        assert client.get(url, params={"order": "sideways"}).status_code == 422, path
 
 
 def test_an_empty_database_gives_empty_answers_not_errors(db):
@@ -442,7 +697,12 @@ def test_an_empty_database_gives_empty_answers_not_errors(db):
             0,
             0,
         )
-        assert o["coverage"] == {"first_award_day": None, "prior_complete": False}
+        assert o["coverage"] == {
+            "first_award_day": None,
+            "prior_complete": False,
+            "first_solicitation_day": None,
+            "solicitations_prior_complete": False,
+        }
         for path in ["funding", "momentum", "new-entrants", "transitions", "topics", "agencies"]:
             assert get(client, path)["items"] == []
         assert get(client, "categories/series")["items"] == []
