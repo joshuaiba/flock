@@ -10,6 +10,7 @@ lossless .png files where the pack has them, so each variant is encoded once.
 
 from __future__ import annotations
 
+import shutil
 import sys
 from pathlib import Path
 
@@ -65,9 +66,25 @@ JOBS: list[tuple[str, str, list[int], tuple[int, int, int, int] | None]] = [
     ("fresco/boscoreale-garland-band-faded", "fresco/garland-band", [1250, 2499], None),
 ]
 
+# Copied byte for byte. The title plaque is line art drawn for CSS border-image
+# (see .title-plaque in globals.css): its slice is measured in the source's own
+# pixels (40px from each end of 982), so it is never resized or re-encoded.
+COPIES: list[tuple[str, str]] = [
+    ("ornaments/frame-d-ink.png", "ornaments/frame-d-ink.png"),
+    ("ornaments/frame-d-light.png", "ornaments/frame-d-light.png"),
+]
+
 
 def main(pack: Path) -> None:
     total = 0
+    for src, name in COPIES:
+        if not (pack / src).exists():
+            raise SystemExit(f"missing in pack: {src}")
+        out = OUT / name
+        out.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(pack / src, out)
+        total += out.stat().st_size
+        print(f"{name}  copied  {out.stat().st_size // 1024}K")
     for src, name, widths, crop in JOBS:
         path = next(
             (
