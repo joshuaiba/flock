@@ -142,12 +142,21 @@ export type Digest = {
 
 export type SearchHit = { id: number; name: string; kind: OrgKind; uei: string | null };
 
+/** Base URL of the API service. On Vercel (and under `vercel dev`) API_URL is
+ *  injected by the web service's binding to the api service (vercel.json); it
+ *  resolves at request time only, never during `next build`. Locally it falls
+ *  back to `uv run python -m pipeline.api.dev`. */
+function apiBase(): string {
+  const base = process.env.API_URL ?? "http://127.0.0.1:8000";
+  // new URL() drops the last path segment of a base without a trailing slash.
+  return base.endsWith("/") ? base : `${base}/`;
+}
+
 /** Server-side fetch, straight to the API. Returns null when it is unreachable
  *  or the row does not exist, so pages can show an empty state. */
 export async function serverGet<T>(path: string): Promise<T | null> {
-  const base = process.env.API_URL ?? "http://127.0.0.1:8000";
   try {
-    const res = await fetch(`${base}/api/${path}`, { cache: "no-store" });
+    const res = await fetch(new URL(`api/${path}`, apiBase()), { cache: "no-store" });
     if (!res.ok) return null;
     return (await res.json()) as T;
   } catch {
@@ -155,7 +164,9 @@ export async function serverGet<T>(path: string): Promise<T | null> {
   }
 }
 
-/** Browser fetch, through the /api rewrite. */
+/** Browser fetch, same origin. On Vercel the top-level /api rewrite in
+ *  vercel.json routes it to the api service; under `pnpm dev` the rewrite in
+ *  next.config.ts proxies it. */
 export async function clientGet<T>(path: string, signal?: AbortSignal): Promise<T> {
   const res = await fetch(`/api/${path}`, { signal });
   if (!res.ok) throw new Error(`${path}: ${res.status}`);

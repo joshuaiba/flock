@@ -167,6 +167,21 @@ The API has only `GET` routes and opens every connection read-only. Merge
 review and undo stay in the CLI. It counts only awards the classifier tagged
 as autonomy, so an unrelated contract from a source never reaches the site.
 
+### Deploying on Vercel
+
+`vercel.json` deploys the repo as one Vercel project with two
+[services](https://vercel.com/docs/services):
+
+| Service | Root | Public path | Notes |
+| --- | --- | --- | --- |
+| `api` | `.` | `/api/*` | FastAPI, `pipeline.api.app:app`. Receives the full path, so routes keep their `/api` prefix. |
+| `web` | `web/` | everything else | Next.js. Binds to `api`: Vercel injects the API's internal URL as `API_URL`, which server components use. Don't set `API_URL` yourself on Vercel. |
+
+The browser's `/api/*` calls go straight to the `api` service through the
+top-level rewrite; the `/api` rewrite in `next.config.ts` is only for local
+`pnpm dev`. Set `DATABASE_URL` in the project's environment variables for the
+API. `vercel dev` runs both services together the same way.
+
 ### Signals
 
 `migrations/007_signals.sql` adds computed metrics as materialized views:
