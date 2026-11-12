@@ -1,6 +1,11 @@
 """Precision/recall of the autonomy classifier on tests/evals/autonomy.jsonl.
 
-uv run python -m pipeline.extract.eval_classifier [--path FILE] [--json]
+uv run python -m pipeline.extract.eval_classifier [--path FILE] [--json] [--model NAME]
+
+Live LLM calls. `--model` picks the model for this run ("anthropic:claude-haiku-5-5",
+"gemini:gemini-3.8-flash"); without it EXTRACT_MODEL is used. Besides the
+scores it prints the tokens used and what they cost at config/pricing.yaml's
+prices, so two runs compare models on quality and price.
 """
 
 from __future__ import annotations
@@ -11,7 +16,8 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from pipeline.extract import classifier
+from pipeline.agents import costs
+from pipeline.extract import classifier, llm
 
 DEFAULT_PATH = Path(__file__).resolve().parents[2] / "tests" / "evals" / "autonomy.jsonl"
 
@@ -72,18 +78,44 @@ def evaluate(examples: list[dict], provider=None) -> tuple[dict, list[dict]]:
     return score(examples, preds), preds
 
 
-def main(argv: list[str] | None = None) -> int:
+def usage_of(provider) -> dict:
+    """Tokens the provider's completed runs used, and their estimated cost
+    (None when config/pricing.yaml has no price for the model)."""
+    return {
+        "model": provider.name,
+        "requests": provider.requests,
+        "input_tokens": provider.input_tokens,
+        "output_tokens": provider.output_tokens,
+        "cost_usd": costs.cost_usd(provider.name, provider.input_tokens, provider.output_tokens),
+    }
+
+
+def main(argv: list[str] | None = None, provider=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--path", type=Path, default=DEFAULT_PATH)
     ap.add_argument("--json", action="store_true")
+    ap.add_argument(
+        "--model",
+        help='model for this run, e.g. "anthropic:claude-haiku-5-5" (default: EXTRACT_MODEL)',
+    )
     args = ap.parse_args(argv)
     examples = load(args.path)
-    report, preds = evaluate(examples)
+    if provider is None:
+        provider = llm.provider_for(args.model) if args.model else llm.get_provider()
+    report, preds = evaluate(examples, provider=provider)
+    report["usage"] = usage = usage_of(provider)
     if args.json:
         print(json.dumps(report, indent=2))
         return 0
     a, t = report["is_autonomy"], report["tags_micro"]
-    print(f"n={report['n']}")
+    cost = "no price in config/pricing.yaml"
+    if usage["cost_usd"] is not None:
+        cost = f"estimated ${usage['cost_usd']:.4f}"
+    print(f"n={report['n']}  model={usage['model']}")
+    print(
+        f"tokens       {usage['input_tokens']} in + {usage['output_tokens']} out over "
+        f"{usage['requests']} requests, {cost}"
+    )
     print(f"is_autonomy  P={a['precision']:.3f}  R={a['recall']:.3f}  F1={a['f1']:.3f}")
     print(f"tags (micro) P={t['precision']:.3f}  R={t['recall']:.3f}  F1={t['f1']:.3f}")
     for tag, m in report["per_tag"].items():

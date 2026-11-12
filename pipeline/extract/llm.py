@@ -171,6 +171,11 @@ class Provider:
     min_interval: float = 1.0
     http_attempts: int = 6
     sleep: Callable[[float], None] = time.sleep
+    # Usage of the runs that completed through this provider (a failed run's
+    # tokens are only in agent_runs). For evals, which run without a database.
+    requests: int = field(default=0, repr=False)
+    input_tokens: int = field(default=0, repr=False)
+    output_tokens: int = field(default=0, repr=False)
     _last: float = field(default=0.0, repr=False)
     _exhausted: ModelHTTPError | None = field(default=None, repr=False)
     _exhausted_reason: str | None = field(default=None, repr=False)
@@ -197,7 +202,7 @@ class Provider:
                 self.sleep(wait)
             self._last = time.monotonic()
             try:
-                return fn()
+                result = fn()
             except ModelHTTPError as e:
                 if reason := exhausted_reason(self.kind, e):
                     log.error("%s is exhausted (%s); not retrying", self.name, reason)
@@ -211,6 +216,13 @@ class Provider:
                 delay = retry_delay(attempt, e.retry_after)
                 log.warning("%s -> %s; retrying in %.1fs", self.name, e.status_code, delay)
                 self.sleep(delay)
+                continue
+            usage = getattr(result, "usage", None)  # an AgentRunResult has one
+            if usage is not None:
+                self.requests += usage.requests
+                self.input_tokens += usage.input_tokens or 0
+                self.output_tokens += usage.output_tokens or 0
+            return result
         raise AssertionError("unreachable")
 
 

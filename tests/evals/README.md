@@ -11,9 +11,13 @@
   two long-form announcement paragraphs with no autonomy content.
 - `id` is `<source>:<source_id>`, so you can trace each example back to its origin.
 
-Run it (live LLM calls; needs GEMINI_API_KEY):
+Run it (live LLM calls; needs the API key of the model's provider):
 
-    uv run python -m pipeline.extract.eval_classifier
+    uv run --env-file .env python -m pipeline.extract.eval_classifier
+    uv run --env-file .env python -m pipeline.extract.eval_classifier --model gemini:gemini-3.8-flash
+
+Without `--model` it uses `EXTRACT_MODEL`. It also prints the tokens used and
+their estimated cost at the prices in `config/pricing.yaml`.
 
 It reports precision/recall/F1 for `is_autonomy`, micro-averaged and per-tag
 P/R over tags, and lists every miss. Twenty examples is a smoke test, not a

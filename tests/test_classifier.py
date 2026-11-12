@@ -175,6 +175,27 @@ def test_perfect_predictions_score_one():
     assert report["tags_micro"]["f1"] == 1.0
 
 
+def test_eval_main_reports_scores_tokens_and_cost(capsys):
+    examples = eval_classifier.load(eval_classifier.DEFAULT_PATH)
+    p = oracle(examples)
+    assert eval_classifier.main(["--json"], provider=p) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["is_autonomy"]["precision"] == 1.0 and report["is_autonomy"]["recall"] == 1.0
+    usage = report["usage"]
+    assert usage["model"] == "fake:test" and usage["requests"] == len(examples)
+    assert usage["input_tokens"] > 0 and usage["output_tokens"] > 0
+    assert usage["cost_usd"] is None  # no price for the fake model
+
+    # A priced model: the cost is tokens times the price list.
+    haiku = oracle(examples)
+    haiku.name = "anthropic:claude-haiku-5-5"
+    assert eval_classifier.main([], provider=haiku) == 0
+    text = capsys.readouterr().out
+    expected = (haiku.input_tokens * 0.10 + haiku.output_tokens * 0.50) / 1e6
+    assert "model=anthropic:claude-haiku-5-5" in text and f"estimated ${expected:.4f}" in text
+    assert f"{haiku.input_tokens} in + {haiku.output_tokens} out over 20 requests" in text
+
+
 def test_score_counts_errors():
     gold = [
         {"is_autonomy": True, "tags": ["uas"]},
