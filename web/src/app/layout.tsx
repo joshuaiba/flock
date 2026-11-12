@@ -1,13 +1,15 @@
 import type { Metadata } from "next";
-import { Cinzel, Cormorant_Garamond, EB_Garamond } from "next/font/google";
+import { Cinzel, Cormorant_Garamond, EB_Garamond, Inter } from "next/font/google";
 import { Suspense } from "react";
 import { Chain } from "@/components/Chain";
 import { Flock } from "@/components/Flock";
 import { Nav } from "@/components/Nav";
 import "./globals.css";
 
-// Display: Cormorant Garamond. Body and figures: EB Garamond (tabular lining
-// figures for every number). Cinzel only for small-caps labels. No bold anywhere.
+// Display: Cormorant Garamond (headings, entity names). Body: EB Garamond.
+// Interface: Inter, for controls, column headers and figures in tables, at
+// 13-14px. Cinzel only for the rare spaced-capitals label. No bold anywhere:
+// the heaviest weight in use is Inter's medium.
 const display = Cormorant_Garamond({
   variable: "--font-cormorant",
   subsets: ["latin"],
@@ -16,6 +18,7 @@ const display = Cormorant_Garamond({
 });
 const serif = EB_Garamond({ variable: "--font-garamond", subsets: ["latin"], style: ["normal", "italic"] });
 const caps = Cinzel({ variable: "--font-cinzel", subsets: ["latin"], weight: "400" });
+const sans = Inter({ variable: "--font-inter", subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: { default: "flock", template: "%s · flock" },
@@ -31,7 +34,7 @@ const BOOT = `try{var d=document.documentElement,t=localStorage.getItem("flock.t
 // create stacking contexts, or the flock could not pass between paint and text.
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${display.variable} ${serif.variable} ${caps.variable} antialiased`} suppressHydrationWarning>
+    <html lang="en" className={`${display.variable} ${serif.variable} ${caps.variable} ${sans.variable} antialiased`} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: BOOT }} />
         {/* Without scripts nothing reveals the headings and garlands (see
