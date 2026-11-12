@@ -168,3 +168,30 @@ def test_spent_model_quota_stops_the_pass(db):
     assert len(requests) == 1 and stats["candidates"] == 2
     assert stats["failed"] == 1 and stats["stopped"] == "model daily quota exhausted"
     assert count(db, "org_merges") == 0 and count(db, "pending_merges") == 0
+
+
+def test_spent_anthropic_credit_stops_the_pass(db):
+    from pydantic_ai.exceptions import ModelHTTPError
+    from pydantic_ai.models.function import FunctionModel
+
+    from pipeline.extract import llm
+
+    _two_pairs(db)
+    requests = []
+
+    def respond(messages, info):
+        requests.append(1)
+        message = "Your credit balance is too low to access the Anthropic API."
+        body = {"type": "error", "error": {"type": "invalid_request_error", "message": message}}
+        raise ModelHTTPError(400, "claude-haiku-5-5", body)
+
+    p = llm.Provider(
+        name="anthropic:claude-haiku-5-5",
+        model=FunctionModel(respond),
+        min_interval=0.0,
+        sleep=lambda s: None,
+    )
+    stats = runner.run(db, limit=10, provider=p, http=http_client())
+    assert len(requests) == 1 and stats["candidates"] == 2
+    assert stats["failed"] == 1 and stats["stopped"] == "model credit balance too low"
+    assert count(db, "org_merges") == 0 and count(db, "pending_merges") == 0

@@ -348,3 +348,149 @@ def test_spent_daily_quota_is_not_retried_and_trips_the_provider():
     with pytest.raises(llm.ExtractionError):  # later calls fail without a request
         llm.extract("b", Thing, provider=p)
     assert len(requests) == 1
+
+
+# --- Anthropic errors: retryable vs exhausted -------------------------------
+
+
+def anthropic_error(status, kind, message="x", headers=None, **details):
+    """A ModelHTTPError shaped like the Anthropic API's: the SDK's parsed body."""
+    error = {"type": kind, "message": message, **({"details": details} if details else {})}
+    body = {"type": "error", "error": error, "request_id": "req_test"}
+    return ModelHTTPError(status, "claude-haiku-5-5", body, headers=headers)
+
+
+CREDIT_400 = (
+    400,
+    "invalid_request_error",
+    "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing "
+    "to upgrade or purchase credits.",
+)
+SPEND_LIMIT_400 = (
+    400,
+    "invalid_request_error",
+    "You have reached your specified API usage limits. You will regain access on 2026-12-01 "
+    "at 00:00 UTC.",
+)
+
+
+@pytest.mark.parametrize(
+    "error, expected",
+    [
+        (anthropic_error(*CREDIT_400), "credit balance too low"),
+        (anthropic_error(402, "billing_error"), "billing error"),
+        (anthropic_error(*SPEND_LIMIT_400), "spend limit reached"),
+        (
+            anthropic_error(429, "rate_limit_error", error_code="enforced_spend_limit_reached"),
+            "monthly spend cap reached",
+        ),
+        # Ordinary errors: a retry or the next item may well succeed.
+        (anthropic_error(429, "rate_limit_error", headers={"retry-after": "7"}), None),
+        (anthropic_error(529, "overloaded_error", "Overloaded"), None),
+        (anthropic_error(500, "api_error"), None),
+        (anthropic_error(400, "invalid_request_error", "messages: field required"), None),
+        (anthropic_error(401, "authentication_error", "invalid x-api-key"), None),
+        (ModelHTTPError(400, "m", None), None),
+        (ModelHTTPError(400, "m", "not json"), None),
+    ],
+)
+def test_anthropic_exhaustion_detection(error, expected):
+    assert llm.anthropic_exhausted(error) == expected
+    assert llm.exhausted_reason("anthropic", error) == expected
+
+
+def test_exhaustion_rules_are_per_provider():
+    daily = ModelHTTPError(429, "m", DAILY_429)
+    assert llm.exhausted_reason("gemini", daily) == "daily quota exhausted"
+    assert llm.exhausted_reason("anthropic", daily) is None  # a Gemini shape, not Claude's
+    assert llm.exhausted_reason("gemini", anthropic_error(*CREDIT_400)) is None
+    assert 529 in llm.retry_statuses("anthropic") and 529 not in llm.retry_statuses("gemini")
+    assert {429, 500} <= llm.retry_statuses("anthropic")
+
+
+def _claude_provider(errors, sleeps, requests=None):
+    """An "anthropic:" Provider whose model raises `errors` in turn, then answers."""
+    errors = list(errors)
+
+    def respond(messages, info):
+        if requests is not None:
+            requests.append(1)
+        if errors:
+            raise errors.pop(0)
+        return ModelResponse(parts=[TextPart('{"name": "a", "count": 1}')])
+
+    return llm.Provider(
+        name="anthropic:claude-haiku-5-5",
+        model=FunctionModel(respond),
+        min_interval=0.0,
+        sleep=sleeps.append,
+    )
+
+
+def test_anthropic_retries_429_500_and_529():
+    sleeps = []
+    errors = [
+        anthropic_error(429, "rate_limit_error"),
+        anthropic_error(500, "api_error"),
+        anthropic_error(529, "overloaded_error"),
+    ]
+    p = _claude_provider(errors, sleeps)
+    assert p.kind == "anthropic"
+    assert llm.extract("t", Thing, provider=p).name == "a"
+    assert len(sleeps) == 3 and not p.exhausted
+
+
+def test_529_is_not_retried_for_gemini():
+    sleeps = []
+    p = _flaky_provider([529], sleeps)  # "fake:" label: the default (Gemini) rules
+    with pytest.raises(llm.ExtractionError):
+        llm.extract("t", Thing, provider=p)
+    assert sleeps == []
+
+
+def test_retry_after_is_honored_and_capped():
+    sleeps = []
+    errors = [
+        anthropic_error(429, "rate_limit_error", headers={"retry-after": "7"}),
+        anthropic_error(529, "overloaded_error", headers={"Retry-After": "3600"}),
+        anthropic_error(429, "rate_limit_error", headers={"retry-after-ms": "250"}),
+    ]
+    p = _claude_provider(errors, sleeps)
+    assert llm.extract("t", Thing, provider=p).name == "a"
+    assert sleeps == [7.0, llm.MAX_BACKOFF, 0.25]
+
+
+def test_retry_delay_without_a_header_backs_off_within_the_cap():
+    assert all(1.0 <= llm.retry_delay(0) <= 2.0 for _ in range(20))
+    assert all(llm.retry_delay(20) <= llm.MAX_BACKOFF for _ in range(20))
+    assert llm.retry_delay(0, retry_after=0) >= 1.0  # "retry now" still backs off
+
+
+@pytest.mark.parametrize(
+    "error, reason",
+    [
+        (anthropic_error(*CREDIT_400), "credit balance too low"),
+        (anthropic_error(402, "billing_error"), "billing error"),
+    ],
+)
+def test_out_of_credit_is_not_retried_and_trips_the_provider(error, reason, caplog):
+    sleeps, requests = [], []
+    p = _claude_provider([error], sleeps, requests)
+    with caplog.at_level("ERROR"), pytest.raises(llm.ExtractionError):
+        llm.extract("a", Thing, provider=p)
+    assert len(requests) == 1 and sleeps == []
+    assert p.exhausted and p.exhausted_reason == reason
+    assert "exhausted" in caplog.text and reason in caplog.text
+    with pytest.raises(llm.ExtractionError):  # later calls fail without a request
+        llm.extract("b", Thing, provider=p)
+    assert len(requests) == 1
+
+
+def test_default_providers_are_paced_by_llm_min_interval(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    monkeypatch.setenv("LLM_MIN_INTERVAL", "0.2")
+    settings.reset_settings()
+    monkeypatch.setattr(llm, "_provider", None)
+    p = llm.get_provider()
+    assert p.name == "anthropic:claude-haiku-5-5" and p.kind == "anthropic"
+    assert p.min_interval == 0.2

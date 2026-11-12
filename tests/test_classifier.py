@@ -252,6 +252,44 @@ def test_run_keeps_failed_runs_and_commits_per_batch(db):
     ]
 
 
+@pytest.mark.db
+def test_run_stops_when_the_model_is_out_of_credit(db):
+    """An exhausted provider ends the pass at once; the rest stay candidates."""
+    from pydantic_ai.exceptions import ModelHTTPError
+    from pydantic_ai.models.function import FunctionModel
+
+    db.execute("""INSERT INTO awards (description, source, source_id) VALUES
+                  ('DRONE ONE', 't', '1'), ('DRONE TWO', 't', '2'), ('DRONE THREE', 't', '3')""")
+    db.commit()
+    requests = []
+
+    def respond(messages, info):
+        requests.append(1)
+        body = {
+            "type": "error",
+            "error": {
+                "type": "invalid_request_error",
+                "message": "Your credit balance is too low to access the Anthropic API.",
+            },
+        }
+        raise ModelHTTPError(400, "claude-haiku-5-5", body)
+
+    p = llm.Provider(
+        name="anthropic:claude-haiku-5-5",
+        model=FunctionModel(respond),
+        min_interval=0.0,
+        sleep=lambda s: None,
+    )
+    out = classifier.run(db, limit=10, provider=p, batch=2)
+    assert len(requests) == 1 and out["candidates"] == 3 and out["failed"] == 1
+    assert out["stopped"] == "model credit balance too low"
+    assert db.execute("SELECT count(*) FROM classifications").fetchone()[0] == 0
+    # The one attempt is on record; nothing was written for the other two.
+    assert db.execute("SELECT status, count(*) FROM agent_runs GROUP BY 1").fetchall() == [
+        ("failed", 1)
+    ]
+
+
 def test_main_configures_tracing(monkeypatch):
     import contextlib
 

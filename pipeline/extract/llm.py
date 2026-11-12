@@ -30,7 +30,7 @@ from typing import Any
 
 from pydantic import BaseModel
 from pydantic_ai import Agent, NativeOutput, RunContext
-from pydantic_ai.exceptions import AgentRunError, ModelHTTPError
+from pydantic_ai.exceptions import AgentRunError, ModelHTTPError, ModelQuotaExceededError
 from pydantic_ai.models import Model
 
 from pipeline.agents import budgets, run_log, settings
@@ -38,6 +38,8 @@ from pipeline.agents import budgets, run_log, settings
 log = logging.getLogger(__name__)
 
 RETRY_STATUSES = {429, 500, 502, 503, 504}
+# Anthropic also answers 529 (overloaded_error) when the API as a whole is busy.
+ANTHROPIC_RETRY_STATUSES = RETRY_STATUSES | {529}
 MAX_BACKOFF = 120.0  # seconds; also the longest server-requested delay we wait out
 
 # The text under analysis is the user prompt; everything else is instructions.
@@ -67,32 +69,115 @@ def daily_quota_exhausted(e: ModelHTTPError) -> bool:
     return bool(m) and float(m.group(1)) > MAX_BACKOFF
 
 
+def _anthropic_error(e: ModelHTTPError) -> dict:
+    """The `error` object of an Anthropic error body:
+    {"type": "error", "error": {"type": ..., "message": ..., "details": {...}}}."""
+    body = e.body
+    inner = body.get("error") if isinstance(body, dict) else None
+    return inner if isinstance(inner, dict) else {}
+
+
+def anthropic_exhausted(e: ModelHTTPError) -> str | None:
+    """Why no retry can make this Anthropic error go away, or None if one might.
+
+    The account has run out of something that only a person (or the calendar)
+    can refill. The shapes, from the API's error and rate-limit docs and the
+    SDK's error classes:
+
+    - 402 `billing_error`: a billing or payment problem.
+    - 400 `invalid_request_error` whose message says "credit balance is too
+      low": the prepaid credit is spent. There is no error type of its own.
+    - 400 `invalid_request_error` whose message starts "You have reached your
+      specified [workspace] API usage limits": a spend limit set in the Console.
+    - 429 `rate_limit_error` with details.error_code
+      `enforced_spend_limit_reached` and no retry-after: the usage tier's
+      monthly cap. Unlike a rate limit it lasts until the month ends.
+    """
+    error = _anthropic_error(e)
+    message = str(error.get("message") or "").lower()
+    details = error.get("details")
+    code = details.get("error_code") if isinstance(details, dict) else None
+    if e.status_code == 402 or error.get("type") == "billing_error":
+        return "billing error"
+    if e.status_code == 400 and "credit balance is too low" in message:
+        return "credit balance too low"
+    if e.status_code == 400 and message.startswith("you have reached your specified"):
+        return "spend limit reached"
+    if e.status_code == 429 and code == "enforced_spend_limit_reached":
+        return "monthly spend cap reached"
+    if isinstance(e, ModelQuotaExceededError):  # Pydantic AI's own reading of the above
+        return "quota exceeded"
+    return None
+
+
+def exhausted_reason(provider: str, e: ModelHTTPError) -> str | None:
+    """Why `provider` cannot serve more calls for now, or None for an ordinary error."""
+    if provider == "anthropic":
+        return anthropic_exhausted(e)
+    return "daily quota exhausted" if daily_quota_exhausted(e) else None
+
+
+def retry_statuses(provider: str) -> set[int]:
+    return ANTHROPIC_RETRY_STATUSES if provider == "anthropic" else RETRY_STATUSES
+
+
+def retry_delay(attempt: int, retry_after: float | None = None) -> float:
+    """Seconds to wait before retry number `attempt` (0-based).
+
+    The server's own request (the retry-after header, which Pydantic AI parses
+    into ModelHTTPError.retry_after) wins when there is one; otherwise jittered
+    exponential backoff. Either way never more than MAX_BACKOFF.
+    """
+    if retry_after is not None and retry_after > 0:
+        return min(MAX_BACKOFF, retry_after)
+    return min(MAX_BACKOFF, 2.0 * 2**attempt) * (0.5 + random.random() / 2)
+
+
 @dataclass
 class Provider:
     """A Pydantic AI model plus the label recorded with each result.
 
-    Calls are paced (`min_interval` seconds apart) and transient HTTP errors
-    (429/5xx) are retried with exponential backoff, because Gemini rate limits
-    are per project and a nightly run makes hundreds of calls.
+    Calls are paced (`min_interval` seconds apart, LLM_MIN_INTERVAL for the
+    default providers) and transient HTTP errors are retried with backoff,
+    because rate limits are per account and a nightly run makes hundreds of
+    calls. Which errors are transient depends on the provider, read from the
+    label's prefix: 429 and 5xx for both, plus 529 (overloaded) for Anthropic.
+    A retry-after header is honored up to MAX_BACKOFF.
 
-    A 429 that reports a spent *daily* quota is different: backing off cannot
-    help, so it is raised at once and remembered. Every later call on this
-    provider then fails immediately without a request (`exhausted` is true),
-    which lets callers stop the pass instead of grinding through backoff for
-    every remaining item.
+    For Anthropic this sits on top of the SDK's own two quick retries of a
+    single request (connection errors, 429, 5xx). A retry here re-runs the
+    whole agent run, so it only happens once those are spent.
+
+    Some errors mean the account is spent, and backing off cannot help: a
+    Gemini 429 that reports the *daily* quota, or an Anthropic billing /
+    out-of-credit / spend-limit error (see anthropic_exhausted). Those are
+    raised at once and remembered. Every later call on this provider then
+    fails immediately without a request (`exhausted` is true, and
+    `exhausted_reason` says why), which lets callers stop the pass instead of
+    grinding through backoff for every remaining item.
     """
 
-    name: str  # e.g. "gemini:gemini-3.8-flash"
+    name: str  # e.g. "anthropic:claude-haiku-5-5" or "gemini:gemini-3.8-flash"
     model: Model
     min_interval: float = 1.0
     http_attempts: int = 6
     sleep: Callable[[float], None] = time.sleep
     _last: float = field(default=0.0, repr=False)
     _exhausted: ModelHTTPError | None = field(default=None, repr=False)
+    _exhausted_reason: str | None = field(default=None, repr=False)
+
+    @property
+    def kind(self) -> str:
+        """The provider prefix of the label: "anthropic", "gemini", ..."""
+        return self.name.partition(":")[0]
 
     @property
     def exhausted(self) -> bool:
         return self._exhausted is not None
+
+    @property
+    def exhausted_reason(self) -> str | None:
+        return self._exhausted_reason
 
     def call[T](self, fn: Callable[[], T]) -> T:
         if self._exhausted is not None:
@@ -105,16 +190,30 @@ class Provider:
             try:
                 return fn()
             except ModelHTTPError as e:
-                if daily_quota_exhausted(e):
-                    log.error("%s daily quota exhausted; not retrying", self.name)
-                    self._exhausted = e
+                if reason := exhausted_reason(self.kind, e):
+                    log.error("%s is exhausted (%s); not retrying", self.name, reason)
+                    self._exhausted, self._exhausted_reason = e, reason
                     raise
-                if e.status_code not in RETRY_STATUSES or attempt == self.http_attempts - 1:
+                if (
+                    e.status_code not in retry_statuses(self.kind)
+                    or attempt == self.http_attempts - 1
+                ):
                     raise
-                delay = min(MAX_BACKOFF, 2.0 * 2**attempt) * (0.5 + random.random() / 2)
+                delay = retry_delay(attempt, e.retry_after)
                 log.warning("%s -> %s; retrying in %.1fs", self.name, e.status_code, delay)
                 self.sleep(delay)
         raise AssertionError("unreachable")
+
+
+def provider_for(name: str) -> Provider:
+    """The Provider for a configured model name ("anthropic:claude-haiku-5-5",
+    or a bare Gemini name), paced by LLM_MIN_INTERVAL."""
+    s = settings.get_settings()
+    return Provider(
+        name=settings.model_label(name),
+        model=settings.build_model(name, s),
+        min_interval=s.llm_min_interval,
+    )
 
 
 _provider: Provider | None = None
@@ -128,8 +227,7 @@ def set_provider(provider: Provider | None) -> None:
 def get_provider() -> Provider:
     global _provider
     if _provider is None:
-        name = settings.get_settings().extract_model
-        _provider = Provider(name=settings.model_label(name), model=settings.build_model(name))
+        _provider = provider_for(settings.get_settings().extract_model)
     return _provider
 
 

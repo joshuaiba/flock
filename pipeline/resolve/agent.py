@@ -40,7 +40,7 @@ from pydantic_ai import Agent, ModelRetry, RunContext
 from pydantic_ai.messages import ModelMessage, ModelRequest, ToolReturnPart
 
 from pipeline.agents import budgets, run_log, settings
-from pipeline.extract.llm import Provider
+from pipeline.extract.llm import Provider, provider_for
 from pipeline.resolve.apply import MERGE_CONFIDENCE, SEPARATE_CONFIDENCE
 from pipeline.resolve.deps import ResolveDeps, open_cache_conn
 from pipeline.resolve.models import CandidatePair, MergeDecision
@@ -278,8 +278,7 @@ class Outcome:
 
 def default_provider() -> Provider:
     """The model named by RESOLVE_MODEL, paced and retried like extraction."""
-    name = settings.get_settings().resolve_model
-    return Provider(name=settings.model_label(name), model=settings.build_model(name))
+    return provider_for(settings.get_settings().resolve_model)
 
 
 def decide(pair: CandidatePair, deps: ResolveDeps, *, provider: Provider | None = None) -> Outcome:

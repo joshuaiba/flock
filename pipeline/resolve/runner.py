@@ -91,7 +91,8 @@ def run(
                    exceeded) or whose decision could not be applied, plus UEI
                    auto-merges that hit a database error
     skipped        pairs dropped because an earlier merge in this run made them stale
-    stopped        only present when the pass ended early (model daily quota spent)
+    stopped        only present when the pass ended early: the model's daily
+                   quota (Gemini) or credit (Anthropic) is spent
     failures       [{input_ref, run_id, error}] for those
     requests, input_tokens, output_tokens, total_tokens, tool_calls
                    usage totals for this run
@@ -172,11 +173,11 @@ def run(
                     out["failed"] += 1
                     out["failures"].append(_failure(ref, outcome.run_id, outcome.error or ""))
                     if provider.exhausted:
-                        # The model's daily quota is spent: every further pair
-                        # would fail the same way. Stop; they are re-proposed
-                        # next run.
-                        log.error("model quota exhausted; stopping the resolve pass")
-                        out["stopped"] = "model daily quota exhausted"
+                        # The model's quota or credit is spent: every further
+                        # pair would fail the same way. Stop; they are
+                        # re-proposed next run.
+                        out["stopped"] = f"model {provider.exhausted_reason}"
+                        log.error("%s; stopping the resolve pass", out["stopped"])
                         break
                     continue
                 try:

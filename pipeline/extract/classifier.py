@@ -232,11 +232,19 @@ def run(conn: psycopg.Connection, *, limit: int, provider=None, batch: int = 25)
                 except Exception as e:
                     log.error("classify %s:%s failed: %s", entity_type, entity_id, e)
                     out["failed"] += 1
+                    if provider.exhausted:
+                        # The model's quota or credit is spent: every further
+                        # call would fail the same way. The rest stay candidates.
+                        out["stopped"] = f"model {provider.exhausted_reason}"
+                        break
                     continue
                 out["positive"] += result.is_autonomy
                 write_verdict(
                     conn, entity_type, entity_id, text, result, provider.name, tag_ids, tax.root, st
                 )
+        if "stopped" in out:
+            log.error("%s; stopping the classifier pass", out["stopped"])
+            break
     return {**out, **st}
 
 

@@ -1,3 +1,4 @@
+import json
 from collections import Counter
 from datetime import date, datetime
 
@@ -226,6 +227,41 @@ def test_extract_and_load_stores_raw_text_and_caches(db, monkeypatch):
     awards2 = run.extract_awards(_lines(), existing, counts2)
     assert counts2["extractions.cached"] == 12 and len(provider.calls) == 12
     assert load_awards(db, awards2).inserted("awards") == 0
+
+
+def test_extraction_stops_when_the_model_is_exhausted(monkeypatch):
+    """Out of credit after three paragraphs: no more requests, and the article
+    is dropped whole so a later run redoes it instead of leaving it partial."""
+    from pydantic_ai.exceptions import ModelHTTPError
+    from pydantic_ai.messages import ModelResponse, TextPart
+    from pydantic_ai.models.function import FunctionModel
+
+    from tests.fakes import first_user_prompt
+
+    requests = []
+
+    def respond(messages, info):
+        requests.append(1)
+        if len(requests) > 3:
+            raise ModelHTTPError(402, "claude-haiku-5-5", {"error": {"type": "billing_error"}})
+        return ModelResponse(
+            parts=[TextPart(json.dumps(fake_extraction(first_user_prompt(messages))))]
+        )
+
+    provider = run.llm.Provider(
+        name="anthropic:claude-haiku-5-5",
+        model=FunctionModel(respond),
+        min_interval=0.0,
+        sleep=lambda s: None,
+    )
+    monkeypatch.setattr(run.llm, "get_provider", lambda: provider)
+    second = {**_lines()[0], "article_id": "9999999"}
+
+    counts = Counter()
+    awards = run.extract_awards([*_lines(), second], {}, counts)
+    assert awards == [] and len(requests) == 4  # the second article is never started
+    assert counts["extractions.new"] == 3 and counts["extractions.failed"] == 1
+    assert counts["extractions.stopped"] == 1 and provider.exhausted_reason == "billing error"
 
 
 def test_inbox_picks_up_saved_pages(tmp_path, monkeypatch):

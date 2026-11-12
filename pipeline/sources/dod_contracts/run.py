@@ -87,10 +87,20 @@ def fetch_lines(skip: set[str], max_articles: int, counts: Counter) -> list[dict
 
 
 def extract_awards(lines: list[dict], existing: dict[str, tuple], counts: Counter) -> list:
+    """Awards for every paragraph of every article, extracted or reused.
+
+    If the model's quota or credit runs out part-way (provider.exhausted),
+    extraction stops and counts["extractions.stopped"] is set. The article
+    being read is dropped whole rather than loaded with paragraphs missing:
+    an article with any award loaded counts as done (loaded_article_ids), so
+    a partial one would never be finished. It and the articles after it are
+    picked up by a later run.
+    """
     provider = None
     awards = []
     for line in lines:
         announced = date.fromisoformat(line["announced_on"]) if line["announced_on"] else None
+        article_awards = []
         for para in normalize.split_paragraphs(line["html"]):
             counts["paragraphs"] += 1
             source_id = f"{line['article_id']}:{para.index}"
@@ -111,10 +121,12 @@ def extract_awards(lines: list[dict], existing: dict[str, tuple], counts: Counte
                 except Exception as e:  # one bad paragraph shouldn't sink the day
                     log.error("extraction failed for %s: %s", source_id, e)
                     counts["extractions.failed"] += 1
+                    if provider.exhausted:
+                        break
                     continue
                 model = provider.name
                 counts["extractions.new"] += 1
-            awards.append(
+            article_awards.append(
                 normalize.to_award(
                     article_id=line["article_id"],
                     url=line["url"],
@@ -125,6 +137,15 @@ def extract_awards(lines: list[dict], existing: dict[str, tuple], counts: Counte
                     model=model,
                 )
             )
+        if provider is not None and provider.exhausted:
+            log.error(
+                "model %s; stopping extraction at article %s",
+                provider.exhausted_reason,
+                line["article_id"],
+            )
+            counts["extractions.stopped"] = 1
+            break
+        awards.extend(article_awards)
     return awards
 
 
