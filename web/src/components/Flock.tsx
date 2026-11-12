@@ -34,10 +34,13 @@ import { useStore } from "@/lib/store";
 // the scroll, between the village (0.3) and the leafy frame (0.6), and it is
 // faded out at the hero's bottom edge like the rest of the painting, so a bird
 // is never drawn over the page below. Over the last 30% of the hero's scroll
-// the birds leave: they climb, fan out and fade. Once the hero is off screen
-// nothing is drawn and the loop stops; scrolling back brings them down out of
-// the top of the window again. No other page has birds. The canvas sits between
-// the painted ground and the text and never takes pointer events itself.
+// the birds leave: one after another they climb out of the top of the window,
+// fanning out and fading as they go. The leaving is drawn on top of the flight,
+// as a function of how far the page has scrolled, so it runs backwards exactly
+// when the page scrolls back: the same birds come down into the same sky. Once
+// the hero is off screen nothing is drawn and the loop stops. No other page has
+// birds. The canvas sits between the painted ground and the text and never
+// takes pointer events itself.
 
 // Flight
 const SPEED = 44; // cruising speed of the nearest birds, px/s
@@ -81,11 +84,11 @@ const LEAVE_FOR = 0.7; // seconds a clicked bird takes to peel away
 // Leaving with the hero
 const FOLLOW = 0.5; // the flock moves up at this share of the scroll, like a layer of the scene
 const EXIT_FROM = 0.7; // the birds leave over the hero's scroll from here to 1
-const EXIT_LIFT = 300; // how hard a leaving bird climbs (px/s2)
-const EXIT_SPREAD = 150; // and fans out sideways (px/s2)
-const EXIT_CLIMB = 3; // extra climb rate allowed while leaving, relative to cruising speed
-const RETURN_DIVE = 2.4; // descent rate allowed while coming back from above the window
-const ABOVE = 220; // how far above the window a bird may go, px
+const EXIT_EASE = 7; // how quickly the drawn exit follows the scroll (1/s): a jump of the page still reads as flight
+const EXIT_STAGGER = 0.4; // the last bird starts to leave this far into the exit
+const EXIT_CLEAR = 150; // a bird that has left is at least this far above the window, px
+const EXIT_SPREAD = 170; // and up to this far to one side of where it was, px
+const EXIT_PITCH = 300; // nose-up while climbing, as px/s of climb per unit of exit per second
 const EDGE_FADE = 96; // birds dissolve over this many px above the hero's bottom edge
 // The frozen V shown when motion is off. Positions are shares of the window
 // width and of the hero's height; lengths are in px.
@@ -184,7 +187,9 @@ export function Flock() {
     // Where the page is, read once a frame (see readScroll).
     let scrolled = 0; // window.scrollY
     let off = 0; // how far the flock has been carried up with the scene, px
-    let exit = 0; // 0 while the hero is in view .. 1 once the birds have left
+    let exit = 0; // where the scroll puts the exit: 0 in the hero .. 1 gone
+    let exitNow = 0; // the exit as drawn: follows `exit` over a few frames
+    let exitRate = 0; // its speed, per second (positive while leaving)
     let floor = 1e9; // the hero's bottom edge, in window coordinates
     let heroTop = 0;
     let heroTall = 0;
@@ -239,6 +244,8 @@ export function Flock() {
       if (!heroEl || !heroTall || live.current.path !== "/") {
         off = 0;
         exit = 0;
+        exitNow = 0;
+        exitRate = 0;
         floor = 1e9;
         return;
       }
@@ -246,6 +253,8 @@ export function Flock() {
       if (!live.current.motion) {
         off = 0;
         exit = 0;
+        exitNow = 0;
+        exitRate = 0;
         return;
       }
       off = scrolled * FOLLOW;
@@ -358,7 +367,8 @@ export function Flock() {
       // block from document coordinates into the flock's space.
       const shift = off - scrolled;
       const my = mouse.y + off;
-      const stay = 1 - exit;
+      // Wings work harder on the way out and on the way back in.
+      const effort = 1 + Math.min(1.6, Math.abs(exitRate) * 1.4);
       const turn = Math.min(1, dt * TURN);
       const ease = Math.min(1, dt * 6);
       for (let i = 0; i < n; i++) {
@@ -413,10 +423,10 @@ export function Flock() {
           ay += (avy / near - b.vy) * 0.5 + (cy / near - b.y) * 0.1;
         }
         // A light prevailing wind keeps the flock crossing the sky.
-        ax += WIND * stay;
+        ax += WIND;
         ay += Math.sin(b.phase * 0.13 + i) * WANDER;
         // Gentle attraction toward the cursor.
-        if (mouse.over && exit < 0.5) {
+        if (mouse.over && exitNow < 0.3) {
           const dx = mouse.x - b.x;
           const dy = my - b.y;
           const d = Math.hypot(dx, dy);
@@ -464,15 +474,9 @@ export function Flock() {
             if (px > L && px < R && py > T && py < B) ay += b.y <= T ? -NUDGE : NUDGE;
           }
         }
-        // Stay in the sky. The top of it opens as the birds leave.
-        if (b.y < 50) ay += (50 - b.y) * 1.2 * stay;
+        // Stay in the sky.
+        if (b.y < 50) ay += (50 - b.y) * 1.2;
         if (b.y > H - 50) ay -= (b.y - (H - 50)) * 1.2;
-        if (exit > 0) {
-          // Leaving with the hero: climb, nearer birds first, and fan out. Each
-          // bird keeps its own side (jx), so the flock opens instead of sliding.
-          ay -= EXIT_LIFT * exit * (0.7 + 0.6 * b.depth);
-          ax += b.jx * EXIT_SPREAD * exit;
-        }
 
         b.slow += ((b === hovered ? 1 : 0) - b.slow) * ease;
         const full = SPEED * b.pace;
@@ -484,15 +488,10 @@ export function Flock() {
 
         b.vx += ax * dt;
         b.vy += ay * dt;
-        // Level flight, except on the way out (a steep climb) and on the way
-        // back in from above the window (a quick descent).
-        const above = b.y < 30;
         const lim = cruise * (steer ? VY_STEER : VY_LIMIT);
-        const up = lim + cruise * EXIT_CLIMB * exit;
-        const down = above ? cruise * RETURN_DIVE * stay + lim : lim;
-        if (b.vy > down) b.vy = down;
-        else if (b.vy < -up) b.vy = -up;
-        const max = cruise * (BURST + EXIT_CLIMB * exit + (above ? RETURN_DIVE * stay : 0));
+        if (b.vy > lim) b.vy = lim;
+        else if (b.vy < -lim) b.vy = -lim;
+        const max = cruise * BURST;
         let sp = Math.hypot(b.vx, b.vy);
         if (sp > max) {
           b.vx *= max / sp;
@@ -501,11 +500,6 @@ export function Flock() {
         }
         b.x += b.vx * dt;
         b.y += b.vy * dt;
-        if (b.y < -ABOVE) {
-          // Out of sight: wait there until the hero comes back.
-          b.y = -ABOVE;
-          if (b.vy < 0) b.vy = 0;
-        }
 
         if (b.entering && b.x > 70) {
           // A bird joining the flock means a new award landed today.
@@ -524,10 +518,11 @@ export function Flock() {
         // Wing beats follow speed. Now and then, hold a glide for a moment; a
         // glide starts from the frame where the wings are flattest.
         b.poseT -= dt;
-        if (exit > 0.15 && b.glide !== null) b.poseT = 0; // nobody glides away
+        const busy = exitNow > 0.02 && exitNow < 0.98; // leaving or arriving: nobody glides
+        if (busy && b.glide !== null) b.poseT = 0;
         if (b.glide === null) {
-          b.frame = (b.frame + dt * SPRITE.fps * (sp / full)) % SPRITE.frames;
-          if (b.poseT <= 0 && exit <= 0.15 && Math.floor(b.frame) === GLIDE_FRAME) {
+          b.frame = (b.frame + dt * SPRITE.fps * (sp / full) * effort) % SPRITE.frames;
+          if (b.poseT <= 0 && !busy && Math.floor(b.frame) === GLIDE_FRAME) {
             b.glide = Math.floor(Math.random() * GLIDE_COUNT);
             b.poseT = GLIDE_MIN + Math.random() * (GLIDE_MAX - GLIDE_MIN);
           }
@@ -540,10 +535,22 @@ export function Flock() {
       for (let i = 0; i < ripples.length; i++) ripples[i].t += dt;
     };
 
+    // How far gone one bird is, 0 to 1. The birds do not leave together: each
+    // has its own place in the queue (from its fixed jitter), and eases in and
+    // out of its own climb.
+    const away = (b: Bird) => {
+      if (exitNow <= 0) return 0;
+      const wait = EXIT_STAGGER * (b.jy + 1) * 0.5;
+      const t = Math.max(0, Math.min(1, (exitNow * (1 + EXIT_STAGGER) - wait)));
+      return t * t * (3 - 2 * t);
+    };
+    // The climb that goes with it, in px: enough to carry the bird from where
+    // it is on screen to clear above the top of the window.
+    const climb = (b: Bird, gone: number) => gone * (Math.max(0, b.y - off) + EXIT_CLEAR);
+
     const draw = () => {
       ctx.clearRect(0, 0, W, H);
-      if (!sprites || resting() || exit >= 1) return;
-      const fade = 1 - exit;
+      if (!sprites || resting() || exitNow > 0.999) return;
       ctx.save();
       ctx.translate(0, -off);
       let kept = 0;
@@ -555,15 +562,19 @@ export function Flock() {
       for (let i = 0; i < order.length; i++) {
         const b = order[i];
         if (b.leaving >= LEAVE_FOR) continue;
-        pen.x = b.x;
-        pen.y = b.y;
+        const gone = away(b);
+        if (gone >= 1) continue;
+        pen.x = b.x + b.jx * EXIT_SPREAD * gone;
+        pen.y = b.y - climb(b, gone);
         pen.width = W_MIN + span * b.depth;
         pen.vx = b.face * Math.max(Math.abs(b.hx), 0.5);
-        pen.vy = b.hy;
+        // nose up while it climbs away, down while it comes back
+        pen.vy = b.hy - (gone > 0 ? exitRate * EXIT_PITCH : 0);
         pen.frame = b.frame;
         pen.award = b.item.kind === "award";
-        pen.alpha = (ALPHA_FAR + (1 - ALPHA_FAR) * b.depth) * (b.leaving < 0 ? 1 : 1 - b.leaving / LEAVE_FOR) * fade;
-        pen.glide = b.glide;
+        pen.alpha =
+          (ALPHA_FAR + (1 - ALPHA_FAR) * b.depth) * (b.leaving < 0 ? 1 : 1 - b.leaving / LEAVE_FOR) * (1 - gone);
+        pen.glide = gone > 0 ? null : b.glide;
         drawSwallow(ctx, sprites, pen);
       }
       ctx.restore();
@@ -585,8 +596,9 @@ export function Flock() {
       let best: Bird | null = null;
       let bd = HOVER;
       // A bird can be picked while it is in the hero and not on its way out.
-      if (mouse.over && sprites && !resting() && exit < 0.5 && mouse.y < floor - EDGE_FADE * 0.5) {
+      if (mouse.over && sprites && !resting() && exitNow < 0.3 && mouse.y < floor - EDGE_FADE * 0.5) {
         for (const b of birds) {
+          if (away(b) > 0) continue;
           const d = Math.hypot(b.x - mouse.x, b.y - off - mouse.y);
           if (d < bd && b.leaving < 0) {
             bd = d;
@@ -613,6 +625,10 @@ export function Flock() {
       last = now;
       refreshAvoid(now);
       readScroll();
+      const was = exitNow;
+      exitNow += (exit - exitNow) * (1 - Math.exp(-dt * EXIT_EASE));
+      if (Math.abs(exit - exitNow) < 0.0005) exitNow = exit;
+      exitRate = (exitNow - was) / dt;
       step(dt);
       hover();
       draw();
@@ -635,7 +651,7 @@ export function Flock() {
         { left: -1e5, right: 1e5, top: top - 1e5, bottom: top + V.nav },
         { left: W - (W < SMALL ? V.chainW * 0.6 : V.chainW), right: 1e5, top: top - 1e5, bottom: top + V.chainH },
       ];
-      document.querySelectorAll<HTMLElement>("[data-flock-avoid]").forEach((el) => {
+      heroEl?.querySelectorAll<HTMLElement>("[data-flock-avoid]").forEach((el) => {
         const r = el.getBoundingClientRect();
         if (r.width > 0 && r.bottom > top && r.top < top + tall)
           boxes.push({ left: r.left - V.clear, right: r.right + V.clear, top: r.top - V.clear, bottom: r.bottom + V.clear });
@@ -732,7 +748,10 @@ export function Flock() {
       sync(true);
       if (!sprites || !birds.length || resting()) {
         // Nothing to show yet, another page, or the hero is off screen: an
-        // empty canvas and no loop.
+        // empty canvas and no loop. When the hero comes back the birds start
+        // from gone and fly in, however the page got there.
+        if (resting() && live.current.motion) exitNow = 1;
+        exitRate = 0;
         ripples.length = 0;
         hover();
         draw();
