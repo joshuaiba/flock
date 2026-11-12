@@ -10,13 +10,14 @@ import { createStage, type Stage } from "./Graph3DStage";
 import { NO_API, type GraphViewProps } from "./GraphView";
 
 // The 3D view of the graph: the same filtered graph as the flat view, laid out
-// as constellations by category and turned with orbit controls.
+// as constellations by category and turned with orbit controls. It turns only
+// when the reader turns it.
 //
 // react-force-graph-3d hosts the WebGL scene: renderer, camera, controls and
 // render loop. It is given no graph data of its own. The layout is computed
-// once and frozen (Graph3DLayout.ts), and the nodes, edges, particles and
-// labels are drawn in batches by Graph3DStage.ts, because the library draws
-// one object per edge and that does not hold frame rate at thousands of edges.
+// once and frozen (Graph3DLayout.ts), and the node marks, edges and labels are
+// drawn in batches by Graph3DStage.ts, because the library draws one object
+// per edge and that does not hold frame rate at thousands of edges.
 //
 // This file is loaded only in the browser, and only when the 3D view is shown
 // (GraphExplorer.tsx imports it lazily): three.js needs `window`.
@@ -56,19 +57,19 @@ export default function Graph3D({
   /** this browser has no WebGL: the explorer falls back to the flat view */
   onUnsupported: () => void;
 }) {
-  const { motion, theme, pin } = useStore();
+  const { motion, theme } = useStore();
   const wrapRef = useRef<HTMLDivElement>(null);
   const labelsRef = useRef<HTMLDivElement>(null);
   const tipRef = useRef<HTMLDivElement>(null);
   const host = useRef<ForceGraphMethods | undefined>(undefined);
   const lossTimer = useRef(0);
-  const out = useRef({ onSelect, onReady, onUnsupported, pin });
-  out.current = { onSelect, onReady, onUnsupported, pin };
+  const out = useRef({ onSelect, onReady, onUnsupported });
+  out.current = { onSelect, onReady, onUnsupported };
 
   const [gl] = useState(hasWebGL);
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
-  // The page color, for the canvas background: parchment by day, blue-violet at dusk.
-  const [paper, setPaper] = useState(() => readPalette().paper);
+  // The page color, for the canvas background: near-black, or paper.
+  const [page, setPage] = useState(() => readPalette().bg);
   const [stage, setStage] = useState<Stage | null>(null);
   const mounted = gl && !!size;
 
@@ -103,7 +104,6 @@ export default function Graph3D({
       labels: labelsRef.current!,
       tip: tipRef.current!,
       onSelect: (id) => out.current.onSelect(id),
-      onPin: (n) => out.current.pin({ id: Number(n.id.split(":")[1]), name: n.name, tag: n.tag, kind: n.kind }),
     });
     setStage(made);
     const mine = { fit: made.fit, focusOn: made.focusOn, zoom: made.zoom };
@@ -159,7 +159,7 @@ export default function Graph3D({
   useEffect(() => stage?.setQuery(query), [stage, query]);
   useEffect(() => stage?.setMotion(motion), [stage, motion]);
   useEffect(() => {
-    setPaper(readPalette().paper);
+    setPage(readPalette().bg);
     stage?.retheme();
   }, [stage, theme]);
   useEffect(() => stage?.wake(), [stage, size]);
@@ -170,7 +170,7 @@ export default function Graph3D({
       tabIndex={0}
       role="application"
       aria-label="Funding graph in three dimensions. Drag to turn it, scroll or plus and minus to zoom, arrow keys to orbit, zero to fit, drag a node to move it. Use search to find and select an entity."
-      className={`absolute inset-0 touch-none outline-none transition-opacity duration-700 ${
+      className={`absolute inset-0 touch-none outline-none transition-opacity duration-200 ${
         ready ? "opacity-100" : "opacity-0"
       }`}
     >
@@ -180,7 +180,7 @@ export default function Graph3D({
           graphData={NOTHING}
           width={size.w}
           height={size.h}
-          backgroundColor={paper}
+          backgroundColor={page}
           showNavInfo={false}
           enablePointerInteraction={false}
           enableNodeDrag={false}
@@ -188,8 +188,6 @@ export default function Graph3D({
           rendererConfig={RENDERER}
         />
       )}
-      {/* Paper grain: above the canvas, below the names and the controls. */}
-      <div className="grain grain-local" aria-hidden="true" />
       <div ref={labelsRef} aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden" />
       <div
         ref={tipRef}

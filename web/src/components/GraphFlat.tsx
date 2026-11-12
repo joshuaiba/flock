@@ -2,27 +2,26 @@
 
 import { useEffect, useRef } from "react";
 import type { Graph } from "@/lib/api";
-import { medallionUrl, type MedallionName } from "@/lib/art";
 import { day, money, plural, truncate } from "@/lib/format";
-import { layoutGraph, type L, type N, type Scene } from "@/lib/graphLayout";
-import { drawBloom, readPalette, type Bloom } from "@/lib/paint";
-import { drawSwallow, loadSprites, SPRITE, type Sprites } from "@/lib/sprites";
-import { chainRing, useStore } from "@/lib/store";
+import { layoutGraph, type N, type Scene } from "@/lib/graphLayout";
+import { readPalette } from "@/lib/paint";
+import { useStore } from "@/lib/store";
 import { tagLabel } from "@/lib/tags";
 import { NO_API, type GraphViewProps } from "./GraphView";
 
-// The flat view of the graph. Nodes are the medallions from the illustration
-// pack, drawn as textures on one canvas and sized on a sqrt scale of dollars:
-// the column is an agency or office, the other five are companies by category,
-// and solicitations are the same medallions, small and faint. Award edges are
-// tapered brushstrokes in faded Pompeian red, weight by amount; every other
-// edge is a thin ink line. The ground is plain parchment with paper grain.
+// The flat view of the graph. Nodes are plain marks in the text color, drawn
+// on one canvas: a filled dot sized on a sqrt scale of dollars for a company,
+// a ring for an agency or office, a small diamond for a solicitation. Award
+// edges are lines in the accent (the one color, and it means dollars awarded),
+// weight by amount; every other edge is a faint dotted line in the text color.
+// The ground is the plain page.
 //
 // The layout is computed once (lib/graphLayout.ts) and never moves on its own.
-// The camera is smooth: inertial panning, zoom toward the cursor, 500ms eased
-// moves when focusing. Rendering culls to the viewport, draws each medallion
-// from a pre-scaled copy near its on-screen size, and drops edge detail when
-// zoomed out, so large graphs stay fluid.
+// Nothing here animates by itself: the canvas redraws only while the reader
+// pans, zooms or drags, or while a short camera move answers a click. The
+// camera is smooth: inertial panning, zoom toward the cursor, eased moves when
+// focusing. Rendering culls to the viewport and draws each kind of mark as one
+// path, so large graphs stay fluid.
 //
 // What is shown is decided outside (GraphExplorer.tsx): this view is handed the
 // graph, the ids the filters hide, the selection and the search text, and
@@ -30,110 +29,28 @@ import { NO_API, type GraphViewProps } from "./GraphView";
 
 type View = { k: number; tx: number; ty: number };
 type Spring = { n: N; ox: number; oy: number; tx: number; ty: number; vx: number; vy: number };
-type GBird = {
-  from: { x: number; y: number };
-  fromNode: N | null;
-  to: N | null;
-  t: number;
-  dur: number;
-  wait: number;
-  phase: number;
-  /** seconds since it landed */
-  rest: number;
-  /** the way it was facing when it landed: 1 right, -1 left */
-  face: number;
-};
 
 const MAX_K = 3.5;
+const MIN_R = 2; // the smallest a mark is drawn, in CSS pixels
+const MOVE_S = 0.4; // seconds a camera move takes
 
-// Medallion textures. Each image is loaded once and pre-scaled to a ladder of
-// sizes, each half the one above. One strip per size holds all six medallions
-// side by side, so nodes drawn at the same size share a single texture. A node
-// is drawn from the smallest strip that covers its on-screen diameter in device
-// pixels: the full-size art is never resampled during a frame.
-const MEDALLIONS: MedallionName[] = ["column", "laurel", "wing", "anchor", "compass", "shield"];
-const CELL = Object.fromEntries(MEDALLIONS.map((name, i) => [name, i])) as Record<MedallionName, number>;
-const MIPS = [12, 24, 48, 96, 192, 384]; // cell sizes in device pixels; each must be half the next
-const SOURCE = 512; // which file the ladder is built from
-const PAD = 2; // transparent gutter around each cell, so neighbors never bleed
-const MIN_R = 2.5; // the smallest a medallion is drawn, in CSS pixels
-
-// Medallion opacity. Solicitations are fainter than everything else, and closed
-// ones fainter than open ones. At dusk the art is drawn as it is, a touch dimmer.
-const OPEN_ALPHA = 0.72;
-const CLOSED_ALPHA = 0.4;
-const DUSK_ALPHA = 0.9;
-const FADED = 0.2; // what non-neighbors dim to while a node is hovered or selected
+// Mark opacity. Marks are opaque, so no edge shows through a dot; closed
+// solicitations are fainter than open ones.
+const MARK_ALPHA = 1;
+const CLOSED_ALPHA = 0.5;
+const FADED = 0.3; // what non-neighbors dim to while a node is hovered or selected
 
 // Edge opacity at rest, before the crowding and hover adjustments.
-const INK_EDGE_ALPHA = 0.35;
-const AWARD_EDGE_ALPHA = 0.5;
-const INK_EDGE_WIDTH = 0.8;
+const OTHER_EDGE_ALPHA = 0.38;
+const AWARD_EDGE_ALPHA = 0.55;
+const OTHER_EDGE_WIDTH = 1;
+const DOTS = [1, 4]; // the dotted line of an edge that is not an award
 
-// The swallows that carry awards along edges.
-const BIRD_WIDTH = 26; // drawn width of a sprite cell, in CSS pixels
-const BIRD_ALPHA = 0.95;
-const BIRD_LIFT = 8; // how far above a medallion a bird comes to rest
-const BIRD_FADE = 1.2; // seconds a landed bird takes to fade
-
-type Atlas = { strips: CanvasImageSource[] };
-let atlasPending: Promise<Atlas> | null = null;
-
-/** Load the six medallions and build the strips (once, shared between visits). */
-function loadAtlas(): Promise<Atlas> {
-  atlasPending ??= Promise.all(
-    MEDALLIONS.map(
-      (name) =>
-        new Promise<HTMLImageElement | null>((resolve) => {
-          const img = new Image();
-          img.decoding = "async";
-          img.onload = () => resolve(img);
-          img.onerror = () => resolve(null);
-          img.src = medallionUrl(name, SOURCE);
-        }),
-    ),
-  ).then(async (images) => {
-    if (images.some((img) => !img)) atlasPending = null; // try again on the next visit
-    const canvases: HTMLCanvasElement[] = [];
-    for (let level = MIPS.length - 1; level >= 0; level--) {
-      const size = MIPS[level];
-      const step = size + PAD * 2;
-      const c = document.createElement("canvas");
-      c.width = step * MEDALLIONS.length;
-      c.height = step;
-      const g = c.getContext("2d")!;
-      g.imageSmoothingQuality = "high";
-      const above = canvases[level + 1];
-      images.forEach((img, i) => {
-        const x = i * step + PAD;
-        if (above) {
-          // an exact halving of the strip above: a clean box filter in every browser
-          const big = MIPS[level + 1];
-          g.drawImage(above, i * (big + PAD * 2) + PAD, PAD, big, big, x, PAD, size, size);
-        } else if (img) g.drawImage(img, x, PAD, size, size);
-        else {
-          // the file did not load: a blank plaster disc keeps the node on the map
-          g.fillStyle = "#ede4d3";
-          g.strokeStyle = "#7a6b5c";
-          g.lineWidth = size / 40;
-          g.beginPath();
-          g.arc(x + size / 2, PAD + size / 2, size * 0.47, 0, Math.PI * 2);
-          g.fill();
-          g.stroke();
-        }
-      });
-      canvases[level] = c;
-    }
-    // Bitmaps are immutable, so the browser uploads each strip to the GPU once.
-    const strips = await Promise.all(
-      canvases.map((c): Promise<CanvasImageSource> | CanvasImageSource =>
-        typeof createImageBitmap === "function" ? createImageBitmap(c).catch(() => c) : c,
-      ),
-    );
-    return { strips };
-  });
-  return atlasPending;
-}
+// Name labels: companies in the display serif, agencies and offices in the
+// interface face, categories smaller and quieter.
+const NAME_PX = 17;
+const ORG_PX = 12.5;
+const REGION_PX = 11;
 
 const EMPTY: Scene = {
   nodes: [],
@@ -148,9 +65,7 @@ const EMPTY: Scene = {
 const laidOut = new WeakMap<Graph, Scene>();
 
 export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, onSelect, onReady }: GraphViewProps) {
-  const { motion, pin } = useStore();
-  const pinRef = useRef(pin);
-  pinRef.current = pin;
+  const { motion } = useStore();
 
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -180,9 +95,7 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
     // the rail and the panel live in the explorer around this view
     const host = wrap.closest<HTMLElement>("[data-graph-root]") ?? wrap;
     let palette = readPalette();
-    let fonts = { serif: "serif", caps: "serif" };
-    let atlas: Atlas | null = null; // nothing is drawn until the medallions have loaded
-    let sprites: Sprites | null = null;
+    let fonts = { name: `500 ${NAME_PX}px serif`, org: `${ORG_PX}px sans-serif`, region: `${REGION_PX}px sans-serif` };
     let W = 0;
     let H = 0;
     let dpr = 1;
@@ -201,20 +114,8 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
     let live = new Set<string>(); // categories that still have a member on the map
     let matches: Set<string> | null = null;
     let dim = 0; // 0..1: how far non-neighbors have faded
-    let blooms: Bloom[] = [];
     let springs: Spring[] = [];
     let obstacles: number[] = [];
-    const birds: GBird[] = Array.from({ length: 5 }, (_, i) => ({
-      from: { x: 0, y: 0 },
-      fromNode: null,
-      to: null,
-      t: 0,
-      dur: 1,
-      wait: 1 + i * 1.4,
-      phase: i,
-      rest: BIRD_FADE,
-      face: 1,
-    }));
     let pointer: null | {
       node: N | null;
       sx: number;
@@ -225,14 +126,13 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
       ly: number;
       lt: number;
       moved: boolean;
-      hot: boolean;
     } = null;
 
     const wide = () => W > 900;
     /** The part of the canvas not covered by the rail, nav or panel. */
     const room = () =>
       wide()
-        ? { l: 300, t: 76, r: ui.current.selected ? 404 : 48, b: 56 }
+        ? { l: 304, t: 76, r: ui.current.selected ? 356 : 48, b: 64 }
         : { l: 24, t: 170, r: 24, b: 30 };
 
     const clamp = (v: View): View => {
@@ -248,7 +148,7 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
 
     const sx = (n: { x: number }) => n.x * view.k + view.tx;
     const sy = (n: { y: number }) => n.y * view.k + view.ty;
-    /** Medallions grow with zoom, but more slowly than the space between them. */
+    /** Marks grow with zoom, but more slowly than the space between them. */
     const zs = () => Math.min(Math.pow(view.k, 0.7), view.k * 1.45);
 
     /** A node's drawn radius in CSS pixels. */
@@ -320,7 +220,7 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
     const focusOn = (id: string, fly: boolean) => {
       const n = scene.current.byId.get(id);
       if (!n) return;
-      const p = { ...room(), r: wide() ? 404 : 24 };
+      const p = { ...room(), r: wide() ? 356 : 24 };
       let hx = 140;
       let hy = 110;
       for (const o of scene.current.near.get(id) ?? []) {
@@ -332,10 +232,9 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
       const aw = (W - p.l - p.r) / 2;
       const ah = (H - p.t - p.b) / 2;
       const k = Math.max(Math.max(fitK, 0.4), Math.min(1.35, aw / hx, ah / hy));
+      // An arrival from a link (`fly`) is the same short move as a click.
+      void fly;
       moveTo({ k, tx: p.l + aw - n.x * k, ty: p.t + ah - n.y * k }, true);
-      if (fly && ui.current.motion) {
-        birds[0] = { from: { x: -40, y: H * 0.25 }, fromNode: null, to: n, t: 0, dur: 1.6, wait: 0, phase: 0, rest: 0, face: 1 };
-      } else if (fly) blooms.push({ x: n.x, y: n.y, t: 0 });
     };
 
     const zoomAt = (f: number, px = W / 2, py = H / 2) => {
@@ -382,7 +281,7 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
     const update = (dt: number): boolean => {
       let moving = false;
       if (tween) {
-        tween.t = Math.min(1, tween.t + dt / 0.5);
+        tween.t = Math.min(1, tween.t + dt / MOVE_S);
         const e = 1 - Math.pow(1 - tween.t, 3);
         const { from, to } = tween;
         view = {
@@ -439,20 +338,19 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
         dim += (want - dim) * (1 - Math.exp(-dt * 11));
         moving = true;
       } else dim = want;
-
-      for (const b of blooms) b.t += dt;
-      return moving || blooms.length > 0;
+      return moving;
     };
 
     // Reused per frame, so drawing thousands of edges and nodes allocates nothing.
-    const eb: number[][] = Array.from({ length: 10 }, () => []);
-    const nb: N[][] = Array.from({ length: MIPS.length * 2 }, () => []);
+    const eb: number[][] = Array.from({ length: 8 }, () => []);
+    // marks by shape, lit and faded: dots, rings, open diamonds, closed diamonds
+    const nb: N[][] = Array.from({ length: 8 }, () => []);
     const vis: N[] = [];
     const placed: number[] = [];
 
     const place = (x0: number, y0: number, x1: number, y1: number) => {
-      // labels keep a margin from the edge of the view and its hairline frame
-      if (x0 < 30 || y0 < 30 || x1 > W - 30 || y1 > H - 26) return false;
+      // labels keep a margin from the edge of the view
+      if (x0 < 16 || y0 < 16 || x1 > W - 16 || y1 > H - 16) return false;
       for (let i = 0; i < obstacles.length; i += 4)
         if (x0 < obstacles[i + 2] && x1 > obstacles[i] && y0 < obstacles[i + 3] && y1 > obstacles[i + 1]) return false;
       for (let i = 0; i < placed.length; i += 4)
@@ -461,7 +359,7 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
       return true;
     };
 
-    const draw = (dt: number) => {
+    const draw = () => {
       const { nodes, links, near } = scene.current;
       const k = view.k;
       const z = zs();
@@ -469,15 +367,13 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
       const fid = hover ?? selected; // the node whose neighborhood is lit
       const around = fid ? near.get(fid) : null;
       const lit = (n: N) => (fid ? n.id === fid || !!around?.has(n.id) : matches ? matches.has(n.id) : true);
-      const faded = 1 - (1 - FADED) * dim; // non-neighbors dim to about 20%
-      const spacing = ctx as CanvasRenderingContext2D & { letterSpacing: string };
+      const faded = 1 - (1 - FADED) * dim; // non-neighbors dim to about 30%
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, W, H);
-      if (!atlas) return; // the map appears whole, once its medallions have loaded
 
       // 1. Edges. Buckets 0-2: awards lit, by weight; 3-5: awards faded;
-      //    6/7: other lit solid/dashed; 8/9: other faded solid/dashed.
+      //    6: other lit; 7: other faded.
       for (const b of eb) b.length = 0;
       let onScreen = 0;
       for (let i = 0; i < links.length; i++) {
@@ -492,187 +388,122 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
             : true;
         onScreen++;
         if (l.kind === "award") eb[(on ? 0 : 3) + (l.w < 1.4 ? 0 : l.w < 2.7 ? 1 : 2)].push(i);
-        else eb[(on ? 6 : 8) + (l.kind === "issued" ? 0 : 1)].push(i);
+        else eb[on ? 6 : 7].push(i);
       }
-      // Zoomed out, or with a great many edges in view, strokes become plain
-      // lines; up close they are tapered brushstrokes with a slight bow.
-      const plain = k < 0.5 || onScreen > 1400;
+      // With a great many edges in view, the dotted ones are drawn solid: a
+      // dash pattern on thousands of short lines costs more than it shows.
+      const plain = onScreen > 1400;
       ctx.lineCap = "round";
-      for (let b = 0; b < 10; b++) {
+      // a great many edges in view are drawn fainter, so they read as a haze, not a tangle
+      const crowd = fid ? 1 : Math.min(1, Math.sqrt(900 / Math.max(onScreen, 1)));
+      for (let b = 0; b < 8; b++) {
         const list = eb[b];
         if (!list.length) continue;
         const award = b < 6;
-        const on = award ? b < 3 : b < 8;
-        const rest = award ? AWARD_EDGE_ALPHA : INK_EDGE_ALPHA;
-        // hovered edges brighten; the others fade with the rest of the map
-        // a great many edges in view are drawn fainter, so they read as a haze, not a tangle
-        const crowd = fid ? 1 : Math.min(1, Math.sqrt(900 / Math.max(onScreen, 1)));
-        ctx.globalAlpha = on ? rest * crowd + (fid ? (award ? 0.38 : 0.26) * dim : 0) : rest * faded * crowd;
+        const on = award ? b < 3 : b === 6;
+        const rest = award ? AWARD_EDGE_ALPHA : OTHER_EDGE_ALPHA;
+        // the edges of the node in focus brighten; the others fade with the rest of the map
+        ctx.globalAlpha = on ? rest * crowd + (fid ? (award ? 0.4 : 0.3) * dim : 0) : rest * faded * crowd;
         ctx.beginPath();
-        if (award && !plain) {
-          for (const i of list) {
-            const l = links[i];
-            const x1 = sx(l.source), y1 = sy(l.source), x2 = sx(l.target), y2 = sy(l.target);
-            const len = Math.hypot(x2 - x1, y2 - y1) || 1;
-            const nx = -(y2 - y1) / len;
-            const ny = (x2 - x1) / len;
-            const ws = (1 + l.w * 1.6) * z * 0.5; // half-width at the source
-            const wt = ws * 0.22; // tapering toward the recipient
-            const bow = len * 0.05;
-            const cx = (x1 + x2) / 2 + nx * bow;
-            const cy = (y1 + y2) / 2 + ny * bow;
-            const wm = (ws + wt) / 2;
-            ctx.moveTo(x1 + nx * ws, y1 + ny * ws);
-            ctx.quadraticCurveTo(cx + nx * wm, cy + ny * wm, x2 + nx * wt, y2 + ny * wt);
-            ctx.lineTo(x2 - nx * wt, y2 - ny * wt);
-            ctx.quadraticCurveTo(cx - nx * wm, cy - ny * wm, x1 - nx * ws, y1 - ny * ws);
-            ctx.closePath();
-          }
-          ctx.fillStyle = palette.pompeii;
-          ctx.fill();
-        } else {
-          for (const i of list) {
-            const l = links[i];
-            ctx.moveTo(sx(l.source), sy(l.source));
-            ctx.lineTo(sx(l.target), sy(l.target));
-          }
-          ctx.strokeStyle = award ? palette.pompeii : palette.ink;
-          ctx.lineWidth = award ? Math.max(0.5, (0.5 + (b % 3) * 0.9) * z) : INK_EDGE_WIDTH;
-          ctx.setLineDash(!award && b % 2 === 1 ? [3, 4] : []);
-          ctx.stroke();
+        for (const i of list) {
+          const l = links[i];
+          ctx.moveTo(sx(l.source), sy(l.source));
+          ctx.lineTo(sx(l.target), sy(l.target));
         }
+        ctx.strokeStyle = award ? palette.accent : palette.text;
+        ctx.lineWidth = award ? Math.max(0.75, (0.7 + (b % 3) * 0.9) * z) : OTHER_EDGE_WIDTH;
+        ctx.setLineDash(award || plain ? [] : DOTS);
+        ctx.stroke();
       }
       ctx.setLineDash([]);
-      ctx.globalAlpha = 1;
 
-      // 2. Blooms where a bird has landed.
-      blooms = blooms.filter((b) => drawBloom(ctx, { x: sx(b), y: sy(b), t: b.t, seed: (b.x + b.y) % 6.28 }, palette.terracotta));
-
-      // 3. Medallions. Nodes in view are sorted into buckets by pre-scaled strip
-      //    (faded ones first, then lit), so each run of draws shares one texture.
-      const top = MIPS.length - 1;
+      // 2. Marks. Nodes in view are sorted into buckets by shape (faded ones
+      //    first, then lit), so each bucket is one path.
       for (const list of nb) list.length = 0;
       vis.length = 0;
       for (const n of nodes) {
         if (hidden.has(n.id)) continue;
-        const x = sx(n), y = sy(n), r = rad(n, z), m = r + 4;
+        const x = sx(n), y = sy(n), m = rad(n, z) + 6;
         if (x + m < 0 || x - m > W || y + m < 0 || y - m > H) continue;
         vis.push(n);
-        const px = r * 2 * dpr; // on-screen diameter in device pixels
-        let level = 0;
-        while (level < top && MIPS[level] < px) level++;
-        nb[(lit(n) ? MIPS.length : 0) + level].push(n);
+        const shape = n.kind === "company" ? 0 : n.kind === "opportunity" ? (n.open ? 2 : 3) : 1;
+        nb[(lit(n) ? 4 : 0) + shape].push(n);
       }
-      const dusk = palette.night ? DUSK_ALPHA : 1;
+      ctx.lineJoin = "miter";
       for (let b = 0; b < nb.length; b++) {
         const list = nb[b];
         if (!list.length) continue;
-        const level = b % MIPS.length;
-        const strip = atlas.strips[level];
-        const size = MIPS[level];
-        const step = size + PAD * 2;
-        const base = (b < MIPS.length ? faded : 1) * dusk;
-        for (const n of list) {
-          const r = rad(n, z);
-          ctx.globalAlpha = n.kind === "opportunity" ? base * (n.open ? OPEN_ALPHA : CLOSED_ALPHA) : base;
-          ctx.drawImage(strip, CELL[n.medallion] * step + PAD, PAD, size, size, sx(n) - r, sy(n) - r, r * 2, r * 2);
+        const shape = b % 4;
+        const alpha = (b < 4 ? faded : 1) * (shape === 3 ? CLOSED_ALPHA : MARK_ALPHA);
+        if (shape === 0) {
+          // a company: a filled dot
+          ctx.globalAlpha = alpha;
+          ctx.fillStyle = palette.text;
+          ctx.beginPath();
+          for (const n of list) {
+            const x = sx(n), y = sy(n), r = rad(n, z);
+            ctx.moveTo(x + r, y);
+            ctx.arc(x, y, r, 0, Math.PI * 2);
+          }
+          ctx.fill();
+          continue;
+        }
+        // A ring or a diamond is an outline: the page color inside it first,
+        // so no edge shows through, then the stroke.
+        const trace = () => {
+          ctx.beginPath();
+          for (const n of list) {
+            const x = sx(n), y = sy(n), r = rad(n, z);
+            if (shape === 1) {
+              ctx.moveTo(x + r, y);
+              ctx.arc(x, y, r, 0, Math.PI * 2);
+            } else {
+              ctx.moveTo(x, y - r);
+              ctx.lineTo(x + r, y);
+              ctx.lineTo(x, y + r);
+              ctx.lineTo(x - r, y);
+              ctx.closePath();
+            }
+          }
+        };
+        trace();
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = palette.bg;
+        ctx.fill();
+        ctx.globalAlpha = alpha;
+        ctx.strokeStyle = palette.text;
+        ctx.lineWidth = shape === 1 ? 1.5 : 1.25;
+        ctx.stroke();
+        if (shape === 1) {
+          // an agency's ring carries a second, finer ring inside it
+          ctx.beginPath();
+          for (const n of list) {
+            const x = sx(n), y = sy(n), r = rad(n, z) * 0.52;
+            if (r < 2.5) continue;
+            ctx.moveTo(x + r, y);
+            ctx.arc(x, y, r, 0, Math.PI * 2);
+          }
+          ctx.lineWidth = 1;
+          ctx.stroke();
         }
       }
-      // the selected and hovered medallions get a thin cypress ring
+      // the selected and hovered nodes get a thin ring, a little clear of the mark
       for (const id of hover === selected ? [selected] : [selected, hover]) {
         const n = id && scene.current.byId.get(id);
         if (!n || hidden.has(n.id)) continue;
-        ctx.globalAlpha = 1;
-        ctx.strokeStyle = palette.cypress;
-        ctx.lineWidth = 1.5;
+        ctx.globalAlpha = id === selected ? 1 : 0.6;
+        ctx.strokeStyle = palette.text;
+        ctx.lineWidth = 1.25;
         ctx.beginPath();
-        ctx.arc(sx(n), sy(n), rad(n, z) + 2.5, 0, Math.PI * 2);
+        ctx.arc(sx(n), sy(n), rad(n, z) + 5, 0, Math.PI * 2);
         ctx.stroke();
       }
+      ctx.globalAlpha = 1;
 
-      // 4. Swallows along award edges: money moving from agency to company.
-      //    Without the sprites nothing flies, so nothing lands and blooms either.
-      if (ui.current.motion && sprites) {
-        for (const b of birds) {
-          if (b.wait > 0) {
-            b.wait -= dt;
-            b.rest += dt;
-            // just landed: the bird holds a glide above the medallion and fades away
-            if (sprites && b.to && b.rest < BIRD_FADE && !hidden.has(b.to.id))
-              drawSwallow(ctx, sprites, {
-                x: sx(b.to),
-                y: sy(b.to) - rad(b.to, z) - BIRD_LIFT,
-                width: BIRD_WIDTH,
-                vx: b.face,
-                vy: 0,
-                frame: 0,
-                award: true,
-                glide: 0,
-                alpha: BIRD_ALPHA * (1 - b.rest / BIRD_FADE),
-              });
-            if (b.wait <= 0) {
-              let pick: L | null = null;
-              for (let tries = 0; tries < 24 && links.length; tries++) {
-                const l = links[Math.floor(Math.random() * links.length)];
-                if (l.kind !== "award" || hidden.has(l.source.id) || hidden.has(l.target.id)) continue;
-                const x = sx(l.target), y = sy(l.target);
-                if (x < 0 || x > W || y < 0 || y > H) continue;
-                pick = l;
-                break;
-              }
-              if (pick) {
-                const d = Math.hypot(sx(pick.target) - sx(pick.source), sy(pick.target) - sy(pick.source));
-                Object.assign(b, {
-                  fromNode: pick.source,
-                  to: pick.target,
-                  t: 0,
-                  dur: Math.max(1.5, Math.min(4.5, d / 85)),
-                });
-              } else b.wait = 2;
-            }
-            continue;
-          }
-          if (!b.to) continue;
-          b.t += dt / b.dur;
-          b.phase += dt * SPRITE.fps;
-          const ax = b.fromNode ? sx(b.fromNode) : b.from.x;
-          const ay = b.fromNode ? sy(b.fromNode) : b.from.y;
-          const dx = sx(b.to) - ax;
-          const dy = sy(b.to) - rad(b.to, z) - BIRD_LIFT - ay;
-          const t = Math.min(1, b.t);
-          const e = t * t * (3 - 2 * t);
-          const len = Math.hypot(dx, dy) || 1;
-          // the path bows to one side; the bird heads along its tangent
-          const bow = Math.min(36, len * 0.16);
-          const arc = Math.sin(e * Math.PI) * bow;
-          const turn = (Math.cos(e * Math.PI) * bow * Math.PI) / len;
-          const vx = dx - dy * turn;
-          const vy = dy + dx * turn;
-          b.face = vx < 0 ? -1 : 1;
-          if (sprites)
-            drawSwallow(ctx, sprites, {
-              x: ax + dx * e - (dy / len) * arc,
-              y: ay + dy * e + (dx / len) * arc,
-              width: BIRD_WIDTH,
-              vx,
-              vy,
-              frame: b.phase,
-              award: true,
-              alpha: BIRD_ALPHA,
-            });
-          if (b.t >= 1) {
-            blooms.push({ x: b.to.x, y: b.to.y, t: 0 }); // landed
-            b.wait = 2.5 + Math.random() * 5;
-            b.rest = 0;
-            b.fromNode = null;
-          }
-        }
-      }
-
-      // 5. Labels. Category names first, then entity names by importance; a label
+      // 3. Labels. Category names first, then entity names by importance; a label
       //    is only drawn where it overlaps nothing already placed.
       placed.length = 0;
-      // medallions are obstacles too: a name never sits on top of another node
+      // marks are obstacles too: a name never sits on top of another node
       for (const n of vis) {
         const r = n.r * z;
         if (r < 3.5) continue;
@@ -681,62 +512,63 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
       ctx.textBaseline = "top";
       ctx.textAlign = "center";
       ctx.lineJoin = "round";
-      ctx.font = `11px ${fonts.caps}`;
-      spacing.letterSpacing = "2.4px";
+      ctx.font = fonts.region;
       ctx.fillStyle = palette.muted;
       for (const g of scene.current.regions) {
         if (g.n < 2 || (ui.current.tags.size && !ui.current.tags.has(g.tag)) || !live.has(g.tag)) continue;
-        const text = tagLabel(g.tag).toUpperCase();
+        const text = tagLabel(g.tag);
         const w = ctx.measureText(text).width;
-        const x = sx(g), y = g.top * k + view.ty - 30;
+        const x = sx(g), y = g.top * k + view.ty - 28;
         if (!place(x - w / 2 - 6, y - 3, x + w / 2 + 6, y + 15)) continue;
-        ctx.globalAlpha = 0.9 - 0.5 * dim;
+        ctx.globalAlpha = 0.8 - 0.45 * dim;
         ctx.fillText(text, x, y);
       }
-      spacing.letterSpacing = "0px";
-      ctx.font = `15.5px ${fonts.serif}`;
-      // Density follows zoom: only the largest medallions are named from afar.
-      const minR = k < 0.4 ? 17 : k < 0.6 ? 12.5 : k < 0.95 ? 8.5 : 0;
+      // Density follows zoom: only the largest nodes are named from afar.
+      const minR = k < 0.4 ? 13 : k < 0.6 ? 9.5 : k < 0.95 ? 6.5 : 0;
       let budget = 90;
-      const label = (n: N, forced: boolean) => {
+      const label = (n: N, forced: boolean, alpha: number) => {
         if (budget <= 0) return;
+        // a company in the display serif, an agency or office in the interface face
+        ctx.font = n.org || n.kind === "opportunity" ? fonts.org : fonts.name;
+        const tall = n.org || n.kind === "opportunity" ? ORG_PX + 3 : NAME_PX + 1;
         const text = truncate(n.name, forced ? 60 : 34);
         if (!n.labelWidth) n.labelWidth = ctx.measureText(truncate(n.name, 34)).width;
         const w = forced ? ctx.measureText(text).width : n.labelWidth;
         const r = rad(n, z);
-        // below, above, right, then left of the medallion: the first spot that is free
-        let x = sx(n);
-        let y = sy(n) + r + 5;
-        if (!place(x - w / 2 - 4, y - 1, x + w / 2 + 4, y + 17)) {
-          y = sy(n) - r - 23;
-          if (!place(x - w / 2 - 4, y - 1, x + w / 2 + 4, y + 17)) {
-            y = sy(n) - 9;
-            x = sx(n) + r + 8 + w / 2;
-            if (!place(x - w / 2 - 4, y - 1, x + w / 2 + 4, y + 17)) {
-              x = sx(n) - r - 8 - w / 2;
-              if (!place(x - w / 2 - 4, y - 1, x + w / 2 + 4, y + 17)) return;
-            }
-          }
-        }
+        // A company's name sits beside its dot (right, left, below, above); an
+        // agency's sits under its ring (below, above, right, left). The first
+        // spot that is free.
+        const side = (dir: number): [number, number] => [sx(n) + dir * (r + 9 + w / 2), sy(n) - tall / 2];
+        const spots: [number, number][] = n.org
+          ? [[sx(n), sy(n) + r + 6], [sx(n), sy(n) - r - tall - 5], side(1), side(-1)]
+          : [side(1), side(-1), [sx(n), sy(n) + r + 6], [sx(n), sy(n) - r - tall - 5]];
+        const spot = spots.find(([x, y]) => place(x - w / 2 - 4, y - 1, x + w / 2 + 4, y + tall));
+        if (!spot) return;
+        const [x, y] = spot;
         budget--;
-        const strong = n.id === selected || n.id === hover;
-        ctx.globalAlpha = 0.9;
-        ctx.strokeStyle = palette.paper;
+        ctx.globalAlpha = 0.9 * alpha;
+        ctx.strokeStyle = palette.bg;
         ctx.lineWidth = 3.5;
         ctx.strokeText(text, x, y);
-        ctx.fillStyle = strong ? palette.cypress : palette.ink;
-        ctx.globalAlpha = 1;
+        ctx.fillStyle = n.org || n.kind === "opportunity" ? palette.muted : palette.text;
+        if (forced) ctx.fillStyle = palette.text;
+        ctx.globalAlpha = alpha;
         ctx.fillText(text, x, y);
       };
       for (const id of hover === selected ? [selected] : [hover, selected]) {
         const n = id && scene.current.byId.get(id);
-        if (n && !hidden.has(n.id)) label(n, true);
+        if (n && !hidden.has(n.id)) label(n, true, 1);
+      }
+      const focused = !!fid || !!matches;
+      // the node in focus and its neighbors are named first, then the rest, dimmed
+      for (const n of vis) {
+        if (n.id === hover || n.id === selected || !focused || !lit(n) || n.kind === "opportunity") continue;
+        label(n, false, 1);
       }
       for (const n of vis) {
-        if (n.id === hover || n.id === selected || !lit(n)) continue;
-        const focusLabel = (fid || matches) && n.kind !== "opportunity";
-        if (!focusLabel && (n.kind === "opportunity" || (n.r * z < minR && n.rank > 11))) continue;
-        label(n, false);
+        if (n.id === hover || n.id === selected || (focused && lit(n))) continue;
+        if (n.kind === "opportunity" || (n.r * z < minR && n.rank > 11)) continue;
+        label(n, false, focused ? Math.max(faded, 0.45) : 1);
       }
       ctx.globalAlpha = 1;
     };
@@ -747,8 +579,9 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
       const dt = Math.min(0.05, (now - last) / 1000 || 0.016);
       last = now;
       const moving = update(dt);
-      draw(dt);
-      if ((moving || ui.current.motion) && !document.hidden) raf = requestAnimationFrame(frame);
+      draw();
+      // Nothing moves by itself: the loop runs only while something is settling.
+      if (moving && !document.hidden) raf = requestAnimationFrame(frame);
     };
     const invalidate = () => {
       if (!raf && alive) {
@@ -760,11 +593,6 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
     const local = (e: PointerEvent | WheelEvent) => {
       const r = canvas.getBoundingClientRect();
       return { x: e.clientX - r.left, y: e.clientY - r.top };
-    };
-    const setHot = (p: NonNullable<typeof pointer>, hot: boolean) => {
-      if (p.hot === hot) return;
-      p.hot = hot;
-      window.dispatchEvent(new CustomEvent("flock:chain-hot", { detail: hot }));
     };
     const setHover = (n: N | null, x = 0, y = 0) => {
       const id = n?.id ?? null;
@@ -800,7 +628,6 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
         ly: p.y,
         lt: performance.now(),
         moved: false,
-        hot: false,
       };
       if (n) {
         // Direct neighbors will be pulled along on soft springs.
@@ -832,9 +659,6 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
           s.tx = s.ox + dx * 0.55;
           s.ty = s.oy + dy * 0.55;
         }
-        // Over the chain's ring, the medallion can be dropped onto the watchlist.
-        const close = chainRing.ready && Math.hypot(e.clientX - chainRing.x, e.clientY - chainRing.y) < 110;
-        setHot(pointer, close && n.kind !== "opportunity");
         tip.style.opacity = "0";
       } else {
         const dtm = Math.max(1, now - pointer.lt) / 1000;
@@ -860,16 +684,7 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
         if (next) focusOn(next, false);
         tip.style.opacity = "0"; // the camera is about to move out from under it
       } else if (!n && !p.moved) select(null);
-      else if (n && p.hot) {
-        pinRef.current({ id: Number(n.id.split(":")[1]), name: n.name, tag: n.tag, kind: n.kind });
-        // pinned: the medallion and its neighbors spring back to where they were
-        springs.push({ n, ox: p.ox, oy: p.oy, tx: p.ox, ty: p.oy, vx: 0, vy: 0 });
-        for (const s of springs) {
-          s.tx = s.ox;
-          s.ty = s.oy;
-        }
-      } else if (!n && performance.now() - p.lt > 90) vel.x = vel.y = 0; // held still before letting go
-      setHot(p, false);
+      else if (!n && performance.now() - p.lt > 90) vel.x = vel.y = 0; // held still before letting go
       invalidate();
     };
     const onWheel = (e: WheelEvent) => {
@@ -901,10 +716,9 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
     };
     const readFonts = () => {
       const s = getComputedStyle(document.documentElement);
-      fonts = {
-        serif: `${s.getPropertyValue("--font-garamond").trim() || "Georgia"}, Georgia, serif`,
-        caps: `${s.getPropertyValue("--font-cinzel").trim() || "Georgia"}, Georgia, serif`,
-      };
+      const display = `${s.getPropertyValue("--font-cormorant").trim() || "Georgia"}, Georgia, serif`;
+      const sans = `${s.getPropertyValue("--font-inter").trim() || "system-ui"}, system-ui, sans-serif`;
+      fonts = { name: `500 ${NAME_PX}px ${display}`, org: `${ORG_PX}px ${sans}`, region: `${REGION_PX}px ${sans}` };
       for (const n of scene.current.nodes) n.labelWidth = 0;
     };
 
@@ -924,14 +738,6 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
       readFonts();
       invalidate();
     });
-    loadAtlas().then((a) => {
-      atlas = a;
-      invalidate();
-    });
-    loadSprites("on-dark").then(
-      (s) => (sprites = s),
-      () => {}, // without the sprites the graph simply has no birds
-    );
     canvas.addEventListener("pointerdown", onDown);
     canvas.addEventListener("pointermove", onMove);
     canvas.addEventListener("pointerup", onUp);
@@ -1011,12 +817,10 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
         tabIndex={0}
         role="application"
         aria-label="Funding graph. Drag to pan, scroll or plus and minus to zoom, arrow keys to move, zero to fit. Use search to find and select an entity."
-        className={`absolute inset-0 h-full w-full cursor-grab touch-none outline-none transition-opacity duration-700 ${
+        className={`absolute inset-0 h-full w-full cursor-grab touch-none outline-none transition-opacity duration-200 ${
           ready ? "opacity-100" : "opacity-0"
         }`}
       />
-      {/* Paper grain: above the canvas, below the controls. */}
-      <div className="grain grain-local" aria-hidden="true" />
       <div
         ref={tipRef}
         className="tip left-0 top-0 opacity-0 transition-opacity duration-150"

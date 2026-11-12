@@ -2,21 +2,21 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type { GraphNode, NodeKind } from "@/lib/api";
-import { medallionFor, medallionForTag } from "@/lib/art";
-import { ALL_KINDS } from "@/lib/graphLayout";
 import { tagLabel } from "@/lib/tags";
-import { MedallionImg } from "./Art";
 import "./graph-rail.css";
 
 // The graph's left rail: search, the filters in force, and the filters. It
 // only shows and reports choices; the state lives in GraphExplorer.tsx, and
 // one function (lib/graphLayout.ts hiddenNodes) applies it to both views.
 //
-// On a wide screen it is one docked panel, 280px wide: the search stays at the
-// top, the groups scroll under it, and the foot says how much of the map is
-// shown. It folds to a strip of three icon buttons. On a phone the search and
-// the window float over the map and the groups fold behind a "Filters" button,
-// so the map stays visible. Layout and looks are in graph-rail.css.
+// On a wide screen it is a 280px column down the left edge, set off from the
+// map by one hairline: the search stays at the top, then the filters in force
+// as removable chips, then the groups, each under a hairline with its name on
+// the left and what it is set to on the right. Exclusive choices are segmented
+// controls; everything else is a checklist. The foot says how much of the map
+// is shown. It folds to a strip of three icon buttons. On a phone the search
+// and the window float over the map and the groups fold behind a "Filters"
+// button, so the map stays visible. Layout and looks are in graph-rail.css.
 
 export const WINDOWS = [
   { days: 30, label: "30d", long: "30 days" },
@@ -33,13 +33,13 @@ export const AMOUNTS = [
   { min: 1e8, label: "$100M" },
 ];
 
-// There is no "program" in the data: the kinds are these four.
-const KIND_LABEL: Record<NodeKind, string> = {
-  company: "Companies",
-  agency: "Agencies",
-  office: "Offices",
-  opportunity: "Solicitations",
-};
+// There is no "program" in the data: the kinds are these four, and the rail
+// shows them as three rows (agencies and their offices go together).
+const SHOWN: { label: string; kinds: NodeKind[] }[] = [
+  { label: "Companies", kinds: ["company"] },
+  { label: "Agencies and offices", kinds: ["agency", "office"] },
+  { label: "Solicitations", kinds: ["opportunity"] },
+];
 const KIND_ONE: Record<NodeKind, string> = {
   company: "Company",
   agency: "Agency",
@@ -122,28 +122,26 @@ function Group({
   );
 }
 
-/** One row of a checklist: a box, an optional icon, a name and a count. */
+/** One row of a checklist (.check in globals.css): a box, a name, and a count
+ *  where there is one. */
 function Check({
   checked,
   onChange,
-  icon,
   count,
   disabled = false,
   children,
 }: {
   checked: boolean;
   onChange: () => void;
-  icon?: ReactNode;
   count?: number;
   disabled?: boolean;
   children: ReactNode;
 }) {
   return (
-    <label className="graph-check" data-empty={count === 0} data-disabled={disabled}>
+    <label className="check graph-check" data-empty={count === 0} data-disabled={disabled}>
       <input type="checkbox" checked={checked} disabled={disabled} onChange={onChange} />
-      {icon}
       <span>{children}</span>
-      {count !== undefined && <span className="graph-count">{count.toLocaleString("en-US")}</span>}
+      {count !== undefined && <span className="check-count">{count.toLocaleString("en-US")}</span>}
     </label>
   );
 }
@@ -165,7 +163,6 @@ export function GraphFilters({
   min,
   onMin,
   kinds,
-  kindCounts,
   onToggleKind,
   watch,
   onWatch,
@@ -197,8 +194,9 @@ export function GraphFilters({
   min: number;
   onMin: (min: number) => void;
   kinds: ReadonlySet<NodeKind>;
-  /** entities of each kind, under the other filters */
-  kindCounts: Readonly<Record<NodeKind, number>>;
+  /** entities of each kind, under the other filters (kept for the explorer's
+   *  own use; the rail's rows carry no counts) */
+  kindCounts?: Readonly<Record<NodeKind, number>>;
   onToggleKind: (kind: NodeKind) => void;
   watch: boolean;
   onWatch: (on: boolean) => void;
@@ -229,7 +227,13 @@ export function GraphFilters({
   const top = agencies.filter((a) => a.kind === "agency").sort(byName);
   const offices = agencies.filter((a) => a.kind === "office").sort(byName);
   const agencyName = agency ? (agencies.find((a) => a.id === agency)?.name ?? "One agency") : null;
-  const hiddenKinds = ALL_KINDS.filter((k) => !kinds.has(k));
+  // A row of the Show group is ticked while every kind behind it is shown.
+  const rows = SHOWN.map((row) => ({ ...row, on: row.kinds.every((k) => kinds.has(k)) }));
+  const hiddenRows = rows.filter((row) => !row.on);
+  /** Show or hide every kind behind one row. */
+  const setRow = (row: (typeof rows)[number], on: boolean) => {
+    for (const k of row.kinds) if (kinds.has(k) !== on) onToggleKind(k);
+  };
   const windowLong = WINDOWS.find((w) => w.days === days)?.long ?? `${days} days`;
 
   const typing = query.trim().length > 0;
@@ -290,7 +294,11 @@ export function GraphFilters({
     ...present.filter((t) => tags.has(t)).map((t) => ({ key: `tag:${t}`, label: tagLabel(t), remove: () => onToggleTag(t) })),
     ...(agencyName ? [{ key: "agency", label: agencyName, remove: () => onAgency(null) }] : []),
     ...(min ? [{ key: "min", label: `${AMOUNTS.find((a) => a.min === min)?.label ?? "Minimum"} or more`, remove: () => onMin(0) }] : []),
-    ...hiddenKinds.map((k) => ({ key: `kind:${k}`, label: `No ${KIND_LABEL[k].toLowerCase()}`, remove: () => onToggleKind(k) })),
+    ...hiddenRows.map((row) => ({
+      key: `kind:${row.kinds[0]}`,
+      label: `No ${row.label.toLowerCase().replace(" and ", " or ")}`,
+      remove: () => setRow(row, true),
+    })),
     ...(watch ? [{ key: "watch", label: "Watchlist only", remove: () => onWatch(false) }] : []),
   ];
 
@@ -355,7 +363,6 @@ export function GraphFilters({
         >
           <label className="graph-search-field">
             <span className="sr-only">Search the graph</span>
-            <SearchIcon />
             <input
               ref={input}
               className="field"
@@ -415,7 +422,6 @@ export function GraphFilters({
                         onPointerEnter={() => setCursor(i)}
                         onClick={() => pick(h.id)}
                       >
-                        <MedallionImg name={medallionFor(h.tag, h.kind)} size={20} />
                         <span className="graph-name">{h.name}</span>
                         {/* the field asks for companies; anything else says what it is */}
                         {h.kind !== "company" && <span className="graph-hit-kind">{KIND_ONE[h.kind]}</span>}
@@ -473,14 +479,12 @@ export function GraphFilters({
           </Group>
 
           <Group title="Categories" value={tags.size ? `${tags.size} of ${present.length}` : "All"}>
-            {/* Several categories share one medallion, so every row carries its name. */}
             <div className="graph-checklist graph-checklist-scroll" role="group" aria-label="Filter by category">
               {present.map((t) => (
                 <Check
                   key={t}
                   checked={tags.has(t)}
                   onChange={() => onToggleTag(t)}
-                  icon={<MedallionImg name={medallionForTag(t)} size={16} />}
                   count={tagCounts[t] ?? 0}
                 >
                   {tagLabel(t)}
@@ -518,7 +522,7 @@ export function GraphFilters({
             </select>
           </Group>
 
-          <Group title="Minimum awarded" value={min ? `${AMOUNTS.find((a) => a.min === min)?.label} or more` : "Any amount"}>
+          <Group title="Minimum award" value={min ? (AMOUNTS.find((a) => a.min === min)?.label ?? "Set") : "Any"}>
             <div className="seg graph-seg" role="group" aria-label="Least dollars awarded to a company in this window">
               {AMOUNTS.map((a) => (
                 <button key={a.min} type="button" aria-pressed={min === a.min} onClick={() => onMin(a.min)}>
@@ -531,21 +535,16 @@ export function GraphFilters({
           <Group
             title="Show"
             value={
-              watch
-                ? "Watchlist only"
-                : hiddenKinds.length
-                  ? `${ALL_KINDS.length - hiddenKinds.length} of ${ALL_KINDS.length} kinds`
-                  : "Everything"
+              watch ? "Watchlist only" : hiddenRows.length ? `${rows.length - hiddenRows.length} of ${rows.length} kinds` : "All kinds"
             }
           >
             <div className="graph-checklist" role="group" aria-label="Kinds of entity">
-              {ALL_KINDS.map((k) => (
-                <Check key={k} checked={kinds.has(k)} onChange={() => onToggleKind(k)} count={kindCounts[k]}>
-                  {KIND_LABEL[k]}
+              {rows.map((row) => (
+                <Check key={row.label} checked={row.on} onChange={() => setRow(row, !row.on)}>
+                  {row.label}
                 </Check>
               ))}
-              <div className="graph-rule" role="presentation" />
-              <Check checked={watch} onChange={() => onWatch(!watch)} disabled={pins === 0 && !watch} count={pins}>
+              <Check checked={watch} onChange={() => onWatch(!watch)} disabled={pins === 0 && !watch}>
                 Watchlist only
               </Check>
             </div>

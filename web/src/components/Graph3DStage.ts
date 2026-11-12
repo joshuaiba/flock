@@ -7,15 +7,13 @@ import {
   LinearFilter,
   LinearMipmapLinearFilter,
   LineBasicMaterial,
+  LineDashedMaterial,
   LineSegments,
   Matrix4,
-  Points,
-  PointsMaterial,
   Spherical,
   Sprite,
   SpriteMaterial,
   SRGBColorSpace,
-  TextureLoader,
   Vector2,
   Vector3,
   type InterleavedBufferAttribute,
@@ -28,11 +26,9 @@ import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
-import { medallionUrl, type MedallionName } from "@/lib/art";
 import { day, money, plural, truncate } from "@/lib/format";
 import type { L, N } from "@/lib/graphLayout";
-import { readPalette } from "@/lib/paint";
-import { chainRing } from "@/lib/store";
+import { readPalette, type Palette } from "@/lib/paint";
 import { tagLabel } from "@/lib/tags";
 import type { Scene3 } from "./Graph3DLayout";
 
@@ -41,17 +37,24 @@ import type { Scene3 } from "./Graph3DLayout";
 // renderer, the camera, the orbit controls and the render loop; this file puts
 // the graph into that scene and runs once per rendered frame.
 //
-// Drawing is kept cheap so a large graph stays fluid. All edges of a kind are
-// one object (one draw call), not one object per edge. Each medallion is a
-// sprite sharing one of a few materials, and sprites are drawn grouped by
-// material, not sorted by distance every frame: the depth buffer decides which
-// medallion is in front. Edges are painted first and never hide a medallion,
-// like ink under plaster. Fog in the page color fades distant nodes into the
-// parchment.
+// Nodes are plain marks in the text color, the same three as the flat view: a
+// filled dot for a company, a ring for an agency or office, a small diamond
+// for a solicitation. Award edges are lines in the accent, weight by amount;
+// every other edge is a faint dotted line in the text color.
 //
-// The layout is frozen (Graph3DLayout.ts). A node moves only while it is
-// dragged, with its neighbors following on soft springs, and stays where it is
-// left. When nothing is moving the render loop is paused altogether.
+// Drawing is kept cheap so a large graph stays fluid. All edges of a kind are
+// one object (one draw call), not one object per edge. Each mark is a sprite
+// sharing one of a few materials, and sprites are drawn grouped by material,
+// not sorted by distance every frame: the depth buffer decides which mark is
+// in front. Edges are drawn first and never cover a mark. Fog in the page
+// color fades distant nodes into the page.
+//
+// The layout is frozen (Graph3DLayout.ts) and nothing moves by itself: there
+// is no idle rotation and nothing travels along the edges. A node moves only
+// while it is dragged, with its neighbors following on soft springs, and stays
+// where it is left; the camera moves only when the reader turns it or a short
+// flight answers a click. When nothing is moving the render loop is paused
+// altogether.
 
 /** The part of the react-force-graph-3d handle the stage uses. */
 export type StageHost = {
@@ -72,12 +75,10 @@ export type StageOptions = {
   /** the small card that follows the pointer */
   tip: HTMLElement;
   onSelect: (id: string | null) => void;
-  /** a node was dropped on the watchlist chain */
-  onPin: (node: N) => void;
 };
 
 export type Stage = {
-  /** resolves once the medallion art is loaded */
+  /** resolves once the stage can draw (the marks are drawn in code: at once) */
   ready: Promise<void>;
   setScene: (scene: Scene3 | null) => void;
   setHidden: (hidden: ReadonlySet<string>, tags: ReadonlySet<string>) => void;
@@ -95,41 +96,48 @@ export type Stage = {
   dispose: () => void;
 };
 
-const MEDALLIONS: MedallionName[] = ["column", "laurel", "wing", "anchor", "compass", "shield"];
-const SLOT = Object.fromEntries(MEDALLIONS.map((name, i) => [name, i])) as Record<MedallionName, number>;
+// The three marks, and which one a node takes.
+const SHAPES = ["dot", "ring", "diamond"] as const;
+type Shape = (typeof SHAPES)[number];
+const shapeOf = (n: N) => (n.kind === "company" ? 0 : n.kind === "opportunity" ? 2 : 1);
 
-// Medallion opacity by kind: everything else, open solicitations, closed ones.
-// The same values as the flat view.
-const KIND_ALPHA = [1, 0.72, 0.4];
-const DUSK_ALPHA = 0.9;
-const FADED = 0.15; // what non-neighbors dim to while a node is hovered or selected
+// Mark opacity by kind: everything else, open solicitations, closed ones.
+// The same values as the flat view: opaque, so no edge shows through a dot.
+const KIND_ALPHA = [1, 1, 0.5];
+const FADED = 0.3; // what non-neighbors dim to while a node is hovered or selected
 
 // Edge opacity at rest, and for the lit edges of a hovered or selected node.
-const INK_EDGE_ALPHA = 0.3;
-const AWARD_EDGE_ALPHA = 0.5;
-const INK_LIT_ALPHA = 0.62;
-const AWARD_LIT_ALPHA = 0.9;
+const OTHER_EDGE_ALPHA = 0.36;
+const AWARD_EDGE_ALPHA = 0.55;
+const OTHER_LIT_ALPHA = 0.68;
+const AWARD_LIT_ALPHA = 0.95;
 /** Award edge widths in CSS pixels: under $2.5M, under $50M, larger. */
 const AWARD_WIDTHS = [1.1, 1.8, 2.7];
+/** The dotted line of an edge that is not an award, in world units. */
+const DOT = 2;
+const DOT_GAP = 7;
 
 const FOV = 38; // degrees: a long lens, so the far side is not distorted
-const MAX_PARTICLES = 200;
-const PARTICLE_SPEED = 24; // world units a second: slow
-const IDLE_MS = 20_000; // auto-rotate resumes this long after the last interaction
-const FLY_MS = 900;
+const FLY_MS = 600;
 const MAX_LABELS = 72;
 /** With more edges than this in view, detail is dropped while the camera moves fast. */
 const HEAVY_EDGES = 1500;
 const LIGHT_EDGES = 1200; // how many award edges are still drawn in that case
 
-const NAME_CLASS =
-  "pointer-events-none absolute left-0 top-0 whitespace-nowrap font-display text-[17px] font-medium leading-none opacity-0 transition-opacity duration-200 [text-shadow:0_0_3px_var(--bg),0_0_3px_var(--bg),0_0_5px_var(--bg)]";
-const REGION_CLASS =
-  "pointer-events-none absolute left-0 top-0 whitespace-nowrap font-caps text-[11px] uppercase leading-none tracking-[2.4px] text-muted opacity-0 transition-opacity duration-200 [text-shadow:0_0_3px_var(--bg),0_0_4px_var(--bg)]";
+// Names over the canvas: a company in the display serif, an agency or office
+// in the interface face, a category smaller and quieter.
+const LABEL_BASE =
+  "pointer-events-none absolute left-0 top-0 whitespace-nowrap leading-none opacity-0 transition-opacity duration-200 [text-shadow:0_0_3px_var(--bg),0_0_3px_var(--bg),0_0_5px_var(--bg)]";
+const NAME_CLASS = `${LABEL_BASE} font-display text-[17px] font-medium text-ink`;
+const ORG_CLASS = `${LABEL_BASE} font-sans text-[12.5px] text-muted`;
+const ORG_LIT_CLASS = `${LABEL_BASE} font-sans text-[12.5px] text-ink`;
+const REGION_CLASS = `${LABEL_BASE} font-sans text-[11px] text-muted`;
 
 type Batch = {
   object: LineSegments | LineSegments2;
   fat: boolean;
+  /** a dotted line: its dash distances are worked out again whenever its ends move */
+  dotted: boolean;
   links: L[];
   /** six numbers per edge: both ends */
   array: Float32Array;
@@ -155,34 +163,55 @@ const kindOf = (n: N) => (n.kind === "opportunity" ? (n.open ? 1 : 2) : 0);
 const widthOf = (l: L) => (l.w < 1.4 ? 0 : l.w < 2.7 ? 1 : 2);
 const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 
-/** A plain plaster disc, for a medallion whose image did not load. */
-function blankDisc(): Texture {
+/** One mark as a texture, in the palette's own colors: a filled dot, a ring
+ *  with a finer ring inside it, or a diamond. The outlines are filled with the
+ *  page color, so no edge shows through them. */
+function markTexture(shape: Shape, palette: Palette): Texture {
+  const size = 128;
   const c = document.createElement("canvas");
-  c.width = c.height = 128;
+  c.width = c.height = size;
   const g = c.getContext("2d")!;
-  g.fillStyle = "#ede4d3";
-  g.strokeStyle = "#7a6b5c";
-  g.lineWidth = 3;
-  g.beginPath();
-  g.arc(64, 64, 60, 0, Math.PI * 2);
-  g.fill();
-  g.stroke();
-  return new CanvasTexture(c);
+  const mid = size / 2;
+  g.fillStyle = shape === "dot" ? palette.text : palette.bg;
+  g.strokeStyle = palette.text;
+  g.lineJoin = "miter";
+  if (shape === "diamond") {
+    const w = 12;
+    const r = mid - w;
+    g.beginPath();
+    g.moveTo(mid, mid - r);
+    g.lineTo(mid + r, mid);
+    g.lineTo(mid, mid + r);
+    g.lineTo(mid - r, mid);
+    g.closePath();
+    g.fill();
+    g.lineWidth = w;
+    g.stroke();
+  } else if (shape === "ring") {
+    const w = 8;
+    g.beginPath();
+    g.arc(mid, mid, mid - w / 2 - 1, 0, Math.PI * 2);
+    g.fill();
+    g.lineWidth = w;
+    g.stroke();
+    g.beginPath();
+    g.arc(mid, mid, (mid - 1) * 0.52, 0, Math.PI * 2);
+    g.lineWidth = 5;
+    g.stroke();
+  } else {
+    g.beginPath();
+    g.arc(mid, mid, mid - 1, 0, Math.PI * 2);
+    g.fill();
+  }
+  const t = new CanvasTexture(c);
+  t.colorSpace = SRGBColorSpace;
+  t.generateMipmaps = true;
+  t.minFilter = LinearMipmapLinearFilter;
+  t.magFilter = LinearFilter;
+  return t;
 }
 
-/** A small soft dot: the shape of a particle. */
-function dotTexture(): Texture {
-  const c = document.createElement("canvas");
-  c.width = c.height = 32;
-  const g = c.getContext("2d")!;
-  g.fillStyle = "#ffffff";
-  g.beginPath();
-  g.arc(16, 16, 13, 0, Math.PI * 2);
-  g.fill();
-  return new CanvasTexture(c);
-}
-
-export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }: StageOptions): Stage {
+export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageOptions): Stage {
   const world = host.scene();
   const camera = host.camera() as PerspectiveCamera;
   const renderer = host.renderer() as WebGLRenderer;
@@ -224,71 +253,63 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
   controls.maxPolarAngle = Math.PI - 0.12;
   controls.minDistance = 60;
   controls.maxDistance = 6000;
-  controls.autoRotate = false;
-  controls.autoRotateSpeed = 0.2; // about five minutes a turn
+  controls.autoRotate = false; // the graph never turns by itself
 
-  const fog = new FogExp2(palette.paper, 0.0004);
+  const fog = new FogExp2(palette.bg, 0.0004);
   world.fog = fog;
 
   // ---- What is drawn ----
 
   // Everything this stage adds to the library's scene. Without sorting, things
-  // are painted in the order they are added here: edges, lit edges, particles,
-  // medallions, rings.
+  // are drawn in the order they are added here: edges, lit edges, marks, rings.
   const group = new Group();
   const nodesGroup = new Group();
   world.add(group);
   const sorted = renderer.sortObjects;
   renderer.sortObjects = false;
 
-  const textures: Texture[] = [];
-  // [medallion][kind]: `rest` materials fade when something is in focus, `lit` ones never do
+  let textures: Texture[] = [];
+  // [shape][kind]: `rest` materials fade when something is in focus, `lit` ones never do
   let rest: SpriteMaterial[][] = [];
   let lit: SpriteMaterial[][] = [];
   let sprites: Sprite[] = [];
   let slot = new Map<string, number>(); // node id -> index into data.nodes and sprites
 
-  // A medallion hides whatever is behind its disc (the corners of its square
-  // are cut away by the alpha test). Solicitations are see-through, so they
-  // are drawn after the rest and hide nothing.
+  // A mark hides whatever is behind it (the corners of its square are cut away
+  // by the alpha test). Closed solicitations are see-through, so they are
+  // drawn after the rest and hide nothing.
   const spriteMaterial = (map: Texture, kind: number) =>
-    new SpriteMaterial({ map, transparent: true, depthTest: true, depthWrite: kind === 0, alphaTest: 0.5, fog: true });
+    new SpriteMaterial({ map, transparent: true, depthTest: true, depthWrite: kind < 2, alphaTest: 0.5, fog: true });
 
-  const loadTexture = (name: MedallionName) =>
-    new TextureLoader()
-      .loadAsync(medallionUrl(name, 512))
-      .catch(blankDisc)
-      .then((t) => {
-        t.colorSpace = SRGBColorSpace;
-        t.generateMipmaps = true;
-        t.minFilter = LinearMipmapLinearFilter;
-        t.magFilter = LinearFilter;
-        t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-        t.needsUpdate = true;
-        return t;
-      });
-
-  const ready = Promise.all(MEDALLIONS.map(loadTexture)).then((loaded) => {
-    if (!alive) return loaded.forEach((t) => t.dispose());
-    textures.push(...loaded);
-    rest = loaded.map((t) => KIND_ALPHA.map((_, kind) => spriteMaterial(t, kind)));
-    lit = loaded.map((t) => KIND_ALPHA.map((_, kind) => spriteMaterial(t, kind)));
-    tone();
-  });
+  /** Draw the three marks in the palette's colors. */
+  const drawMarks = () =>
+    SHAPES.map((shape) => {
+      const t = markTexture(shape, palette);
+      t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+      t.needsUpdate = true;
+      return t;
+    });
+  textures = drawMarks();
+  rest = textures.map((t) => KIND_ALPHA.map((_, kind) => spriteMaterial(t, kind)));
+  lit = textures.map((t) => KIND_ALPHA.map((_, kind) => spriteMaterial(t, kind)));
+  const ready = Promise.resolve();
 
   const thinMaterial = (color: string) =>
     new LineBasicMaterial({ color, transparent: true, depthTest: false, depthWrite: false, fog: true });
+  const dottedMaterial = (color: string) =>
+    new LineDashedMaterial({ color, dashSize: DOT, gapSize: DOT_GAP, transparent: true, depthTest: false, depthWrite: false, fog: true });
   const fatMaterial = (color: string, linewidth: number, fogged = true) =>
     new LineMaterial({ color, linewidth, transparent: true, depthTest: false, depthWrite: false, fog: fogged });
 
-  const batch = (material: LineBasicMaterial | LineMaterial, order: number): Batch => {
+  const batch = (material: LineBasicMaterial | LineDashedMaterial | LineMaterial, order: number): Batch => {
     const fat = material instanceof LineMaterial;
+    const dotted = material instanceof LineDashedMaterial;
     const object = fat ? new LineSegments2(new LineSegmentsGeometry(), material) : new LineSegments(new BufferGeometry(), material);
     object.frustumCulled = false; // one object spans the whole graph
     object.renderOrder = order;
     object.visible = false;
     group.add(object);
-    const b: Batch = { object, fat, links: [], array: new Float32Array(0) };
+    const b: Batch = { object, fat, dotted, links: [], array: new Float32Array(0) };
     return b;
   };
 
@@ -325,40 +346,20 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
       const g = b.object.geometry as BufferGeometry;
       g.setDrawRange(0, b.links.length * 2);
       g.attributes.position.needsUpdate = true;
+      if (b.dotted) (b.object as LineSegments).computeLineDistances();
     }
   };
 
-  const ink = batch(thinMaterial(palette.ink), -4);
-  const awardsThin = batch(thinMaterial(palette.pompeii), -4); // stands in for the strokes below while the camera rushes
-  const awards = AWARD_WIDTHS.map((w) => batch(fatMaterial(palette.pompeii, w), -4));
-  const inkLit = batch(thinMaterial(palette.ink), -3);
-  const awardsLit = AWARD_WIDTHS.map((w) => batch(fatMaterial(palette.pompeii, w + 0.4), -3));
+  const ink = batch(dottedMaterial(palette.text), -4);
+  const awardsThin = batch(thinMaterial(palette.accent), -4); // stands in for the strokes below while the camera rushes
+  const awards = AWARD_WIDTHS.map((w) => batch(fatMaterial(palette.accent, w), -4));
+  const inkLit = batch(dottedMaterial(palette.text), -3);
+  const awardsLit = AWARD_WIDTHS.map((w) => batch(fatMaterial(palette.accent, w + 0.4), -3));
   const batches = [ink, awardsThin, ...awards, inkLit, ...awardsLit];
   let edgeCount = 0;
-
-  // Particles: money moving along the largest award edges.
-  const dot = dotTexture();
-  const particleSpots = new Float32Array(MAX_PARTICLES * 3);
-  const particleGeometry = new BufferGeometry().setAttribute("position", new BufferAttribute(particleSpots, 3));
-  const particleMaterial = new PointsMaterial({
-    color: palette.pompeii,
-    map: dot,
-    size: 9,
-    sizeAttenuation: true,
-    transparent: true,
-    depthTest: false,
-    depthWrite: false,
-    fog: true,
-  });
-  const particles = new Points(particleGeometry, particleMaterial);
-  particles.frustumCulled = false;
-  particles.renderOrder = -2;
-  particles.visible = false;
-  group.add(particles);
   group.add(nodesGroup);
-  let flows: { link: L; t: number; speed: number }[] = [];
 
-  // The thin cypress ring around the selected node, and around the hovered one.
+  // The thin ring around the selected node, and around the hovered one.
   // A circle of line segments turned to face the camera, so its stroke keeps
   // the same width on screen at any distance.
   const circle = new Float32Array(72 * 6);
@@ -368,7 +369,7 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
     circle.set([Math.cos(a), Math.sin(a), 0, Math.cos(b), Math.sin(b), 0], i * 6);
   }
   const ringGeometry = new LineSegmentsGeometry().setPositions(circle);
-  const ringMaterial = fatMaterial(palette.cypress, 1.5, false);
+  const ringMaterial = fatMaterial(palette.text, 1.25, false);
   const rings = [0, 1].map(() => {
     const ring = new LineSegments2(ringGeometry, ringMaterial);
     ring.frustumCulled = false;
@@ -385,36 +386,34 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
   let focusKey = ""; // what `litIds` was built for
   let litIds = new Set<string>();
 
-  /** Set every opacity from the fade, the theme and how crowded the edges are. */
+  /** Set every opacity from the fade and how crowded the edges are. */
   const tone = () => {
     const faded = 1 - (1 - FADED) * dim;
-    const dusk = palette.night ? DUSK_ALPHA : 1;
     for (let m = 0; m < rest.length; m++) {
       for (let k = 0; k < KIND_ALPHA.length; k++) {
-        rest[m][k].opacity = KIND_ALPHA[k] * dusk * faded;
-        lit[m][k].opacity = KIND_ALPHA[k] * dusk;
-        // the cut follows the opacity, so a faded medallion keeps its round shape
+        rest[m][k].opacity = KIND_ALPHA[k] * faded;
+        lit[m][k].opacity = KIND_ALPHA[k];
+        // the cut follows the opacity, so a faded mark keeps its shape
         rest[m][k].alphaTest = rest[m][k].opacity * 0.5;
         lit[m][k].alphaTest = lit[m][k].opacity * 0.5;
       }
-      // once faded, a medallion no longer hides the lit ones behind it
-      rest[m][0].depthWrite = dim < 0.5;
+      // once faded, a mark no longer hides the lit ones behind it
+      rest[m][0].depthWrite = rest[m][1].depthWrite = dim < 0.5;
     }
     // a great many edges are drawn fainter, so they read as a haze, not a tangle
     const crowd = Math.min(1, Math.sqrt(900 / Math.max(edgeCount, 1)));
-    (ink.object.material as LineBasicMaterial).opacity = INK_EDGE_ALPHA * crowd * faded;
+    (ink.object.material as LineDashedMaterial).opacity = OTHER_EDGE_ALPHA * crowd * faded;
     (awardsThin.object.material as LineBasicMaterial).opacity = AWARD_EDGE_ALPHA * crowd * faded;
     for (const b of awards) (b.object.material as LineMaterial).opacity = AWARD_EDGE_ALPHA * crowd * faded;
-    (inkLit.object.material as LineBasicMaterial).opacity = INK_LIT_ALPHA * dim;
+    (inkLit.object.material as LineDashedMaterial).opacity = OTHER_LIT_ALPHA * dim;
     for (const b of awardsLit) (b.object.material as LineMaterial).opacity = AWARD_LIT_ALPHA * dim;
-    particleMaterial.opacity = 0.9 * faded;
   };
 
   const dress = (id: string, on: boolean) => {
     const i = slot.get(id);
     if (i === undefined || !data) return;
     const n = data.nodes[i];
-    sprites[i].material = (on ? lit : rest)[SLOT[n.medallion]][kindOf(n)];
+    sprites[i].material = (on ? lit : rest)[shapeOf(n)][kindOf(n)];
   };
 
   const shown = (l: L) => !hidden.has(l.source.id) && !hidden.has(l.target.id);
@@ -471,14 +470,6 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
     const won = edges.filter((l) => l.kind === "award").sort((a, b) => b.amount - a.amount);
     load(awardsThin, won);
     awards.forEach((b, w) => load(b, won.filter((l) => widthOf(l) === w)));
-    // Only the largest award edges carry a particle. Each starts somewhere
-    // along its edge (the same place every time) and crosses it slowly.
-    flows = won.slice(0, MAX_PARTICLES).map((link, i) => ({
-      link,
-      t: ((i * 2654435761) % 997) / 997,
-      speed: 0,
-    }));
-    particleGeometry.setDrawRange(0, flows.length);
     matches = query ? new Set(data.nodes.filter((n) => !hidden.has(n.id) && n.nameLower.includes(query)).map((n) => n.id)) : null;
     if (hover && hidden.has(hover)) hover = null;
     if (!focusKey && litIds.size) unlight(); // a fade that was still finishing
@@ -552,15 +543,17 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
   const named = new Map<string, Tag>();
   let stamp = 0;
   const meter = document.createElement("canvas").getContext("2d")!;
-  let fonts = { name: "17px Georgia", region: "11px Georgia" };
+  let fonts = { name: "500 17px Georgia", org: "12.5px sans-serif", region: "11px sans-serif" };
   let obstacles: number[] = [];
   const placed: number[] = [];
 
   const readFonts = () => {
     const s = getComputedStyle(document.documentElement);
+    const sans = `${s.getPropertyValue("--font-inter").trim() || "system-ui"}, system-ui, sans-serif`;
     fonts = {
       name: `500 17px ${s.getPropertyValue("--font-cormorant").trim() || "Georgia"}, Georgia, serif`,
-      region: `11px ${s.getPropertyValue("--font-cinzel").trim() || "Georgia"}, Georgia, serif`,
+      org: `12.5px ${sans}`,
+      region: `11px ${sans}`,
     };
     for (const n of data?.nodes ?? []) n.labelWidth = 0;
     dirty = true;
@@ -586,8 +579,8 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
   };
 
   const place = (x0: number, y0: number, x1: number, y1: number) => {
-    // labels keep a margin from the edge of the view and its hairline frame
-    const edge = wide() ? 30 : 16;
+    // labels keep a margin from the edge of the view
+    const edge = 16;
     if (x0 < edge || y0 < edge || x1 > W - edge || y1 > H - edge) return false;
     for (let i = 0; i < obstacles.length; i += 4)
       if (x0 < obstacles[i + 2] && x1 > obstacles[i] && y0 < obstacles[i + 3] && y1 > obstacles[i + 1]) return false;
@@ -597,7 +590,8 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
     return true;
   };
 
-  /** Show a label this frame at (x, y), its top-left corner. kind: 0 name, 1 name in focus, 2 category. */
+  /** Show a label this frame at (x, y), its top-left corner. kind: 0 company,
+   *  1 the node in focus, 2 category, 3 agency or office. */
   const show = (key: string, text: string, x: number, y: number, alpha: number, kind: number, now: number) => {
     let t = named.get(key);
     if (!t) {
@@ -612,8 +606,7 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
     }
     if (t.kind !== kind) {
       t.kind = kind;
-      t.el.className = kind === 2 ? REGION_CLASS : NAME_CLASS;
-      t.el.style.color = kind === 1 ? "var(--text)" : kind === 0 ? "var(--text)" : "";
+      t.el.className = kind === 2 ? REGION_CLASS : kind === 3 ? ORG_CLASS : kind === 4 ? ORG_LIT_CLASS : NAME_CLASS;
     }
     x = Math.round(x * 2) / 2;
     y = Math.round(y * 2) / 2;
@@ -645,38 +638,37 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
 
       // The hovered and the selected node are always named, wherever there is
       // room beside them: they are placed before anything else can be in the way.
-      meter.font = fonts.name;
       let budget = MAX_LABELS - 14;
       const name = (i: number, forced: boolean, alpha: number) => {
         if (budget <= 0) return;
         const n = nodes[i];
+        // a company in the display serif, anything else in the interface face
+        const plain = n.org || n.kind === "opportunity";
+        meter.font = plain ? fonts.org : fonts.name;
+        const tall = plain ? 15 : 18;
         const text = truncate(n.name, forced ? 60 : 34);
         if (!n.labelWidth) n.labelWidth = meter.measureText(truncate(n.name, 34)).width;
         const w = forced ? meter.measureText(text).width : n.labelWidth;
         const r = Math.max(2.5, pr[i]);
-        // below, above, right, then left of the medallion: the first spot that is free
-        let x = px[i];
-        let y = py[i] + r + 5;
-        if (!place(x - w / 2 - 4, y - 1, x + w / 2 + 4, y + 18)) {
-          y = py[i] - r - 23;
-          if (!place(x - w / 2 - 4, y - 1, x + w / 2 + 4, y + 18)) {
-            y = py[i] - 9;
-            x = px[i] + r + 8 + w / 2;
-            if (!place(x - w / 2 - 4, y - 1, x + w / 2 + 4, y + 18)) {
-              x = px[i] - r - 8 - w / 2;
-              if (!place(x - w / 2 - 4, y - 1, x + w / 2 + 4, y + 18)) return;
-            }
-          }
-        }
+        // A company's name sits beside its dot (right, left, below, above); an
+        // agency's sits under its ring (below, above, right, left). The first
+        // spot that is free.
+        const side = (dir: number): [number, number] => [px[i] + dir * (r + 9 + w / 2), py[i] - tall / 2];
+        const spots: [number, number][] = n.org
+          ? [[px[i], py[i] + r + 6], [px[i], py[i] - r - tall - 5], side(1), side(-1)]
+          : [side(1), side(-1), [px[i], py[i] + r + 6], [px[i], py[i] - r - tall - 5]];
+        const spot = spots.find(([x, y]) => place(x - w / 2 - 4, y - 1, x + w / 2 + 4, y + tall));
+        if (!spot) return;
         budget--;
-        show(`${forced ? "f" : "n"}:${n.id}`, text, x - w / 2, y, alpha, forced ? 1 : 0, now);
+        const kind = plain ? (forced || alpha >= 1 ? 4 : 3) : forced ? 1 : 0;
+        show(`${forced ? "f" : "n"}:${n.id}`, text, spot[0] - w / 2, spot[1], alpha, kind, now);
       };
       for (const id of hover === selected ? [selected] : [hover, selected]) {
         const i = id ? slot.get(id) : undefined;
         if (i !== undefined && pw[i]) name(i, true, 1);
       }
 
-      // medallions are obstacles too: no other name sits on top of a node
+      // marks are obstacles too: no other name sits on top of a node
       for (let i = 0; i < nodes.length; i++) {
         if (!pw[i] || pr[i] < 3.5) continue;
         placed.push(px[i] - pr[i], py[i] - pr[i], px[i] + pr[i], py[i] + pr[i]);
@@ -691,19 +683,18 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
         if (w < camera.near) continue;
         const x = (((e[0] * g.x + e[4] * g.y + e[8] * g.z + e[12]) / w) * 0.5 + 0.5) * W;
         const y = (0.5 - ((e[1] * g.x + e[5] * g.y + e[9] * g.z + e[13]) / w) * 0.5) * H - (g.radius * perUnit) / w - 22;
-        const text = tagLabel(g.tag).toUpperCase();
-        const width = meter.measureText(text).width + text.length * 2.4;
+        const text = tagLabel(g.tag);
+        const width = meter.measureText(text).width;
         if (!place(x - width / 2 - 6, y - 3, x + width / 2 + 6, y + 15)) continue;
-        show(`g:${g.tag}`, text, x - width / 2, y, (0.9 - 0.5 * dim) * haze(w), 2, now);
+        show(`g:${g.tag}`, text, x - width / 2, y, (0.8 - 0.45 * dim) * haze(w), 2, now);
       }
 
-      meter.font = fonts.name;
       // nodes are in order of dollars, so the largest claim their space first
       for (let i = 0; i < nodes.length; i++) {
         const n = nodes[i];
         if (!pw[i] || n.id === hover || n.id === selected || n.kind === "opportunity") continue;
         if (focused && isLit(n)) name(i, false, 1);
-        else if (n.rank < 12 || pr[i] >= 13) name(i, false, (focused ? faded : 1) * haze(pw[i]));
+        else if (n.rank < 12 || pr[i] >= 10) name(i, false, (focused ? Math.max(faded, 0.45) : 0.98) * haze(pw[i]));
       }
     }
     for (const [key, t] of named) {
@@ -722,7 +713,7 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
   /** The part of the canvas not covered by the rail, nav or panel. */
   const room = (panel = !!selected) =>
     wide()
-      ? { l: 300, t: 76, r: panel ? 404 : 48, b: 56 }
+      ? { l: 304, t: 76, r: panel ? 356 : 48, b: 64 }
       : { l: 24, t: 170, r: 24, b: panel ? Math.min(H * 0.5, 380) : 30 };
 
   // The picture is shifted so the middle of the scene sits in the middle of
@@ -842,12 +833,10 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
     depth: number;
     grab: Vector3;
     moved: boolean;
-    hot: boolean;
   } = null;
   let springs: Spring[] = [];
   let inside = false; // the pointer is over the canvas
   const at = { x: 0, y: 0 }; // where it last was
-  let lastTouch = -Infinity; // when the reader last did anything
 
   const local = (e: PointerEvent) => {
     const r = canvas.getBoundingClientRect();
@@ -859,12 +848,6 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
     out.set((x / W) * 2 - 1, 1 - (y / H) * 2, 0.5).unproject(camera).sub(camera.position).normalize();
     const forward = camera.getWorldDirection(v2);
     return out.multiplyScalar(depth / Math.max(out.dot(forward), 1e-3)).add(camera.position);
-  };
-
-  const setHot = (hot: boolean) => {
-    if (!pointer || pointer.hot === hot) return;
-    pointer.hot = hot;
-    window.dispatchEvent(new CustomEvent("flock:chain-hot", { detail: hot }));
   };
 
   const setHover = (n: N | null) => {
@@ -884,11 +867,6 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
     }
   };
 
-  const touch = () => {
-    lastTouch = performance.now();
-    controls.autoRotate = false;
-  };
-
   const moveNode = (n: N, x: number, y: number, z: number) => {
     n.x = x;
     n.y = y;
@@ -900,13 +878,12 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
   };
 
   const onDown = (e: PointerEvent) => {
-    touch();
     if (pointer || e.button !== 0) return wake();
     at.x = local(e).x;
     at.y = local(e).y;
     const n = nodeAt(at.x, at.y);
     flight = null;
-    pointer = { id: e.pointerId, node: n, sx: at.x, sy: at.y, ox: 0, oy: 0, oz: 0, depth: 0, grab: new Vector3(), moved: false, hot: false };
+    pointer = { id: e.pointerId, node: n, sx: at.x, sy: at.y, ox: 0, oy: 0, oz: 0, depth: 0, grab: new Vector3(), moved: false };
     if (n) {
       // The node is being handled, so the orbit controls must not turn the
       // camera. This listener runs in the capture phase, before theirs.
@@ -935,7 +912,6 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
     at.x = p.x;
     at.y = p.y;
     inside = true;
-    touch();
     if (!pointer) {
       setHover(nodeAt(p.x, p.y));
       return wake();
@@ -959,9 +935,6 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
         s.tz = s.oz + dz * 0.55;
       }
       moved = true;
-      // Over the chain's ring, the medallion can be dropped onto the watchlist.
-      const close = chainRing.ready && Math.hypot(e.clientX - chainRing.x, e.clientY - chainRing.y) < 110;
-      setHot(close && n.kind !== "opportunity");
     }
     wake();
   };
@@ -969,8 +942,6 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
   const onUp = (e: PointerEvent) => {
     const p = pointer;
     if (!p || e.pointerId !== p.id) return;
-    touch();
-    setHot(false);
     pointer = null;
     canvas.style.cursor = "grab";
     const n = p.node;
@@ -991,15 +962,6 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
       selected = null;
       onSelect(null);
       relight();
-    } else if (n && p.hot) {
-      onPin(n);
-      // pinned: the medallion and its neighbors spring back to where they were
-      springs.push({ n, ox: p.ox, oy: p.oy, oz: p.oz, tx: p.ox, ty: p.oy, tz: p.oz, vx: 0, vy: 0, vz: 0 });
-      for (const s of springs) {
-        s.tx = s.ox;
-        s.ty = s.oy;
-        s.tz = s.oz;
-      }
     }
     wake();
   };
@@ -1010,7 +972,6 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
     wake();
   };
   const onWheel = () => {
-    touch();
     flight = null;
     wake();
   };
@@ -1028,14 +989,12 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
       onSelect(null);
       relight();
     } else return;
-    touch();
     e.preventDefault();
     wake();
   };
   /** The reader took hold of the camera: a flight in progress gives way. */
   const onGrab = () => {
     flight = null;
-    touch();
     wake();
   };
 
@@ -1049,7 +1008,6 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
   let blocked = false; // the tab is hidden or the graph is off screen
   let lastWake = performance.now();
   let sleepTimer = 0;
-  let wakeTimer = 0;
   const size = new Vector2();
   const was = new Vector3(); // where the camera was a frame ago
 
@@ -1057,18 +1015,15 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
     lastWake = performance.now();
     if (!paused || blocked || !alive) return;
     paused = false;
-    clearTimeout(wakeTimer);
     host.resumeAnimation();
   };
 
-  /** Stop the render loop until something happens. With motion on, wake again
-   *  when the idle rotation is due. */
+  /** Stop the render loop until something happens. */
   const sleep = () => {
     sleepTimer = 0;
     if (!alive || paused || performance.now() - lastWake < 400) return;
     paused = true;
     host.pauseAnimation();
-    if (motion) wakeTimer = window.setTimeout(wake, Math.max(0, lastTouch + IDLE_MS - performance.now()));
   };
 
   const stepSprings = (dt: number) => {
@@ -1161,8 +1116,8 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
     if (turned) busy = true;
 
     // 6. Level of detail. While the camera rushes, or from far out, a crowded
-    //    graph draws its award edges as plain lines, drops the other edges and
-    //    hides the particles; all of it returns once the view settles.
+    //    graph draws its award edges as plain lines and drops the other edges;
+    //    all of it returns once the view settles.
     const reachOut = Math.max(camera.position.distanceTo(controls.target), 1);
     const speed = was.distanceTo(camera.position) / reachOut / dt; // about radians a second
     was.copy(camera.position);
@@ -1176,24 +1131,7 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
     awardsThin.object.visible = light && awardsThin.links.length > 0;
     (awardsThin.object.geometry as BufferGeometry).setDrawRange(0, Math.min(awardsThin.links.length, LIGHT_EDGES) * 2);
 
-    // 7. Particles along the largest award edges.
-    particles.visible = motion && !far && !rushing && flows.length > 0;
-    if (particles.visible) {
-      for (let i = 0; i < flows.length; i++) {
-        const f = flows[i];
-        const s = f.link.source;
-        const t = f.link.target;
-        if (!f.speed || moved) f.speed = PARTICLE_SPEED / Math.max(Math.hypot(t.x - s.x, t.y - s.y, t.z - s.z), 60);
-        f.t = (f.t + f.speed * dt) % 1;
-        particleSpots[i * 3] = s.x + (t.x - s.x) * f.t;
-        particleSpots[i * 3 + 1] = s.y + (t.y - s.y) * f.t;
-        particleSpots[i * 3 + 2] = s.z + (t.z - s.z) * f.t;
-      }
-      particleGeometry.attributes.position.needsUpdate = true;
-      busy = true;
-    }
-
-    // 8. Screen positions, the hover under a still pointer, labels and rings.
+    // 7. Screen positions, the hover under a still pointer, labels and rings.
     if (turned || moved || dirty) {
       project();
       if (turned && inside && !pointer) setHover(nodeAt(at.x, at.y));
@@ -1206,14 +1144,14 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
         const n = data!.nodes[i];
         ring.position.set(n.x, n.y, n.z);
         ring.quaternion.copy(camera.quaternion);
-        ring.scale.setScalar(n.r + (3 * pw[i]) / perUnit); // three pixels clear of the medallion
+        ring.scale.setScalar(n.r + (5 * pw[i]) / perUnit); // five pixels clear of the mark
         ring.updateMatrixWorld(true);
       });
       dirty = false;
     }
     moved = false;
 
-    // 9. The camera's own moves take effect on the next frame.
+    // 8. The camera's own moves take effect on the next frame.
     if (flight) {
       const f = flight;
       f.t = Math.min(1, f.t + dt / f.dur);
@@ -1226,11 +1164,9 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
       if (f.t >= 1) flight = null;
       busy = true;
     }
-    // A very slow turn while nobody is touching anything.
-    controls.autoRotate = motion && !pointer && !flight && now - lastTouch > IDLE_MS;
-    if (controls.autoRotate || springs.length) busy = true;
+    if (springs.length) busy = true;
 
-    // 10. Nothing moving: stop rendering until something does.
+    // 9. Nothing moving: stop rendering until something does.
     if (!busy && !sleepTimer) sleepTimer = window.setTimeout(sleep, 0);
   };
   world.onBeforeRender = frame;
@@ -1259,7 +1195,6 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
       b.links = [];
       b.object.visible = false;
     }
-    flows = [];
     springs = [];
     litIds = new Set();
     focusKey = "";
@@ -1267,7 +1202,6 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
     hover = null;
     flight = null;
     for (const ring of rings) ring.visible = false;
-    particles.visible = false;
   };
 
   return {
@@ -1277,7 +1211,7 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
       data = next;
       if (!next) return;
       next.nodes.forEach((n, i) => {
-        const s = new Sprite(rest[SLOT[n.medallion]][kindOf(n)]);
+        const s = new Sprite(rest[shapeOf(n)][kindOf(n)]);
         s.scale.set(n.r * 2, n.r * 2, 1);
         s.position.set(n.x, n.y, n.z);
         s.matrixAutoUpdate = false; // it only moves when dragged
@@ -1287,7 +1221,7 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
       });
       // Added grouped by material (solicitations last), so a frame changes
       // material a handful of times, not once per node.
-      const order = next.nodes.map((n, i) => ({ i, key: kindOf(n) * MEDALLIONS.length + SLOT[n.medallion] }));
+      const order = next.nodes.map((n, i) => ({ i, key: kindOf(n) * SHAPES.length + shapeOf(n) }));
       order.sort((a, b) => a.key - b.key);
       for (const o of order) nodesGroup.add(sprites[o.i]);
       px = new Float32Array(next.nodes.length);
@@ -1326,20 +1260,26 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
     },
     setMotion(on) {
       motion = on;
-      if (!on) {
-        controls.autoRotate = false;
-        if (flight) flight.dur = 0.001; // a flight in progress arrives at once
-      }
+      if (!on && flight) flight.dur = 0.001; // a flight in progress arrives at once
       wake();
     },
     retheme() {
       palette = readPalette();
-      fog.color.set(palette.paper);
-      for (const b of [ink, inkLit]) (b.object.material as LineBasicMaterial).color.set(palette.ink);
-      (awardsThin.object.material as LineBasicMaterial).color.set(palette.pompeii);
-      for (const b of [...awards, ...awardsLit]) (b.object.material as LineMaterial).color.set(palette.pompeii);
-      particleMaterial.color.set(palette.pompeii);
-      ringMaterial.color.set(palette.cypress);
+      fog.color.set(palette.bg);
+      for (const b of [ink, inkLit]) (b.object.material as LineDashedMaterial).color.set(palette.text);
+      (awardsThin.object.material as LineBasicMaterial).color.set(palette.accent);
+      for (const b of [...awards, ...awardsLit]) (b.object.material as LineMaterial).color.set(palette.accent);
+      ringMaterial.color.set(palette.text);
+      // The marks are drawn in the palette's colors: draw them again.
+      const old = textures;
+      textures = drawMarks();
+      textures.forEach((t, m) => {
+        for (const mat of [...rest[m], ...lit[m]]) {
+          mat.map = t;
+          mat.needsUpdate = true;
+        }
+      });
+      for (const t of old) t.dispose();
       tone();
       wake();
     },
@@ -1347,7 +1287,6 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
       blocked = next;
       if (next) {
         clearTimeout(sleepTimer);
-        clearTimeout(wakeTimer);
         sleepTimer = 0;
         paused = true;
         host.pauseAnimation();
@@ -1360,9 +1299,7 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
     dispose() {
       alive = false;
       clearTimeout(sleepTimer);
-      clearTimeout(wakeTimer);
       measureTimers.forEach(clearTimeout);
-      if (pointer?.hot) window.dispatchEvent(new CustomEvent("flock:chain-hot", { detail: false }));
       wrap.removeEventListener("pointerdown", onDown, true);
       wrap.removeEventListener("pointermove", onMove, true);
       wrap.removeEventListener("pointerup", onUp, true);
@@ -1373,7 +1310,6 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
       window.removeEventListener("graph:chrome", measureSoon);
       controls.removeEventListener("start", onGrab);
       controls.enabled = true;
-      controls.autoRotate = false;
       world.onBeforeRender = () => {};
       world.fog = null;
       renderer.sortObjects = sorted;
@@ -1386,9 +1322,6 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect, onPin }:
       }
       ringGeometry.dispose();
       ringMaterial.dispose();
-      particleGeometry.dispose();
-      particleMaterial.dispose();
-      dot.dispose();
       for (const m of [...rest.flat(), ...lit.flat()]) m.dispose();
       for (const t of textures) t.dispose();
       layer.replaceChildren();

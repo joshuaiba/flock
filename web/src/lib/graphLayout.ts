@@ -2,7 +2,6 @@ import Graph from "graphology";
 import forceAtlas2 from "graphology-layout-forceatlas2";
 import noverlap from "graphology-layout-noverlap";
 import type { Graph as ApiGraph, GraphEdge, GraphNode, NodeKind } from "./api";
-import { medallionFor, type MedallionName } from "./art";
 import { TAGS } from "./tags";
 
 // Graph layout: ForceAtlas2 (strong repulsion, low gravity, linLog off,
@@ -19,10 +18,8 @@ export type N = GraphNode & {
   vx?: number;
   vy?: number;
   vz?: number;
-  /** radius in world pixels: sqrt of dollars, clamped */
+  /** radius of the node's mark in world pixels: sqrt of dollars, clamped */
   r: number;
-  /** which medallion image the node is drawn with */
-  medallion: MedallionName;
   /** 0 = most money; label priority */
   rank: number;
   org: boolean;
@@ -40,16 +37,23 @@ export type Scene = {
   bounds: { x0: number; y0: number; x1: number; y1: number };
 };
 
-// Nodes are drawn as medallion images, so the smallest must still be large
-// enough for the art to read.
-const R_MIN = 7;
-const R_MAX = 30;
+// Nodes are plain marks: a filled dot for a company, a ring for an agency or
+// office, a small diamond for a solicitation. A company's dot is sized by its
+// dollars; rings keep to a narrow range, so an agency reads as a place on the
+// map and not as a bigger company.
+const DOT_MIN = 3.5;
+const DOT_MAX = 22;
+const RING_MIN = 9;
+const RING_MAX = 14;
+const DIAMOND = 5.5;
 
 /** Radius on a sqrt scale of dollars, so a few giants don't swamp the rest.
- *  Solicitations carry no dollars and stay at the smallest size. */
+ *  Solicitations carry no dollars and are all one size. */
 export function radius(n: GraphNode): number {
-  if (n.kind === "opportunity") return R_MIN;
-  return Math.max(R_MIN, Math.min(R_MAX, 5.5 + Math.sqrt(Math.max(n.total, 0) / 1e6) * 1.85));
+  if (n.kind === "opportunity") return DIAMOND;
+  const byDollars = Math.sqrt(Math.max(n.total, 0) / 1e6);
+  if (n.kind === "company") return Math.max(DOT_MIN, Math.min(DOT_MAX, 2.5 + byDollars * 1.5));
+  return Math.max(RING_MIN, Math.min(RING_MAX, 8 + byDollars * 0.35));
 }
 
 const pause = () => new Promise<void>((r) => setTimeout(r, 0));
@@ -62,7 +66,7 @@ export function orderTags(tags: Iterable<string>): string[] {
 }
 
 /** The API graph as drawable nodes and links, before any layout: sizes,
- *  medallions, label priority and who neighbors whom. Each call returns fresh
+ *  label priority and who neighbors whom. Each call returns fresh
  *  objects, so the flat and 3D layouts never share positions. */
 export function prepare(data: ApiGraph): Pick<Scene, "nodes" | "links" | "near" | "byId"> {
   const byTotal = [...data.nodes].sort((a, b) => b.total - a.total);
@@ -73,7 +77,6 @@ export function prepare(data: ApiGraph): Pick<Scene, "nodes" | "links" | "near" 
     y: 0,
     z: 0,
     r: radius(n),
-    medallion: medallionFor(n.tag, n.kind),
     rank: rank.get(n.id) ?? 0,
     org: n.kind === "agency" || n.kind === "office",
     nameLower: n.name.toLowerCase(),

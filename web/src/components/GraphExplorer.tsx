@@ -6,12 +6,10 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clientGet, type Graph, type GraphNode, type NodeKind } from "@/lib/api";
-import { medallionFor } from "@/lib/art";
-import { day, money } from "@/lib/format";
+import { day, money, plural } from "@/lib/format";
 import { ALL_KINDS, hiddenNodes, stressGraph } from "@/lib/graphLayout";
 import { useStore } from "@/lib/store";
 import { tagLabel, TAGS } from "@/lib/tags";
-import { MedallionImg } from "./Art";
 import { Empty } from "./Empty";
 import { CloseIcon, GraphFilters, WINDOWS } from "./GraphFilters";
 import { GraphFlat } from "./GraphFlat";
@@ -24,9 +22,12 @@ import { PinButton } from "./PinButton";
 // The two are views of the same filtered graph, so everything chosen here
 // carries across the switch. The rail is GraphFilters.tsx, the renderers are
 // Graph3D.tsx and GraphFlat.tsx, and the filter itself is one function
-// (lib/graphLayout.ts hiddenNodes) used for both. The legend sits in the map's
-// own bottom-left corner, just right of the rail, and follows it when the rail
-// folds; the view and zoom controls sit bottom-right. Looks: graph-rail.css.
+// (lib/graphLayout.ts hiddenNodes) used for both. The view and zoom controls
+// sit in the map's own bottom-left corner, just right of the rail, and follow
+// it when the rail folds; the legend sits bottom-right, and the selected
+// entity's card top-right. Nothing here is decorated: no art sits behind the
+// map, and the only color is the accent on dollars awarded. Looks:
+// graph-rail.css.
 
 // three.js is large and needs a browser: it loads only when the 3D view is shown.
 const Graph3D = dynamic(() => import("./Graph3D"), { ssr: false });
@@ -67,6 +68,22 @@ function chromeMoved(): void {
   window.dispatchEvent(new Event("graph:chrome"));
 }
 
+/** The four marks of the map, drawn as the canvases draw them. */
+function Mark({ kind }: { kind: "company" | "org" | "opportunity" | "award" }) {
+  if (kind === "award") return <span className="block h-[2px] w-[18px] rounded-full bg-accent" />;
+  return (
+    <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
+      {kind === "company" ? (
+        <circle cx="7" cy="7" r="4.5" fill="currentColor" stroke="none" />
+      ) : kind === "org" ? (
+        <circle cx="7" cy="7" r="5" />
+      ) : (
+        <path d="M7 1.6 12.4 7 7 12.4 1.6 7Z" strokeWidth="1.25" />
+      )}
+    </svg>
+  );
+}
+
 /** What the marks on the map mean. It lives in the map's corner, never under
  *  the rail, and folds to a button. */
 function Legend({ open, onOpen }: { open: boolean; onOpen: (open: boolean) => void }) {
@@ -93,40 +110,36 @@ function Legend({ open, onOpen }: { open: boolean; onOpen: (open: boolean) => vo
   return (
     <div className="graph-legend" data-obstacle>
       <section className="graph-legend-panel" aria-label="Legend">
-        <div className="graph-legend-head">
-          <span>Legend</span>
-          <button ref={button} type="button" className="graph-icon-btn" aria-label="Hide the legend" aria-expanded={true} onClick={toggle}>
-            <CloseIcon size={12} />
-          </button>
-        </div>
+        <span className="graph-legend-head">Legend</span>
         <ul>
           <li>
-            <span className="graph-legend-key">
-              <MedallionImg name="column" size={16} />
+            <span className="graph-legend-key text-ink">
+              <Mark kind="company" />
+            </span>
+            Company, sized by dollars
+          </li>
+          <li>
+            <span className="graph-legend-key text-ink">
+              <Mark kind="org" />
             </span>
             Agency or office
           </li>
           <li>
-            <span className="graph-legend-key -space-x-1">
-              <MedallionImg name="wing" size={16} />
-              <MedallionImg name="anchor" size={16} />
-              <MedallionImg name="laurel" size={16} />
-            </span>
-            Company, by category
-          </li>
-          <li>
-            <span className="graph-legend-key">
-              <MedallionImg name="laurel" size={10} className="ml-[3px] opacity-60" />
+            <span className="graph-legend-key text-ink">
+              <Mark kind="opportunity" />
             </span>
             Solicitation
           </li>
           <li>
             <span className="graph-legend-key">
-              <span className="block h-[2px] w-6 bg-pompeii" />
+              <Mark kind="award" />
             </span>
             Dollars awarded
           </li>
         </ul>
+        <button ref={button} type="button" className="graph-icon-btn" aria-label="Hide the legend" aria-expanded={true} onClick={toggle}>
+          <CloseIcon size={12} />
+        </button>
       </section>
     </div>
   );
@@ -325,7 +338,19 @@ export function GraphExplorer() {
       if (e.kind === "award") cur.kind = "award";
       around.set(o.id, cur);
     }
-    return { node, around: [...around.values()].sort((a, b) => b.amount - a.amount).slice(0, 5) };
+    const all = [...around.values()].sort((a, b) => b.amount - a.amount);
+    // Who is on the other end of this node's award edges: the offices that pay
+    // a company, or the companies an agency or office pays.
+    const others = all.filter((a) => a.kind === "award" && (a.node.kind === "company") !== (node.kind === "company"));
+    const partners =
+      node.kind === "company"
+        ? others.every((a) => a.node.kind === "office")
+          ? plural(others.length, "office")
+          : others.every((a) => a.node.kind === "agency")
+            ? plural(others.length, "agency", "agencies")
+            : plural(others.length, "agency or office", "agencies and offices")
+        : plural(others.length, "company", "companies");
+    return { node, partners: others.length ? partners : null, around: all.slice(0, 5) };
   }, [graph, selected, hidden]);
 
   const toggleTag = (t: string) =>
@@ -355,8 +380,7 @@ export function GraphExplorer() {
 
   return (
     <div data-graph-root data-rail={railFolded ? "closed" : "open"} className="fixed inset-0 z-20 overflow-hidden bg-bg">
-      {/* Plain parchment. A hairline frame; labels keep clear of it. */}
-      <div aria-hidden="true" className="pointer-events-none absolute inset-3 rounded-sm border border-line" />
+      {/* The plain page: no frame, no art, nothing behind the map. */}
       {view === "flat" ? (
         <GraphFlat {...shared} onReady={readyFlat} />
       ) : (
@@ -364,7 +388,7 @@ export function GraphExplorer() {
       )}
 
       {!ready && !failed && (
-        <p className="note pointer-events-none absolute inset-0 grid place-items-center">drawing the map…</p>
+        <p className="pointer-events-none absolute inset-0 grid place-items-center text-muted">Drawing the map…</p>
       )}
       {failed && (
         <div className="absolute inset-0 grid place-items-center">
@@ -422,7 +446,7 @@ export function GraphExplorer() {
 
       <Legend open={legend} onOpen={openLegend} />
 
-      {/* View and zoom */}
+      {/* View and zoom, in the map's bottom-left corner */}
       <div className="graph-controls">
         <div className="seg graph-float" role="group" aria-label="Graph view">
           {(["3d", "flat"] as const).map((v) => (
@@ -457,87 +481,108 @@ export function GraphExplorer() {
         </div>
       </div>
 
-      {/* Right panel: the selected entity. Its name in the serif, the rest in
-          the interface face. */}
+      {/* The side card: the selected entity. Its name in the display serif,
+          the rest in the interface face, dollars awarded in the accent. */}
       <AnimatePresence>
         {detail && (
           <m.aside
             key={detail.node.id}
             data-obstacle
             aria-label={detail.node.name}
-            initial={motion ? { opacity: 0, x: 36 } : false}
-            animate={{ opacity: 1, x: 0 }}
-            exit={motion ? { opacity: 0, x: 24, transition: { duration: 0.15 } } : { opacity: 0 }}
-            transition={{ type: "spring", stiffness: 170, damping: 26 }}
-            className="graph-detail"
+            initial={motion ? { opacity: 0, y: 4 } : false}
+            animate={{ opacity: 1, y: 0 }}
+            exit={motion ? { opacity: 0, transition: { duration: 0.15 } } : { opacity: 0 }}
+            transition={{ duration: 0.18, ease: "easeOut" }}
+            className="graph-detail surface"
           >
             <div className="flex items-start gap-3">
-              <MedallionImg name={medallionFor(detail.node.tag, detail.node.kind)} size={40} className="mt-0.5" />
               <div className="min-w-0 flex-1">
-                <p className="label">{KIND_NAME[detail.node.kind]}</p>
+                <p className="graph-kicker">
+                  {KIND_NAME[detail.node.kind]}
+                  {detail.node.tag && <> · {tagLabel(detail.node.tag)}</>}
+                </p>
                 <h2>{detail.node.name}</h2>
               </div>
-              <button type="button" onClick={() => setSelected(null)} aria-label="Close" className="graph-icon-btn -mr-1 -mt-0.5">
+              <button type="button" onClick={() => setSelected(null)} aria-label="Close" className="graph-icon-btn -mr-1.5 -mt-1">
                 <CloseIcon size={14} />
               </button>
             </div>
 
             {detail.node.kind === "opportunity" ? (
               <dl className="graph-facts">
-                <dt>Posted</dt>
-                <dd>{day(detail.node.posted)}</dd>
-                <dt>Closes</dt>
-                <dd>{day(detail.node.closes)}</dd>
-                <dt>Status</dt>
-                <dd>{detail.node.open ? "Open" : "Closed"}</dd>
+                <div>
+                  <dt>Posted</dt>
+                  <dd>{day(detail.node.posted)}</dd>
+                </div>
+                <div>
+                  <dt>Closes</dt>
+                  <dd>{day(detail.node.closes)}</dd>
+                </div>
+                <div>
+                  <dt>Status</dt>
+                  <dd>{detail.node.open ? "Open" : "Closed"}</dd>
+                </div>
               </dl>
             ) : (
               <dl className="graph-facts">
-                <dt>{days ? `Awarded, ${span}` : "Awarded, on record"}</dt>
-                <dd className="text-accent">{money(detail.node.total)}</dd>
-                <dt>Awards</dt>
-                <dd>{detail.node.awards}</dd>
+                <div>
+                  <dt>{days ? `Awarded, ${days === 365 ? "last year" : `last ${span}`}` : "Awarded, on record"}</dt>
+                  <dd className="money">{money(detail.node.total)}</dd>
+                </div>
+                <div>
+                  <dt>Awards</dt>
+                  <dd>{detail.node.awards.toLocaleString("en-US")}</dd>
+                </div>
+                {detail.partners && (
+                  <div>
+                    <dt>{detail.node.kind === "company" ? "Paid by" : "Pays"}</dt>
+                    <dd>{detail.partners}</dd>
+                  </div>
+                )}
                 {detail.node.uei && (
-                  <>
+                  <div>
                     <dt>UEI</dt>
                     <dd>{detail.node.uei}</dd>
-                  </>
+                  </div>
                 )}
               </dl>
             )}
 
-            {detail.node.tags.length > 0 && <p className="mt-2.5 text-muted">{detail.node.tags.map(tagLabel).join(", ")}</p>}
+            {detail.node.tags.length > 1 && (
+              <p className="mt-3 text-muted">Also tagged {detail.node.tags.filter((t) => t !== detail.node.tag).map(tagLabel).join(", ")}.</p>
+            )}
 
             {detail.around.length > 0 && (
               <>
                 <p className="label mt-4">Connected to</p>
-                <ul className="graph-around mt-1.5">
+                <ul className="graph-around mt-1">
                   {detail.around.map((a) => (
                     <li key={a.node.id}>
                       <button type="button" onClick={() => select(a.node.id)}>
                         {a.node.name}
                       </button>
-                      <span>{a.kind === "award" ? money(a.amount) : a.kind.replace("_", " ")}</span>
+                      <span className={a.kind === "award" ? "money" : undefined}>
+                        {a.kind === "award" ? money(a.amount) : a.kind.replace("_", " ")}
+                      </span>
                     </li>
                   ))}
                 </ul>
               </>
             )}
 
-            <div className="mt-4 flex flex-wrap items-center gap-2">
+            <div className="mt-5 flex flex-wrap items-center gap-2">
               {detail.node.kind === "opportunity" ? (
                 detail.node.url && (
-                  <a className="btn btn-sm" href={detail.node.url} target="_blank" rel="noreferrer">
+                  <a className="btn btn-primary" href={detail.node.url} target="_blank" rel="noreferrer">
                     Read the notice<span className="sr-only"> (opens in a new tab)</span>
                   </a>
                 )
               ) : (
                 <>
-                  <Link className="btn btn-sm btn-primary" href={`/entity/${detail.node.id.split(":")[1]}`}>
-                    Open profile
+                  <Link className="btn btn-primary" href={`/entity/${detail.node.id.split(":")[1]}`}>
+                    Open page
                   </Link>
                   <PinButton
-                    small
                     entity={{
                       id: Number(detail.node.id.split(":")[1]),
                       name: detail.node.name,

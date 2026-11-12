@@ -9,7 +9,7 @@ import { orderTags, prepare, type L, type N } from "@/lib/graphLayout";
 // category's own point on a sphere, agencies and offices are pulled gently
 // toward the middle, and the award edges between them do the rest. Strong
 // repulsion and a collision force by radius keep big nodes from swallowing
-// their neighbors, so no two medallions ever share space.
+// their neighbors, so no two marks ever share space.
 
 export type Region3 = {
   tag: string;
@@ -127,7 +127,7 @@ export async function layoutGraph3D(data: ApiGraph, alive: () => boolean): Promi
     .force(
       "link",
       forceLink<N, (typeof springs)[number]>(springs)
-        // longer between bigger nodes, so a large medallion keeps its neighbors at arm's length
+        // longer between bigger nodes, so a large node keeps its neighbors at arm's length
         .distance((s) => 30 + (s.source.r + s.target.r) * 1.7)
         // a hub with many edges pulls each one weakly, or it would collapse its neighbors onto itself
         .strength((s) => {
