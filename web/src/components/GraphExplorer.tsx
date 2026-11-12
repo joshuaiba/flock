@@ -1,212 +1,78 @@
 "use client";
 
 import { AnimatePresence, motion as m } from "motion/react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { clientGet, type Graph, type GraphNode } from "@/lib/api";
-import { medallionFor, medallionForTag, medallionUrl, type MedallionName } from "@/lib/art";
-import { day, money, plural, truncate } from "@/lib/format";
-import { layoutGraph, stressGraph, type L, type N, type Scene } from "@/lib/graphLayout";
+import { clientGet, type Graph, type GraphNode, type NodeKind } from "@/lib/api";
+import { medallionFor } from "@/lib/art";
+import { day, money } from "@/lib/format";
+import { ALL_KINDS, hiddenNodes, stressGraph } from "@/lib/graphLayout";
+import { useStore } from "@/lib/store";
 import { tagLabel, TAGS } from "@/lib/tags";
-import { drawBloom, readPalette, type Bloom } from "@/lib/paint";
-import { drawSwallow, loadSprites, SPRITE, type Sprites } from "@/lib/sprites";
-import { chainRing, useStore } from "@/lib/store";
 import { MedallionImg } from "./Art";
 import { Empty } from "./Empty";
+import { GraphFilters, WINDOWS } from "./GraphFilters";
+import { GraphFlat } from "./GraphFlat";
+import { NO_API, type GraphViewApi } from "./GraphView";
 import { PinButton } from "./PinButton";
 
-// The graph explorer. Nodes are the medallions from the illustration pack,
-// drawn as textures on one canvas and sized on a sqrt scale of dollars: the
-// column is an agency or office, the other five are companies by category, and
-// solicitations are the same medallions, small and faint. Award edges are
-// tapered brushstrokes in faded Pompeian red, weight by amount; every other
-// edge is a thin ink line. The ground is plain parchment with paper grain.
-//
-// The layout is computed once (lib/graphLayout.ts) and never moves on its own.
-// The camera is smooth: inertial panning, zoom toward the cursor, 500ms eased
-// moves when focusing. Rendering culls to the viewport, draws each medallion
-// from a pre-scaled copy near its on-screen size, and drops edge detail when
-// zoomed out, so large graphs stay fluid.
+// The graph explorer: the whole /graph screen. It fetches the graph, holds the
+// filters, the search text and the selection, and shows them through one of
+// two renderers: the 3D scene (the default) or the flat canvas (?view=flat).
+// The two are views of the same filtered graph, so everything chosen here
+// carries across the switch. The rail is GraphFilters.tsx, the renderers are
+// Graph3D.tsx and GraphFlat.tsx, and the filter itself is one function
+// (lib/graphLayout.ts hiddenNodes) used for both.
 
-type View = { k: number; tx: number; ty: number };
-type Spring = { n: N; ox: number; oy: number; tx: number; ty: number; vx: number; vy: number };
-type GBird = {
-  from: { x: number; y: number };
-  fromNode: N | null;
-  to: N | null;
-  t: number;
-  dur: number;
-  wait: number;
-  phase: number;
-  /** seconds since it landed */
-  rest: number;
-  /** the way it was facing when it landed: 1 right, -1 left */
-  face: number;
-};
+// three.js is large and needs a browser: it loads only when the 3D view is shown.
+const Graph3D = dynamic(() => import("./Graph3D"), { ssr: false });
 
-const WINDOWS = [
-  { days: 30, label: "30 days" },
-  { days: 90, label: "90 days" },
-  { days: 365, label: "1 year" },
-];
-const MAX_K = 3.5;
-
-// Medallion textures. Each image is loaded once and pre-scaled to a ladder of
-// sizes, each half the one above. One strip per size holds all six medallions
-// side by side, so nodes drawn at the same size share a single texture. A node
-// is drawn from the smallest strip that covers its on-screen diameter in device
-// pixels: the full-size art is never resampled during a frame.
-const MEDALLIONS: MedallionName[] = ["column", "laurel", "wing", "anchor", "compass", "shield"];
-const CELL = Object.fromEntries(MEDALLIONS.map((name, i) => [name, i])) as Record<MedallionName, number>;
-const MIPS = [12, 24, 48, 96, 192, 384]; // cell sizes in device pixels; each must be half the next
-const SOURCE = 512; // which file the ladder is built from
-const PAD = 2; // transparent gutter around each cell, so neighbors never bleed
-const MIN_R = 2.5; // the smallest a medallion is drawn, in CSS pixels
-
-// Medallion opacity. Solicitations are fainter than everything else, and closed
-// ones fainter than open ones. At dusk the art is drawn as it is, a touch dimmer.
-const OPEN_ALPHA = 0.72;
-const CLOSED_ALPHA = 0.4;
-const DUSK_ALPHA = 0.9;
-const FADED = 0.2; // what non-neighbors dim to while a node is hovered or selected
-
-// Edge opacity at rest, before the crowding and hover adjustments.
-const INK_EDGE_ALPHA = 0.35;
-const AWARD_EDGE_ALPHA = 0.5;
-const INK_EDGE_WIDTH = 0.8;
-
-// The swallows that carry awards along edges.
-const BIRD_WIDTH = 26; // drawn width of a sprite cell, in CSS pixels
-const BIRD_ALPHA = 0.95;
-const BIRD_LIFT = 8; // how far above a medallion a bird comes to rest
-const BIRD_FADE = 1.2; // seconds a landed bird takes to fade
-
-type Atlas = { strips: CanvasImageSource[] };
-let atlasPending: Promise<Atlas> | null = null;
-
-/** Load the six medallions and build the strips (once, shared between visits). */
-function loadAtlas(): Promise<Atlas> {
-  atlasPending ??= Promise.all(
-    MEDALLIONS.map(
-      (name) =>
-        new Promise<HTMLImageElement | null>((resolve) => {
-          const img = new Image();
-          img.decoding = "async";
-          img.onload = () => resolve(img);
-          img.onerror = () => resolve(null);
-          img.src = medallionUrl(name, SOURCE);
-        }),
-    ),
-  ).then(async (images) => {
-    if (images.some((img) => !img)) atlasPending = null; // try again on the next visit
-    const canvases: HTMLCanvasElement[] = [];
-    for (let level = MIPS.length - 1; level >= 0; level--) {
-      const size = MIPS[level];
-      const step = size + PAD * 2;
-      const c = document.createElement("canvas");
-      c.width = step * MEDALLIONS.length;
-      c.height = step;
-      const g = c.getContext("2d")!;
-      g.imageSmoothingQuality = "high";
-      const above = canvases[level + 1];
-      images.forEach((img, i) => {
-        const x = i * step + PAD;
-        if (above) {
-          // an exact halving of the strip above: a clean box filter in every browser
-          const big = MIPS[level + 1];
-          g.drawImage(above, i * (big + PAD * 2) + PAD, PAD, big, big, x, PAD, size, size);
-        } else if (img) g.drawImage(img, x, PAD, size, size);
-        else {
-          // the file did not load: a blank plaster disc keeps the node on the map
-          g.fillStyle = "#ede4d3";
-          g.strokeStyle = "#7a6b5c";
-          g.lineWidth = size / 40;
-          g.beginPath();
-          g.arc(x + size / 2, PAD + size / 2, size * 0.47, 0, Math.PI * 2);
-          g.fill();
-          g.stroke();
-        }
-      });
-      canvases[level] = c;
-    }
-    // Bitmaps are immutable, so the browser uploads each strip to the GPU once.
-    const strips = await Promise.all(
-      canvases.map((c): Promise<CanvasImageSource> | CanvasImageSource =>
-        typeof createImageBitmap === "function" ? createImageBitmap(c).catch(() => c) : c,
-      ),
-    );
-    return { strips };
-  });
-  return atlasPending;
-}
-
-const EMPTY: Scene = {
-  nodes: [],
-  links: [],
-  regions: [],
-  near: new Map(),
-  byId: new Map(),
-  bounds: { x0: 0, y0: 0, x1: 1, y1: 1 },
-};
+type ViewName = "3d" | "flat";
+const NO_PINS: ReadonlySet<string> = new Set();
+const NOTHING_HIDDEN: ReadonlySet<string> = new Set();
 
 export function GraphExplorer() {
   const params = useSearchParams();
   const focus = params.get("focus");
   const stress = process.env.NODE_ENV !== "production" ? Number(params.get("stress")) || 0 : 0;
-  const { motion, pin } = useStore();
-  const pinRef = useRef(pin);
-  pinRef.current = pin;
+  const { motion, pins } = useStore();
+
+  // The choice of view lives in the URL, so a link opens the same one.
+  const [no3d, setNo3d] = useState(false); // this browser cannot draw the 3D view
+  const view: ViewName = no3d || params.get("view") === "flat" ? "flat" : "3d";
 
   const [days, setDays] = useState(90);
   const [graph, setGraph] = useState<Graph | null>(null);
-  const [ready, setReady] = useState(false);
+  const [readyIn, setReadyIn] = useState<ViewName | null>(null); // which view has drawn the current graph
   const [failed, setFailed] = useState(false);
   const [tags, setTags] = useState<Set<string>>(new Set());
+  const [agency, setAgency] = useState<string | null>(null);
+  const [min, setMin] = useState(0);
+  const [kinds, setKinds] = useState<Set<NodeKind>>(() => new Set(ALL_KINDS));
+  const [watch, setWatch] = useState(false);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
+  const ready = readyIn === view;
 
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const tipRef = useRef<HTMLDivElement>(null);
-  const scene = useRef<Scene>(EMPTY);
-  const ui = useRef({ selected, tags, query: "", hover: null as string | null, motion });
-  const api = useRef({
-    invalidate: () => {},
-    fit: (_animate: boolean) => {},
-    focusOn: (_id: string, _fly: boolean) => {},
-    zoom: (_f: number) => {},
-    refilter: () => {},
-  });
+  const api = useRef<GraphViewApi>(NO_API); // the camera of whichever view is mounted
   const focused = useRef<string | null>(null);
   const widened = useRef<string | null>(null); // the focus the window was last widened for
+  const seenIn = useRef<ViewName>(view); // the view the reader last saw ready
 
-  ui.current.selected = selected;
-  ui.current.tags = tags;
-  ui.current.query = query.trim().toLowerCase();
-  ui.current.motion = motion;
-
-  // Data, then one layout pass.
+  // Data. Each view lays the graph out for itself when it arrives.
   useEffect(() => {
     let alive = true;
     const ac = new AbortController();
     setFailed(false);
-    setReady(false);
+    setReadyIn(null);
     (stress ? Promise.resolve(stressGraph(stress)) : clientGet<Graph>(`graph?days=${days}`, ac.signal))
-      .then(async (g) => {
-        const laid = await layoutGraph(g, () => alive);
-        if (!laid || !alive) return;
-        scene.current = laid;
+      .then((g) => {
+        if (!alive) return;
         // A selection that is not in the new graph would dim the whole map.
-        if (ui.current.selected && !laid.byId.has(ui.current.selected)) {
-          ui.current.selected = null;
-          setSelected(null);
-        }
-        ui.current.hover = null;
+        setSelected((was) => (was && !g.nodes.some((n) => n.id === was) ? null : was));
         setGraph(g);
-        api.current.refilter();
-        api.current.fit(false);
-        setReady(true);
       })
       .catch((e) => {
         if (alive && e.name !== "AbortError") setFailed(true);
@@ -220,12 +86,11 @@ export function GraphExplorer() {
   // A bird clicked on the landing page lands on its node here.
   useEffect(() => {
     if (!graph || !ready || !focus || focused.current === focus) return;
-    if (scene.current.byId.has(focus)) {
+    if (graph.nodes.some((n) => n.id === focus)) {
       focused.current = focus;
       setSelected(focus);
-      ui.current.selected = focus;
       requestAnimationFrame(() => api.current.focusOn(focus, true));
-    } else if (days < 365 && widened.current !== focus) {
+    } else if (days !== 0 && days < 365 && widened.current !== focus) {
       // older than the window: widen it once (once per focus, so a node that is
       // never found does not hold the window at a year)
       widened.current = focus;
@@ -233,808 +98,49 @@ export function GraphExplorer() {
     }
   }, [graph, ready, focus, days]);
 
+  // After a switch of view, the new one brings the selection into view.
   useEffect(() => {
-    api.current.refilter();
-  }, [selected, tags, query, motion, graph]);
+    if (!ready || seenIn.current === view) return;
+    seenIn.current = view;
+    if (selected) api.current.focusOn(selected, false);
+  }, [ready, view, selected]);
 
-  // Canvas
+  // ---- Filters: one function, both views ----
+
+  const pinned = useMemo(() => new Set(pins.map((p) => `org:${p.id}`)), [pins]);
+  const watched = watch ? pinned : NO_PINS;
+  const hidden = useMemo(
+    () => (graph ? hiddenNodes(graph, { tags, agency, min, kinds, watch }, watched) : NOTHING_HIDDEN),
+    [graph, tags, agency, min, kinds, watch, watched],
+  );
+  const active = (tags.size ? 1 : 0) + (agency ? 1 : 0) + (min ? 1 : 0) + (kinds.size < ALL_KINDS.length ? 1 : 0) + (watch ? 1 : 0);
+  const reset = () => {
+    setTags(new Set());
+    setAgency(null);
+    setMin(0);
+    setKinds(new Set(ALL_KINDS));
+    setWatch(false);
+  };
+
+  // A selection the filters have hidden would dim the map around nothing.
   useEffect(() => {
-    const wrap = wrapRef.current!;
-    const canvas = canvasRef.current!;
-    const ctx = canvas.getContext("2d")!;
-    const tip = tipRef.current!;
-    let palette = readPalette();
-    let fonts = { serif: "serif", caps: "serif" };
-    let atlas: Atlas | null = null; // nothing is drawn until the medallions have loaded
-    let sprites: Sprites | null = null;
-    let W = 0;
-    let H = 0;
-    let dpr = 1;
-    let raf = 0;
-    let last = 0;
-    let alive = true;
-
-    // Camera: `view` is what is drawn, `goal` is where it is heading.
-    let view: View = { k: 1, tx: 0, ty: 0 };
-    let goal: View = { ...view };
-    let tween: { from: View; to: View; t: number } | null = null;
-    let fitK = 1;
-    const vel = { x: 0, y: 0 };
-
-    let hidden = new Set<string>();
-    let matches: Set<string> | null = null;
-    let dim = 0; // 0..1: how far non-neighbors have faded
-    let blooms: Bloom[] = [];
-    let springs: Spring[] = [];
-    let obstacles: number[] = [];
-    const birds: GBird[] = Array.from({ length: 5 }, (_, i) => ({
-      from: { x: 0, y: 0 },
-      fromNode: null,
-      to: null,
-      t: 0,
-      dur: 1,
-      wait: 1 + i * 1.4,
-      phase: i,
-      rest: BIRD_FADE,
-      face: 1,
-    }));
-    let pointer: null | {
-      node: N | null;
-      sx: number;
-      sy: number;
-      ox: number;
-      oy: number;
-      lx: number;
-      ly: number;
-      lt: number;
-      moved: boolean;
-      hot: boolean;
-    } = null;
-
-    const wide = () => W > 900;
-    /** The part of the canvas not covered by the rail, nav or panel. */
-    const room = () =>
-      wide()
-        ? { l: 300, t: 76, r: ui.current.selected ? 404 : 48, b: 56 }
-        : { l: 24, t: 170, r: 24, b: 30 };
-
-    const clamp = (v: View): View => {
-      const b = scene.current.bounds;
-      const k = Math.max(fitK * 0.5, Math.min(MAX_K, v.k));
-      const pad = Math.min(160, W / 3);
-      return {
-        k,
-        tx: Math.max(pad - b.x1 * k, Math.min(W - pad - b.x0 * k, v.tx)),
-        ty: Math.max(pad - b.y1 * k, Math.min(H - pad - b.y0 * k, v.ty)),
-      };
-    };
-
-    const sx = (n: { x: number }) => n.x * view.k + view.tx;
-    const sy = (n: { y: number }) => n.y * view.k + view.ty;
-    /** Medallions grow with zoom, but more slowly than the space between them. */
-    const zs = () => Math.min(Math.pow(view.k, 0.7), view.k * 1.45);
-
-    /** A node's drawn radius in CSS pixels. */
-    const rad = (n: N, z: number) => Math.max(MIN_R, n.r * z);
-
-    /** Rail and panel rectangles, so labels are never drawn underneath them. */
-    const measure = () => {
-      obstacles = [];
-      const base = canvas.getBoundingClientRect();
-      for (const el of wrap.querySelectorAll<HTMLElement>("[data-obstacle]")) {
-        const r = el.getBoundingClientRect();
-        obstacles.push(r.left - base.left - 6, r.top - base.top - 6, r.right - base.left + 6, r.bottom - base.top + 6);
-      }
-    };
-
-    const resize = () => {
-      dpr = Math.min(window.devicePixelRatio || 1, 2);
-      const w = wrap.clientWidth;
-      const h = wrap.clientHeight;
-      if (!w || !h) return;
-      // Keep the same world point at the center, so a resize never jumps or stretches.
-      if (W && H) {
-        view.tx += (w - W) / 2;
-        view.ty += (h - H) / 2;
-        goal.tx += (w - W) / 2;
-        goal.ty += (h - H) / 2;
-      }
-      W = w;
-      H = h;
-      canvas.width = Math.round(W * dpr);
-      canvas.height = Math.round(H * dpr);
-      measure();
-    };
-
-    const fitTarget = (): View => {
-      const b = scene.current.bounds;
-      const p = room();
-      const bw = Math.max(b.x1 - b.x0, 200);
-      const bh = Math.max(b.y1 - b.y0, 200);
-      // One scale for both axes: the graph keeps its natural proportions.
-      const k = Math.min(1.5, ((W - p.l - p.r) / bw) * 0.94, ((H - p.t - p.b) / bh) * 0.94);
-      return {
-        k,
-        tx: p.l + (W - p.l - p.r) / 2 - ((b.x0 + b.x1) / 2) * k,
-        ty: p.t + (H - p.t - p.b) / 2 - ((b.y0 + b.y1) / 2) * k,
-      };
-    };
-
-    const moveTo = (to: View, animate: boolean) => {
-      vel.x = vel.y = 0;
-      to = clamp(to);
-      if (animate && ui.current.motion) tween = { from: { ...view }, to, t: 0 };
-      else {
-        tween = null;
-        view = { ...to };
-      }
-      goal = { ...to };
-      invalidate();
-    };
-
-    const fit = (animate: boolean) => {
-      if (!scene.current.nodes.length || !W) return;
-      const t = fitTarget();
-      fitK = t.k;
-      moveTo(t, animate);
-    };
-
-    /** Center a node with its neighborhood in view, not zoomed in until it feels cramped. */
-    const focusOn = (id: string, fly: boolean) => {
-      const n = scene.current.byId.get(id);
-      if (!n) return;
-      const p = { ...room(), r: wide() ? 404 : 24 };
-      let hx = 140;
-      let hy = 110;
-      for (const o of scene.current.near.get(id) ?? []) {
-        const q = scene.current.byId.get(o);
-        if (!q || hidden.has(o)) continue;
-        hx = Math.max(hx, Math.abs(q.x - n.x) + 70);
-        hy = Math.max(hy, Math.abs(q.y - n.y) + 70);
-      }
-      const aw = (W - p.l - p.r) / 2;
-      const ah = (H - p.t - p.b) / 2;
-      const k = Math.max(Math.max(fitK, 0.4), Math.min(1.35, aw / hx, ah / hy));
-      moveTo({ k, tx: p.l + aw - n.x * k, ty: p.t + ah - n.y * k }, true);
-      if (fly && ui.current.motion) {
-        birds[0] = { from: { x: -40, y: H * 0.25 }, fromNode: null, to: n, t: 0, dur: 1.6, wait: 0, phase: 0, rest: 0, face: 1 };
-      } else if (fly) blooms.push({ x: n.x, y: n.y, t: 0 });
-    };
-
-    const zoomAt = (f: number, px = W / 2, py = H / 2) => {
-      tween = null;
-      vel.x = vel.y = 0;
-      const k = Math.max(fitK * 0.5, Math.min(MAX_K, goal.k * f));
-      goal = clamp({ k, tx: px - ((px - goal.tx) / goal.k) * k, ty: py - ((py - goal.ty) / goal.k) * k });
-      invalidate();
-    };
-
-    const refilter = () => {
-      const { nodes, near } = scene.current;
-      const t = ui.current.tags;
-      hidden = new Set();
-      if (t.size) {
-        for (const n of nodes) if (!n.org && !n.tags.some((x) => t.has(x))) hidden.add(n.id);
-        // an agency stays only while it still connects to something shown
-        for (const n of nodes) {
-          if (!n.org) continue;
-          let any = false;
-          for (const o of near.get(n.id) ?? []) {
-            const q = scene.current.byId.get(o);
-            if (q && !q.org && !hidden.has(o)) {
-              any = true;
-              break;
-            }
-          }
-          if (!any) hidden.add(n.id);
-        }
-      }
-      const q = ui.current.query;
-      matches = q ? new Set(nodes.filter((n) => n.nameLower.includes(q)).map((n) => n.id)) : null;
-      setTimeout(measure, 60);
-      invalidate();
-    };
-
-    const nodeAt = (px: number, py: number): N | null => {
-      const z = zs();
-      let best: N | null = null;
-      let bd = Infinity;
-      for (const n of scene.current.nodes) {
-        if (hidden.has(n.id)) continue;
-        const d = Math.hypot(sx(n) - px, sy(n) - py) - Math.max(3, n.r * z);
-        if (d < 6 && d < bd) {
-          bd = d;
-          best = n;
-        }
-      }
-      return best;
-    };
-
-    /** Advance camera, springs and fades. Returns true while anything is still moving. */
-    const update = (dt: number): boolean => {
-      let moving = false;
-      if (tween) {
-        tween.t = Math.min(1, tween.t + dt / 0.5);
-        const e = 1 - Math.pow(1 - tween.t, 3);
-        const { from, to } = tween;
-        view = {
-          k: from.k + (to.k - from.k) * e,
-          tx: from.tx + (to.tx - from.tx) * e,
-          ty: from.ty + (to.ty - from.ty) * e,
-        };
-        if (tween.t >= 1) tween = null;
-        moving = true;
-      } else {
-        if (!pointer && (Math.abs(vel.x) > 6 || Math.abs(vel.y) > 6)) {
-          // inertia: the pan eases to a stop
-          goal = clamp({ k: goal.k, tx: goal.tx + vel.x * dt, ty: goal.ty + vel.y * dt });
-          const decay = Math.exp(-dt * 4.2);
-          vel.x *= decay;
-          vel.y *= decay;
-          moving = true;
-        }
-        const a = 1 - Math.exp(-dt * 16);
-        const dk = goal.k - view.k;
-        const dx = goal.tx - view.tx;
-        const dy = goal.ty - view.ty;
-        if (Math.abs(dk) > 0.0005 || Math.abs(dx) > 0.2 || Math.abs(dy) > 0.2) {
-          view = { k: view.k + dk * a, tx: view.tx + dx * a, ty: view.ty + dy * a };
-          moving = true;
-        } else view = { ...goal };
-      }
-
-      // Soft springs: neighbors of a dragged node follow it, then settle.
-      if (springs.length) {
-        let energy = 0;
-        const sub = Math.min(dt, 0.033);
-        for (const s of springs) {
-          const ax = (s.tx - s.n.x) * 70 - s.vx * 13;
-          const ay = (s.ty - s.n.y) * 70 - s.vy * 13;
-          s.vx += ax * sub;
-          s.vy += ay * sub;
-          s.n.x += s.vx * sub;
-          s.n.y += s.vy * sub;
-          energy += Math.abs(s.vx) + Math.abs(s.vy) + Math.abs(s.tx - s.n.x) + Math.abs(s.ty - s.n.y);
-        }
-        if (!pointer?.node && energy < 0.4 * springs.length) {
-          for (const s of springs) {
-            s.n.x = s.tx;
-            s.n.y = s.ty;
-          }
-          springs = [];
-        }
-        moving = true;
-      }
-
-      const want = ui.current.hover || ui.current.selected || matches ? 1 : 0;
-      if (Math.abs(want - dim) > 0.004) {
-        dim += (want - dim) * (1 - Math.exp(-dt * 11));
-        moving = true;
-      } else dim = want;
-
-      for (const b of blooms) b.t += dt;
-      return moving || blooms.length > 0;
-    };
-
-    // Reused per frame, so drawing thousands of edges and nodes allocates nothing.
-    const eb: number[][] = Array.from({ length: 10 }, () => []);
-    const nb: N[][] = Array.from({ length: MIPS.length * 2 }, () => []);
-    const vis: N[] = [];
-    const placed: number[] = [];
-
-    const place = (x0: number, y0: number, x1: number, y1: number) => {
-      // labels keep a margin from the edge of the view and its hairline frame
-      if (x0 < 30 || y0 < 30 || x1 > W - 30 || y1 > H - 26) return false;
-      for (let i = 0; i < obstacles.length; i += 4)
-        if (x0 < obstacles[i + 2] && x1 > obstacles[i] && y0 < obstacles[i + 3] && y1 > obstacles[i + 1]) return false;
-      for (let i = 0; i < placed.length; i += 4)
-        if (x0 < placed[i + 2] && x1 > placed[i] && y0 < placed[i + 3] && y1 > placed[i + 1]) return false;
-      placed.push(x0, y0, x1, y1);
-      return true;
-    };
-
-    const draw = (dt: number) => {
-      const { nodes, links, near } = scene.current;
-      const k = view.k;
-      const z = zs();
-      const { selected, hover } = ui.current;
-      const fid = hover ?? selected; // the node whose neighborhood is lit
-      const around = fid ? near.get(fid) : null;
-      const lit = (n: N) => (fid ? n.id === fid || !!around?.has(n.id) : matches ? matches.has(n.id) : true);
-      const faded = 1 - (1 - FADED) * dim; // non-neighbors dim to about 20%
-      const spacing = ctx as CanvasRenderingContext2D & { letterSpacing: string };
-
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, W, H);
-      if (!atlas) return; // the map appears whole, once its medallions have loaded
-
-      // 1. Edges. Buckets 0-2: awards lit, by weight; 3-5: awards faded;
-      //    6/7: other lit solid/dashed; 8/9: other faded solid/dashed.
-      for (const b of eb) b.length = 0;
-      let onScreen = 0;
-      for (let i = 0; i < links.length; i++) {
-        const l = links[i];
-        if (hidden.has(l.source.id) || hidden.has(l.target.id)) continue;
-        const x1 = sx(l.source), y1 = sy(l.source), x2 = sx(l.target), y2 = sy(l.target);
-        if ((x1 < 0 && x2 < 0) || (x1 > W && x2 > W) || (y1 < 0 && y2 < 0) || (y1 > H && y2 > H)) continue;
-        const on = fid
-          ? l.source.id === fid || l.target.id === fid
-          : matches
-            ? matches.has(l.source.id) || matches.has(l.target.id)
-            : true;
-        onScreen++;
-        if (l.kind === "award") eb[(on ? 0 : 3) + (l.w < 1.4 ? 0 : l.w < 2.7 ? 1 : 2)].push(i);
-        else eb[(on ? 6 : 8) + (l.kind === "issued" ? 0 : 1)].push(i);
-      }
-      // Zoomed out, or with a great many edges in view, strokes become plain
-      // lines; up close they are tapered brushstrokes with a slight bow.
-      const plain = k < 0.5 || onScreen > 1400;
-      ctx.lineCap = "round";
-      for (let b = 0; b < 10; b++) {
-        const list = eb[b];
-        if (!list.length) continue;
-        const award = b < 6;
-        const on = award ? b < 3 : b < 8;
-        const rest = award ? AWARD_EDGE_ALPHA : INK_EDGE_ALPHA;
-        // hovered edges brighten; the others fade with the rest of the map
-        // a great many edges in view are drawn fainter, so they read as a haze, not a tangle
-        const crowd = fid ? 1 : Math.min(1, Math.sqrt(900 / Math.max(onScreen, 1)));
-        ctx.globalAlpha = on ? rest * crowd + (fid ? (award ? 0.38 : 0.26) * dim : 0) : rest * faded * crowd;
-        ctx.beginPath();
-        if (award && !plain) {
-          for (const i of list) {
-            const l = links[i];
-            const x1 = sx(l.source), y1 = sy(l.source), x2 = sx(l.target), y2 = sy(l.target);
-            const len = Math.hypot(x2 - x1, y2 - y1) || 1;
-            const nx = -(y2 - y1) / len;
-            const ny = (x2 - x1) / len;
-            const ws = (1 + l.w * 1.6) * z * 0.5; // half-width at the source
-            const wt = ws * 0.22; // tapering toward the recipient
-            const bow = len * 0.05;
-            const cx = (x1 + x2) / 2 + nx * bow;
-            const cy = (y1 + y2) / 2 + ny * bow;
-            const wm = (ws + wt) / 2;
-            ctx.moveTo(x1 + nx * ws, y1 + ny * ws);
-            ctx.quadraticCurveTo(cx + nx * wm, cy + ny * wm, x2 + nx * wt, y2 + ny * wt);
-            ctx.lineTo(x2 - nx * wt, y2 - ny * wt);
-            ctx.quadraticCurveTo(cx - nx * wm, cy - ny * wm, x1 - nx * ws, y1 - ny * ws);
-            ctx.closePath();
-          }
-          ctx.fillStyle = palette.pompeii;
-          ctx.fill();
-        } else {
-          for (const i of list) {
-            const l = links[i];
-            ctx.moveTo(sx(l.source), sy(l.source));
-            ctx.lineTo(sx(l.target), sy(l.target));
-          }
-          ctx.strokeStyle = award ? palette.pompeii : palette.ink;
-          ctx.lineWidth = award ? Math.max(0.5, (0.5 + (b % 3) * 0.9) * z) : INK_EDGE_WIDTH;
-          ctx.setLineDash(!award && b % 2 === 1 ? [3, 4] : []);
-          ctx.stroke();
-        }
-      }
-      ctx.setLineDash([]);
-      ctx.globalAlpha = 1;
-
-      // 2. Blooms where a bird has landed.
-      blooms = blooms.filter((b) => drawBloom(ctx, { x: sx(b), y: sy(b), t: b.t, seed: (b.x + b.y) % 6.28 }, palette.terracotta));
-
-      // 3. Medallions. Nodes in view are sorted into buckets by pre-scaled strip
-      //    (faded ones first, then lit), so each run of draws shares one texture.
-      const top = MIPS.length - 1;
-      for (const list of nb) list.length = 0;
-      vis.length = 0;
-      for (const n of nodes) {
-        if (hidden.has(n.id)) continue;
-        const x = sx(n), y = sy(n), r = rad(n, z), m = r + 4;
-        if (x + m < 0 || x - m > W || y + m < 0 || y - m > H) continue;
-        vis.push(n);
-        const px = r * 2 * dpr; // on-screen diameter in device pixels
-        let level = 0;
-        while (level < top && MIPS[level] < px) level++;
-        nb[(lit(n) ? MIPS.length : 0) + level].push(n);
-      }
-      const dusk = palette.night ? DUSK_ALPHA : 1;
-      for (let b = 0; b < nb.length; b++) {
-        const list = nb[b];
-        if (!list.length) continue;
-        const level = b % MIPS.length;
-        const strip = atlas.strips[level];
-        const size = MIPS[level];
-        const step = size + PAD * 2;
-        const base = (b < MIPS.length ? faded : 1) * dusk;
-        for (const n of list) {
-          const r = rad(n, z);
-          ctx.globalAlpha = n.kind === "opportunity" ? base * (n.open ? OPEN_ALPHA : CLOSED_ALPHA) : base;
-          ctx.drawImage(strip, CELL[n.medallion] * step + PAD, PAD, size, size, sx(n) - r, sy(n) - r, r * 2, r * 2);
-        }
-      }
-      // the selected and hovered medallions get a thin cypress ring
-      for (const id of hover === selected ? [selected] : [selected, hover]) {
-        const n = id && scene.current.byId.get(id);
-        if (!n || hidden.has(n.id)) continue;
-        ctx.globalAlpha = 1;
-        ctx.strokeStyle = palette.cypress;
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.arc(sx(n), sy(n), rad(n, z) + 2.5, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-
-      // 4. Swallows along award edges: money moving from agency to company.
-      //    Without the sprites nothing flies, so nothing lands and blooms either.
-      if (ui.current.motion && sprites) {
-        for (const b of birds) {
-          if (b.wait > 0) {
-            b.wait -= dt;
-            b.rest += dt;
-            // just landed: the bird holds a glide above the medallion and fades away
-            if (sprites && b.to && b.rest < BIRD_FADE && !hidden.has(b.to.id))
-              drawSwallow(ctx, sprites, {
-                x: sx(b.to),
-                y: sy(b.to) - rad(b.to, z) - BIRD_LIFT,
-                width: BIRD_WIDTH,
-                vx: b.face,
-                vy: 0,
-                frame: 0,
-                award: true,
-                glide: 0,
-                alpha: BIRD_ALPHA * (1 - b.rest / BIRD_FADE),
-              });
-            if (b.wait <= 0) {
-              let pick: L | null = null;
-              for (let tries = 0; tries < 24 && links.length; tries++) {
-                const l = links[Math.floor(Math.random() * links.length)];
-                if (l.kind !== "award" || hidden.has(l.source.id) || hidden.has(l.target.id)) continue;
-                const x = sx(l.target), y = sy(l.target);
-                if (x < 0 || x > W || y < 0 || y > H) continue;
-                pick = l;
-                break;
-              }
-              if (pick) {
-                const d = Math.hypot(sx(pick.target) - sx(pick.source), sy(pick.target) - sy(pick.source));
-                Object.assign(b, {
-                  fromNode: pick.source,
-                  to: pick.target,
-                  t: 0,
-                  dur: Math.max(1.5, Math.min(4.5, d / 85)),
-                });
-              } else b.wait = 2;
-            }
-            continue;
-          }
-          if (!b.to) continue;
-          b.t += dt / b.dur;
-          b.phase += dt * SPRITE.fps;
-          const ax = b.fromNode ? sx(b.fromNode) : b.from.x;
-          const ay = b.fromNode ? sy(b.fromNode) : b.from.y;
-          const dx = sx(b.to) - ax;
-          const dy = sy(b.to) - rad(b.to, z) - BIRD_LIFT - ay;
-          const t = Math.min(1, b.t);
-          const e = t * t * (3 - 2 * t);
-          const len = Math.hypot(dx, dy) || 1;
-          // the path bows to one side; the bird heads along its tangent
-          const bow = Math.min(36, len * 0.16);
-          const arc = Math.sin(e * Math.PI) * bow;
-          const turn = (Math.cos(e * Math.PI) * bow * Math.PI) / len;
-          const vx = dx - dy * turn;
-          const vy = dy + dx * turn;
-          b.face = vx < 0 ? -1 : 1;
-          if (sprites)
-            drawSwallow(ctx, sprites, {
-              x: ax + dx * e - (dy / len) * arc,
-              y: ay + dy * e + (dx / len) * arc,
-              width: BIRD_WIDTH,
-              vx,
-              vy,
-              frame: b.phase,
-              award: true,
-              alpha: BIRD_ALPHA,
-            });
-          if (b.t >= 1) {
-            blooms.push({ x: b.to.x, y: b.to.y, t: 0 }); // landed
-            b.wait = 2.5 + Math.random() * 5;
-            b.rest = 0;
-            b.fromNode = null;
-          }
-        }
-      }
-
-      // 5. Labels. Category names first, then entity names by importance; a label
-      //    is only drawn where it overlaps nothing already placed.
-      placed.length = 0;
-      // medallions are obstacles too: a name never sits on top of another node
-      for (const n of vis) {
-        const r = n.r * z;
-        if (r < 3.5) continue;
-        placed.push(sx(n) - r, sy(n) - r, sx(n) + r, sy(n) + r);
-      }
-      ctx.textBaseline = "top";
-      ctx.textAlign = "center";
-      ctx.lineJoin = "round";
-      ctx.font = `11px ${fonts.caps}`;
-      spacing.letterSpacing = "2.4px";
-      ctx.fillStyle = palette.muted;
-      for (const g of scene.current.regions) {
-        if (g.n < 2 || (ui.current.tags.size && !ui.current.tags.has(g.tag))) continue;
-        const text = tagLabel(g.tag).toUpperCase();
-        const w = ctx.measureText(text).width;
-        const x = sx(g), y = g.top * k + view.ty - 30;
-        if (!place(x - w / 2 - 6, y - 3, x + w / 2 + 6, y + 15)) continue;
-        ctx.globalAlpha = 0.9 - 0.5 * dim;
-        ctx.fillText(text, x, y);
-      }
-      spacing.letterSpacing = "0px";
-      ctx.font = `15.5px ${fonts.serif}`;
-      // Density follows zoom: only the largest medallions are named from afar.
-      const minR = k < 0.4 ? 17 : k < 0.6 ? 12.5 : k < 0.95 ? 8.5 : 0;
-      let budget = 90;
-      const label = (n: N, forced: boolean) => {
-        if (budget <= 0) return;
-        const text = truncate(n.name, forced ? 60 : 34);
-        if (!n.labelWidth) n.labelWidth = ctx.measureText(truncate(n.name, 34)).width;
-        const w = forced ? ctx.measureText(text).width : n.labelWidth;
-        const r = rad(n, z);
-        // below, above, right, then left of the medallion: the first spot that is free
-        let x = sx(n);
-        let y = sy(n) + r + 5;
-        if (!place(x - w / 2 - 4, y - 1, x + w / 2 + 4, y + 17)) {
-          y = sy(n) - r - 23;
-          if (!place(x - w / 2 - 4, y - 1, x + w / 2 + 4, y + 17)) {
-            y = sy(n) - 9;
-            x = sx(n) + r + 8 + w / 2;
-            if (!place(x - w / 2 - 4, y - 1, x + w / 2 + 4, y + 17)) {
-              x = sx(n) - r - 8 - w / 2;
-              if (!place(x - w / 2 - 4, y - 1, x + w / 2 + 4, y + 17)) return;
-            }
-          }
-        }
-        budget--;
-        const strong = n.id === selected || n.id === hover;
-        ctx.globalAlpha = 0.9;
-        ctx.strokeStyle = palette.paper;
-        ctx.lineWidth = 3.5;
-        ctx.strokeText(text, x, y);
-        ctx.fillStyle = strong ? palette.cypress : palette.ink;
-        ctx.globalAlpha = 1;
-        ctx.fillText(text, x, y);
-      };
-      for (const id of hover === selected ? [selected] : [hover, selected]) {
-        const n = id && scene.current.byId.get(id);
-        if (n && !hidden.has(n.id)) label(n, true);
-      }
-      for (const n of vis) {
-        if (n.id === hover || n.id === selected || !lit(n)) continue;
-        const focusLabel = (fid || matches) && n.kind !== "opportunity";
-        if (!focusLabel && (n.kind === "opportunity" || (n.r * z < minR && n.rank > 11))) continue;
-        label(n, false);
-      }
-      ctx.globalAlpha = 1;
-    };
-
-    const frame = (now: number) => {
-      raf = 0;
-      if (!alive) return;
-      const dt = Math.min(0.05, (now - last) / 1000 || 0.016);
-      last = now;
-      const moving = update(dt);
-      draw(dt);
-      if ((moving || ui.current.motion) && !document.hidden) raf = requestAnimationFrame(frame);
-    };
-    const invalidate = () => {
-      if (!raf && alive) {
-        last = performance.now();
-        raf = requestAnimationFrame(frame);
-      }
-    };
-
-    const local = (e: PointerEvent | WheelEvent) => {
-      const r = canvas.getBoundingClientRect();
-      return { x: e.clientX - r.left, y: e.clientY - r.top };
-    };
-    const setHot = (p: NonNullable<typeof pointer>, hot: boolean) => {
-      if (p.hot === hot) return;
-      p.hot = hot;
-      window.dispatchEvent(new CustomEvent("flock:chain-hot", { detail: hot }));
-    };
-    const setHover = (n: N | null, x = 0, y = 0) => {
-      const id = n?.id ?? null;
-      canvas.style.cursor = n ? "pointer" : pointer ? "grabbing" : "grab";
-      if (n) {
-        tip.textContent =
-          n.kind === "opportunity"
-            ? `${n.open ? "Open" : "Closed"} solicitation · posted ${day(n.posted, true)}`
-            : `${money(n.total)} · ${plural(n.awards, "award")}`;
-        tip.style.transform = `translate(${Math.min(x + 16, W - 240)}px, ${Math.max(8, y - 34)}px)`;
-      }
-      tip.style.opacity = n ? "1" : "0";
-      if (ui.current.hover !== id) {
-        ui.current.hover = id;
-        invalidate();
-      }
-    };
-
-    const onDown = (e: PointerEvent) => {
-      const p = local(e);
-      const n = nodeAt(p.x, p.y);
-      canvas.setPointerCapture(e.pointerId);
-      tween = null;
-      vel.x = vel.y = 0;
-      goal = { ...view };
-      pointer = {
-        node: n,
-        sx: p.x,
-        sy: p.y,
-        ox: n ? n.x : view.tx,
-        oy: n ? n.y : view.ty,
-        lx: p.x,
-        ly: p.y,
-        lt: performance.now(),
-        moved: false,
-        hot: false,
-      };
-      if (n) {
-        // Direct neighbors will be pulled along on soft springs.
-        springs = springs.filter((s) => s.n !== n);
-        const held = new Set(springs.map((s) => s.n));
-        for (const id of scene.current.near.get(n.id) ?? []) {
-          const q = scene.current.byId.get(id);
-          if (!q || held.has(q) || hidden.has(id) || springs.length > 60) continue;
-          springs.push({ n: q, ox: q.x, oy: q.y, tx: q.x, ty: q.y, vx: 0, vy: 0 });
-        }
-      }
-      canvas.style.cursor = "grabbing";
-    };
-    const onMove = (e: PointerEvent) => {
-      const p = local(e);
-      if (!pointer) return setHover(nodeAt(p.x, p.y), p.x, p.y);
-      if (Math.hypot(p.x - pointer.sx, p.y - pointer.sy) > 4) pointer.moved = true;
-      if (!pointer.moved) return;
-      const now = performance.now();
-      if (pointer.node) {
-        const n = pointer.node;
-        n.x = pointer.ox + (p.x - pointer.sx) / view.k;
-        n.y = pointer.oy + (p.y - pointer.sy) / view.k;
-        const dx = n.x - pointer.ox;
-        const dy = n.y - pointer.oy;
-        const around = scene.current.near.get(n.id);
-        for (const s of springs) {
-          if (!around?.has(s.n.id)) continue;
-          s.tx = s.ox + dx * 0.55;
-          s.ty = s.oy + dy * 0.55;
-        }
-        // Over the chain's ring, the medallion can be dropped onto the watchlist.
-        const close = chainRing.ready && Math.hypot(e.clientX - chainRing.x, e.clientY - chainRing.y) < 110;
-        setHot(pointer, close && n.kind !== "opportunity");
-        tip.style.opacity = "0";
-      } else {
-        const dtm = Math.max(1, now - pointer.lt) / 1000;
-        vel.x = vel.x * 0.5 + ((p.x - pointer.lx) / dtm) * 0.5;
-        vel.y = vel.y * 0.5 + ((p.y - pointer.ly) / dtm) * 0.5;
-        view = clamp({ k: view.k, tx: pointer.ox + (p.x - pointer.sx), ty: pointer.oy + (p.y - pointer.sy) });
-        goal = { ...view };
-      }
-      pointer.lx = p.x;
-      pointer.ly = p.y;
-      pointer.lt = now;
-      invalidate();
-    };
-    const onUp = () => {
-      const p = pointer;
-      pointer = null;
-      canvas.style.cursor = "grab";
-      if (!p) return;
-      const n = p.node;
-      if (n && !p.moved) {
-        const next = ui.current.selected === n.id ? null : n.id;
-        setSelected(next);
-        ui.current.selected = next;
-        if (next) focusOn(next, false);
-        tip.style.opacity = "0"; // the camera is about to move out from under it
-      } else if (!n && !p.moved) setSelected(null);
-      else if (n && p.hot) {
-        pinRef.current({ id: Number(n.id.split(":")[1]), name: n.name, tag: n.tag, kind: n.kind });
-        // pinned: the medallion and its neighbors spring back to where they were
-        springs.push({ n, ox: p.ox, oy: p.oy, tx: p.ox, ty: p.oy, vx: 0, vy: 0 });
-        for (const s of springs) {
-          s.tx = s.ox;
-          s.ty = s.oy;
-        }
-      } else if (!n && performance.now() - p.lt > 90) vel.x = vel.y = 0; // held still before letting go
-      setHot(p, false);
-      invalidate();
-    };
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const p = local(e);
-      zoomAt(Math.exp(-e.deltaY * (e.ctrlKey ? 0.012 : 0.0022)), p.x, p.y);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      const pan = (dx: number, dy: number) => {
-        tween = null;
-        goal = clamp({ k: goal.k, tx: goal.tx + dx, ty: goal.ty + dy });
-        invalidate();
-      };
-      if (e.key === "ArrowLeft") pan(80, 0);
-      else if (e.key === "ArrowRight") pan(-80, 0);
-      else if (e.key === "ArrowUp") pan(0, 80);
-      else if (e.key === "ArrowDown") pan(0, -80);
-      else if (e.key === "+" || e.key === "=") zoomAt(1.35);
-      else if (e.key === "-") zoomAt(1 / 1.35);
-      else if (e.key === "0") fit(true);
-      else if (e.key === "Escape") setSelected(null);
-      else return;
-      e.preventDefault();
-    };
-    const onLeave = () => !pointer && setHover(null);
-    const onTheme = () => {
-      palette = readPalette();
-      invalidate();
-    };
-    const readFonts = () => {
-      const s = getComputedStyle(document.documentElement);
-      fonts = {
-        serif: `${s.getPropertyValue("--font-garamond").trim() || "Georgia"}, Georgia, serif`,
-        caps: `${s.getPropertyValue("--font-cinzel").trim() || "Georgia"}, Georgia, serif`,
-      };
-      for (const n of scene.current.nodes) n.labelWidth = 0;
-    };
-
-    resize();
-    readFonts();
-    api.current = { invalidate, fit, focusOn, zoom: zoomAt, refilter };
-    document.fonts?.ready.then(() => {
-      readFonts();
-      invalidate();
-    });
-    loadAtlas().then((a) => {
-      atlas = a;
-      invalidate();
-    });
-    loadSprites().then(
-      (s) => (sprites = s),
-      () => {}, // without the sprites the graph simply has no birds
-    );
-    canvas.addEventListener("pointerdown", onDown);
-    canvas.addEventListener("pointermove", onMove);
-    canvas.addEventListener("pointerup", onUp);
-    canvas.addEventListener("pointercancel", onUp);
-    canvas.addEventListener("pointerleave", onLeave);
-    canvas.addEventListener("wheel", onWheel, { passive: false });
-    canvas.addEventListener("keydown", onKey);
-    window.addEventListener("flock:theme", onTheme);
-    // The canvas always matches its container times devicePixelRatio.
-    const ro = new ResizeObserver(() => {
-      resize();
-      invalidate();
-    });
-    ro.observe(wrap);
-    const onVisible = () => !document.hidden && invalidate();
-    document.addEventListener("visibilitychange", onVisible);
-    invalidate();
-
-    return () => {
-      alive = false;
-      cancelAnimationFrame(raf);
-      ro.disconnect();
-      canvas.removeEventListener("pointerdown", onDown);
-      canvas.removeEventListener("pointermove", onMove);
-      canvas.removeEventListener("pointerup", onUp);
-      canvas.removeEventListener("pointercancel", onUp);
-      canvas.removeEventListener("pointerleave", onLeave);
-      canvas.removeEventListener("wheel", onWheel);
-      canvas.removeEventListener("keydown", onKey);
-      window.removeEventListener("flock:theme", onTheme);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, []);
+    if (selected && hidden.has(selected)) setSelected(null);
+  }, [selected, hidden]);
 
   const select = useCallback((id: string) => {
     setSelected(id);
-    ui.current.selected = id;
     api.current.focusOn(id, false);
   }, []);
+
+  const setView = (next: ViewName) => {
+    if (next === view) return;
+    const q = new URLSearchParams(window.location.search);
+    if (next === "flat") q.set("view", "flat");
+    else q.delete("view");
+    const s = q.toString();
+    // Next folds this into its router, so useSearchParams above follows it.
+    window.history.replaceState(null, "", s ? `?${s}` : window.location.pathname);
+  };
 
   // Derived UI
   const present = useMemo(() => {
@@ -1043,24 +149,27 @@ export function GraphExplorer() {
     return [...TAGS.filter((t) => s.has(t)), ...[...s].filter((t) => !TAGS.includes(t)).sort()];
   }, [graph]);
 
-  // A category filter that the new window no longer offers is dropped, or it
-  // would hide the whole map with no pressed button to show why.
+  const agencies = useMemo(() => graph?.nodes.filter((n) => n.kind === "agency" || n.kind === "office") ?? [], [graph]);
+
+  // A category or agency filter that the new window no longer offers is
+  // dropped, or it would hide the whole map with no pressed button to show why.
   useEffect(() => {
     if (!graph) return;
     setTags((was) => {
       const next = new Set([...was].filter((t) => present.includes(t)));
       return next.size === was.size ? was : next;
     });
+    setAgency((was) => (was && !graph.nodes.some((n) => n.id === was) ? null : was));
   }, [graph, present]);
 
+  const needle = query.trim().toLowerCase();
   const hits = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q || !graph) return [];
+    if (!needle || !graph) return [];
     return graph.nodes
-      .filter((n) => n.name.toLowerCase().includes(q))
+      .filter((n) => !hidden.has(n.id) && n.name.toLowerCase().includes(needle))
       .sort((a, b) => b.total - a.total)
       .slice(0, 7);
-  }, [graph, query]);
+  }, [graph, hidden, needle]);
 
   const detail = useMemo(() => {
     if (!graph || !selected) return null;
@@ -1071,14 +180,14 @@ export function GraphExplorer() {
     for (const e of graph.edges) {
       const other = e.source === selected ? e.target : e.target === selected ? e.source : null;
       const o = other && byId.get(other);
-      if (!o) continue;
+      if (!o || hidden.has(o.id)) continue;
       const cur = around.get(o.id) ?? { node: o, amount: 0, kind: e.kind };
       cur.amount += e.amount;
       if (e.kind === "award") cur.kind = "award";
       around.set(o.id, cur);
     }
     return { node, around: [...around.values()].sort((a, b) => b.amount - a.amount).slice(0, 5) };
-  }, [graph, selected]);
+  }, [graph, selected, hidden]);
 
   const toggleTag = (t: string) =>
     setTags((was) => {
@@ -1087,29 +196,34 @@ export function GraphExplorer() {
       else next.add(t);
       return next;
     });
+  const toggleKind = (k: NodeKind) =>
+    setKinds((was) => {
+      const next = new Set(was);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
 
+  const ready3d = useCallback((ok: boolean) => setReadyIn(ok ? "3d" : null), []);
+  const readyFlat = useCallback((ok: boolean) => setReadyIn(ok ? "flat" : null), []);
+  const noWebGL = useCallback(() => setNo3d(true), []);
+
+  const span = WINDOWS.find((w) => w.days === days)?.long ?? `${days} days`;
+  const shown = graph ? graph.nodes.length - hidden.size : 0;
   const empty = ready && graph && graph.nodes.length === 0;
+  const filteredOut = ready && graph && graph.nodes.length > 0 && shown === 0;
   const caps = "font-caps text-[0.66rem] uppercase tracking-[0.14em]";
+  const shared = { graph, hidden, tags, selected, query: needle, ready, api, onSelect: setSelected };
 
   return (
-    <div ref={wrapRef} className="fixed inset-0 z-20 overflow-hidden bg-paper">
+    <div data-graph-root className="fixed inset-0 z-20 overflow-hidden bg-paper">
       {/* Plain parchment. A hairline frame; labels keep clear of it. */}
       <div aria-hidden="true" className="pointer-events-none absolute inset-3 rounded-sm border border-hair" />
-      <canvas
-        ref={canvasRef}
-        tabIndex={0}
-        role="application"
-        aria-label="Funding graph. Drag to pan, scroll or plus and minus to zoom, arrow keys to move, zero to fit. Use search to find and select an entity."
-        className={`absolute inset-0 h-full w-full cursor-grab touch-none outline-none transition-opacity duration-700 ${
-          ready ? "opacity-100" : "opacity-0"
-        }`}
-      />
-      {/* Paper grain: above the canvas, below the controls. */}
-      <div className="grain grain-local" aria-hidden="true" />
-      <div
-        ref={tipRef}
-        className="fig paper-card pointer-events-none absolute left-0 top-0 whitespace-nowrap px-3 py-1 opacity-0 !shadow-none transition-opacity duration-150"
-      />
+      {view === "flat" ? (
+        <GraphFlat {...shared} onReady={readyFlat} />
+      ) : (
+        <Graph3D {...shared} onReady={ready3d} onUnsupported={noWebGL} />
+      )}
 
       {!ready && !failed && (
         <p className="note pointer-events-none absolute inset-0 grid place-items-center">drawing the map…</p>
@@ -1126,104 +240,45 @@ export function GraphExplorer() {
           <Empty title="Nothing landed in this window">Try a longer stretch of time.</Empty>
         </div>
       )}
-
-      {/* Left rail */}
-      <aside
-        data-obstacle
-        aria-label="Graph filters"
-        className="absolute left-3 right-3 top-[4.5rem] flex flex-col gap-4 md:left-7 md:right-auto md:top-20 md:w-64"
-      >
-        <div>
-          <label className="marble flex w-full cursor-text items-center rounded-full px-4 py-1.5">
-            <span className="sr-only">Search the graph</span>
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Find a company or agency"
-              className="w-full bg-transparent text-[1.05rem] text-ink outline-none placeholder:italic placeholder:text-muted"
-              type="search"
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </label>
-          {query.trim() && (
-            <div className="paper-card mt-2 overflow-hidden p-2">
-              {hits.length ? (
-                <ul>
-                  {hits.map((h) => (
-                    <li key={h.id}>
-                      <button
-                        type="button"
-                        onClick={() => select(h.id)}
-                        className="flex w-full cursor-pointer items-center gap-2.5 rounded px-2 py-1 text-left hover:bg-hair"
-                      >
-                        <MedallionImg name={medallionFor(h.tag, h.kind)} size={24} />
-                        <span className="truncate">{h.name}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="px-2 py-1.5 italic text-muted">No one by that name in this window.</p>
-              )}
-            </div>
-          )}
+      {filteredOut && (
+        <div className="pointer-events-none absolute inset-0 grid place-items-center">
+          <Empty title="Nothing matches these filters">
+            Loosen one of them, or{" "}
+            <button type="button" onClick={reset} className="pointer-events-auto cursor-pointer text-cypress underline">
+              clear them all
+            </button>
+            .
+          </Empty>
         </div>
+      )}
 
-        <div className="hidden md:block">
-          <p className="label mb-2">Categories</p>
-          {/* Several categories share one medallion, so every filter carries its name. */}
-          <ul aria-label="Filter by category" className="marble max-h-[calc(100vh-21rem)] space-y-0.5 overflow-y-auto rounded-[1.25rem] p-1.5">
-            {present.map((t) => (
-              <li key={t}>
-                <button
-                  type="button"
-                  aria-pressed={tags.has(t)}
-                  onClick={() => toggleTag(t)}
-                  className={`flex w-full cursor-pointer items-center gap-2.5 rounded-full py-0.5 pl-0.5 pr-3 text-left text-[0.98rem] leading-tight transition-colors ${
-                    tags.has(t)
-                      ? "bg-sage/45 text-ink shadow-[inset_0_0_0_1.5px_var(--cypress)]"
-                      : "text-muted hover:bg-hair hover:text-ink"
-                  }`}
-                >
-                  <MedallionImg name={medallionForTag(t)} size={28} />
-                  <span className="min-w-0 truncate">{tagLabel(t)}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-2 text-[0.98rem] italic leading-snug text-muted">
-            {tags.size ? `${tags.size} of ${present.length} shown` : "All categories"}
-            {tags.size > 0 && (
-              <button type="button" onClick={() => setTags(new Set())} className="ml-2 cursor-pointer not-italic underline">
-                clear
-              </button>
-            )}
-          </p>
-        </div>
+      <GraphFilters
+        query={query}
+        onQuery={setQuery}
+        hits={hits}
+        onPick={select}
+        days={days}
+        onDays={setDays}
+        present={present}
+        tags={tags}
+        onToggleTag={toggleTag}
+        onClearTags={() => setTags(new Set())}
+        agencies={agencies}
+        agency={agency}
+        onAgency={setAgency}
+        min={min}
+        onMin={setMin}
+        kinds={kinds}
+        onToggleKind={toggleKind}
+        watch={watch}
+        onWatch={setWatch}
+        pins={pins.length}
+        active={active}
+        onReset={reset}
+      />
 
-        <div>
-          <p className="label mb-2 hidden md:block">Window</p>
-          <div className="marble inline-flex rounded-full p-1" role="group" aria-label="Time window">
-            {WINDOWS.map((w) => (
-              <button
-                key={w.days}
-                type="button"
-                aria-pressed={days === w.days}
-                onClick={() => setDays(w.days)}
-                className={`cursor-pointer rounded-full px-3 py-0.5 transition-colors ${caps} ${
-                  days === w.days ? "bg-card text-ink shadow-[0_0_0_1px_var(--frame)]" : "text-muted hover:text-ink"
-                }`}
-              >
-                {w.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </aside>
-
-      {/* Legend and zoom */}
-      <div className="absolute bottom-7 left-12 hidden max-w-[calc(100%-15rem)] flex-wrap items-center gap-x-5 gap-y-1 text-[0.95rem] italic text-muted md:flex">
+      {/* Legend */}
+      <div className="absolute bottom-7 left-12 hidden max-w-[calc(100%-22rem)] flex-wrap items-center gap-x-5 gap-y-1 text-[0.95rem] italic text-muted md:flex">
         <span className="flex items-center gap-2">
           <MedallionImg name="column" size={22} /> agency
         </span>
@@ -1242,16 +297,38 @@ export function GraphExplorer() {
           <span className="inline-block h-[3px] w-6 rounded-full bg-pompeii" /> dollars awarded
         </span>
       </div>
-      <div className="marble absolute bottom-6 right-12 flex items-center rounded-full p-1">
-        <button type="button" className="h-7 w-7 cursor-pointer rounded-full hover:bg-hair" aria-label="Zoom out" onClick={() => api.current.zoom(1 / 1.4)}>
-          −
-        </button>
-        <button type="button" className={`h-7 cursor-pointer rounded-full px-2 hover:bg-hair ${caps}`} onClick={() => api.current.fit(true)}>
-          fit
-        </button>
-        <button type="button" className="h-7 w-7 cursor-pointer rounded-full hover:bg-hair" aria-label="Zoom in" onClick={() => api.current.zoom(1.4)}>
-          +
-        </button>
+
+      {/* View and zoom */}
+      <div className="absolute bottom-6 right-12 flex items-center gap-2">
+        <div className="marble inline-flex rounded-full p-1" role="group" aria-label="Graph view">
+          {(["3d", "flat"] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              aria-pressed={view === v}
+              aria-label={v === "3d" ? "3D view" : "Flat view"}
+              disabled={v === "3d" && no3d}
+              title={v === "3d" && no3d ? "This browser cannot draw the 3D view" : undefined}
+              onClick={() => setView(v)}
+              className={`h-7 cursor-pointer rounded-full px-3 transition-colors disabled:cursor-default disabled:opacity-50 ${caps} ${
+                view === v ? "bg-card text-ink shadow-[0_0_0_1px_var(--frame)]" : "text-muted hover:text-ink"
+              }`}
+            >
+              {v === "3d" ? "3D" : "Flat"}
+            </button>
+          ))}
+        </div>
+        <div className="marble flex items-center rounded-full p-1">
+          <button type="button" className="h-7 w-7 cursor-pointer rounded-full hover:bg-hair" aria-label="Zoom out" onClick={() => api.current.zoom(1 / 1.4)}>
+            −
+          </button>
+          <button type="button" className={`h-7 cursor-pointer rounded-full px-2 hover:bg-hair ${caps}`} onClick={() => api.current.fit(true)}>
+            fit
+          </button>
+          <button type="button" className="h-7 w-7 cursor-pointer rounded-full hover:bg-hair" aria-label="Zoom in" onClick={() => api.current.zoom(1.4)}>
+            +
+          </button>
+        </div>
       </div>
 
       {/* Right panel */}
@@ -1289,7 +366,7 @@ export function GraphExplorer() {
               </dl>
             ) : (
               <dl className="fig mt-4 grid grid-cols-2 gap-y-1">
-                <dt className="text-muted">Awarded, {WINDOWS.find((w) => w.days === days)?.label}</dt>
+                <dt className="text-muted">{days ? `Awarded, ${span}` : "Awarded, on record"}</dt>
                 <dd className="text-right text-pompeii">{money(detail.node.total)}</dd>
                 <dt className="text-muted">Awards</dt>
                 <dd className="text-right">{detail.node.awards}</dd>
@@ -1351,7 +428,9 @@ export function GraphExplorer() {
         )}
       </AnimatePresence>
       <span className="sr-only" aria-live="polite">
-        {ready && graph ? `${graph.nodes.length} entities, last ${days} days` : "Drawing the map"}
+        {ready && graph
+          ? `${shown} of ${graph.nodes.length} entities shown, ${days ? `last ${days} days` : "everything on record"}, ${view === "3d" ? "3D" : "flat"} view`
+          : "Drawing the map"}
       </span>
     </div>
   );

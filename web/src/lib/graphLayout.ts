@@ -1,7 +1,7 @@
 import Graph from "graphology";
 import forceAtlas2 from "graphology-layout-forceatlas2";
 import noverlap from "graphology-layout-noverlap";
-import type { Graph as ApiGraph, GraphEdge, GraphNode } from "./api";
+import type { Graph as ApiGraph, GraphEdge, GraphNode, NodeKind } from "./api";
 import { medallionFor, type MedallionName } from "./art";
 import { TAGS } from "./tags";
 
@@ -13,6 +13,12 @@ import { TAGS } from "./tags";
 export type N = GraphNode & {
   x: number;
   y: number;
+  /** depth: always 0 in the flat layout, set by the 3D layout */
+  z: number;
+  /** velocity, used only while the 3D layout settles */
+  vx?: number;
+  vy?: number;
+  vz?: number;
   /** radius in world pixels: sqrt of dollars, clamped */
   r: number;
   /** which medallion image the node is drawn with */
@@ -48,13 +54,24 @@ export function radius(n: GraphNode): number {
 
 const pause = () => new Promise<void>((r) => setTimeout(r, 0));
 
-export async function layoutGraph(data: ApiGraph, alive: () => boolean): Promise<Scene | null> {
+/** Categories in the graph, in the taxonomy's order (unknown ones last, by name). */
+export function orderTags(tags: Iterable<string>): string[] {
+  return [...new Set(tags)].sort(
+    (a, b) => ((TAGS.indexOf(a) + 99) % 99) - ((TAGS.indexOf(b) + 99) % 99) || a.localeCompare(b),
+  );
+}
+
+/** The API graph as drawable nodes and links, before any layout: sizes,
+ *  medallions, label priority and who neighbors whom. Each call returns fresh
+ *  objects, so the flat and 3D layouts never share positions. */
+export function prepare(data: ApiGraph): Pick<Scene, "nodes" | "links" | "near" | "byId"> {
   const byTotal = [...data.nodes].sort((a, b) => b.total - a.total);
   const rank = new Map(byTotal.map((n, i) => [n.id, i]));
   const nodes: N[] = data.nodes.map((n) => ({
     ...n,
     x: 0,
     y: 0,
+    z: 0,
     r: radius(n),
     medallion: medallionFor(n.tag, n.kind),
     rank: rank.get(n.id) ?? 0,
@@ -63,12 +80,29 @@ export async function layoutGraph(data: ApiGraph, alive: () => boolean): Promise
     labelWidth: 0,
   }));
   const byId = new Map(nodes.map((n) => [n.id, n]));
+  const links: L[] = [];
+  for (const e of data.edges) {
+    const s = byId.get(e.source);
+    const t = byId.get(e.target);
+    if (!s || !t || s === t) continue;
+    const w = e.kind === "award" ? Math.max(0, Math.min(4, Math.log10(Math.max(e.amount, 1) / 1e5))) : 0;
+    links.push({ ...e, source: s, target: t, w });
+  }
+  const near = new Map<string, Set<string>>();
+  for (const n of nodes) near.set(n.id, new Set());
+  for (const l of links) {
+    near.get(l.source.id)!.add(l.target.id);
+    near.get(l.target.id)!.add(l.source.id);
+  }
+  return { nodes, links, near, byId };
+}
+
+export async function layoutGraph(data: ApiGraph, alive: () => boolean): Promise<Scene | null> {
+  const { nodes, links, near, byId } = prepare(data);
 
   // Each category gets an invisible anchor that its members are tied to, so
   // ForceAtlas2 gathers a category into one region of the map.
-  const present = [...new Set(nodes.map((n) => n.tag).filter((t): t is string => !!t))].sort(
-    (a, b) => ((TAGS.indexOf(a) + 99) % 99) - ((TAGS.indexOf(b) + 99) % 99) || a.localeCompare(b),
-  );
+  const present = orderTags(nodes.map((n) => n.tag).filter((t): t is string => !!t));
   const g = new Graph({ type: "undirected", multi: false });
   present.forEach((tag, i) => {
     const a = (i / present.length) * Math.PI * 2 - Math.PI / 2;
@@ -80,15 +114,9 @@ export async function layoutGraph(data: ApiGraph, alive: () => boolean): Promise
     g.addNode(n.id, { x: anchor.x + ((j % 41) - 20) * 3, y: anchor.y + ((j % 29) - 14) * 3, size: n.r });
     if (n.tag && !n.org) g.addEdge(n.id, `tag:${n.tag}`, { weight: 2.5 });
   });
-  const links: L[] = [];
-  for (const e of data.edges) {
-    const s = byId.get(e.source);
-    const t = byId.get(e.target);
-    if (!s || !t || s === t) continue;
-    const w = e.kind === "award" ? Math.max(0, Math.min(4, Math.log10(Math.max(e.amount, 1) / 1e5))) : 0;
-    links.push({ ...e, source: s, target: t, w });
-    const weight = e.kind === "award" ? 0.5 + w * 0.3 : e.kind === "part_of" ? 1.5 : 0.8;
-    g.mergeEdge(s.id, t.id, { weight });
+  for (const l of links) {
+    const weight = l.kind === "award" ? 0.5 + l.w * 0.3 : l.kind === "part_of" ? 1.5 : 0.8;
+    g.mergeEdge(l.source.id, l.target.id, { weight });
   }
 
   const big = g.order > 600;
@@ -183,12 +211,6 @@ export async function layoutGraph(data: ApiGraph, alive: () => boolean): Promise
   }
   const regions = [...regionAcc].map(([tag, r]) => ({ tag, x: r.x / r.n, y: r.y / r.n, top: r.top, n: r.n }));
 
-  const near = new Map<string, Set<string>>();
-  for (const n of nodes) near.set(n.id, new Set());
-  for (const l of links) {
-    near.get(l.source.id)!.add(l.target.id);
-    near.get(l.target.id)!.add(l.source.id);
-  }
   nodes.sort((a, b) => a.rank - b.rank);
   return { nodes, links, regions, near, byId, bounds };
 }
@@ -220,4 +242,127 @@ export function stressGraph(count: number): ApiGraph {
     }
   }
   return { days: 90, nodes, edges };
+}
+
+// ---- Filters ----
+//
+// One filter for both views of the graph. It works on the API graph, before
+// any layout, and answers with the ids to hide; an edge is drawn only when both
+// of its ends are shown.
+
+export type GraphFilters = {
+  /** categories to keep; empty means all of them */
+  tags: ReadonlySet<string>;
+  /** one agency or office ("org:12"): it, its offices, their awardees and solicitations */
+  agency: string | null;
+  /** companies awarded less than this many dollars in the window are hidden */
+  min: number;
+  /** the node types that are shown */
+  kinds: ReadonlySet<NodeKind>;
+  /** only the watchlist and its direct neighbors */
+  watch: boolean;
+};
+
+export const ALL_KINDS: NodeKind[] = ["company", "agency", "office", "opportunity"];
+
+type Index = {
+  near: Map<string, string[]>;
+  /** agency -> the offices that are part of it */
+  offices: Map<string, string[]>;
+  byId: Map<string, GraphNode>;
+};
+const indexes = new WeakMap<ApiGraph, Index>();
+
+function indexOf(data: ApiGraph): Index {
+  let ix = indexes.get(data);
+  if (ix) return ix;
+  const byId = new Map(data.nodes.map((n) => [n.id, n]));
+  const near = new Map<string, string[]>(data.nodes.map((n) => [n.id, []]));
+  const offices = new Map<string, string[]>();
+  for (const e of data.edges) {
+    if (e.source === e.target || !byId.has(e.source) || !byId.has(e.target)) continue;
+    near.get(e.source)!.push(e.target);
+    near.get(e.target)!.push(e.source);
+    // part_of points from the office to its parent
+    if (e.kind === "part_of") offices.set(e.target, [...(offices.get(e.target) ?? []), e.source]);
+  }
+  ix = { near, offices, byId };
+  indexes.set(data, ix);
+  return ix;
+}
+
+const isOrg = (n: GraphNode) => n.kind === "agency" || n.kind === "office";
+
+/** The ids the filters hide. `pinned` are the watchlist's node ids ("org:12"). */
+export function hiddenNodes(data: ApiGraph, f: GraphFilters, pinned: ReadonlySet<string>): Set<string> {
+  const { near, offices, byId } = indexOf(data);
+  const hidden = new Set<string>();
+
+  // The chosen agency with every office beneath it, and everything they touch.
+  let group: Set<string> | null = null;
+  let reach: Set<string> | null = null;
+  if (f.agency && byId.has(f.agency)) {
+    group = new Set([f.agency]);
+    const todo = [f.agency];
+    while (todo.length) {
+      for (const o of offices.get(todo.pop()!) ?? []) {
+        if (group.has(o)) continue;
+        group.add(o);
+        todo.push(o);
+      }
+    }
+    reach = new Set(group);
+    for (const id of group) for (const o of near.get(id) ?? []) reach.add(o);
+  }
+
+  let watched: Set<string> | null = null;
+  if (f.watch) {
+    watched = new Set();
+    for (const id of pinned) {
+      if (!byId.has(id)) continue;
+      watched.add(id);
+      for (const o of near.get(id) ?? []) watched.add(o);
+    }
+  }
+
+  for (const n of data.nodes) {
+    const org = isOrg(n);
+    if (
+      !f.kinds.has(n.kind) ||
+      (group && reach && !(org ? group : reach).has(n.id)) ||
+      (watched && !watched.has(n.id)) ||
+      (!org && f.tags.size > 0 && !n.tags.some((t) => f.tags.has(t))) ||
+      (n.kind === "company" && n.total < f.min)
+    )
+      hidden.add(n.id);
+  }
+
+  // A solicitation whose every answering company fell below the minimum has
+  // nothing left to show. One that nobody answered yet stays with its agency.
+  if (f.min > 0) {
+    for (const n of data.nodes) {
+      if (n.kind !== "opportunity" || hidden.has(n.id)) continue;
+      const answered = (near.get(n.id) ?? []).filter((o) => byId.get(o)!.kind === "company");
+      if (answered.length && answered.every((o) => byId.get(o)!.total < f.min)) hidden.add(n.id);
+    }
+  }
+
+  // When the map is narrowed by category or amount, an agency or office stays
+  // only while it still connects to something shown: offices first, so an
+  // agency can stay for the sake of its office. The chosen agency and pinned
+  // organizations are never dropped this way.
+  if (f.tags.size > 0 || f.min > 0) {
+    for (const pass of ["office", "agency"] as const) {
+      for (const n of data.nodes) {
+        if (n.kind !== pass || hidden.has(n.id)) continue;
+        if (n.id === f.agency || (watched && pinned.has(n.id))) continue;
+        const linked = (near.get(n.id) ?? []).some((o) => {
+          const q = byId.get(o)!;
+          return !hidden.has(o) && (!isOrg(q) || (pass === "agency" && q.kind === "office"));
+        });
+        if (!linked) hidden.add(n.id);
+      }
+    }
+  }
+  return hidden;
 }
