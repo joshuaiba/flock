@@ -2,14 +2,15 @@
 // web/scripts/build-art.py). Every decorative image on the site comes from
 // here. Each file is one flat color with transparency and exists in two
 // tones: `on-dark` (light lines, for the dark page) and `on-light` (ink lines,
-// for paper). Widths are the variants that exist on disk: never guess a size.
+// for paper and Classic). Widths are the variants that exist on disk: never
+// guess a size. The Classic mode's painted art is listed apart, at the end.
 
 export type Tone = "on-dark" | "on-light";
 export const TONES: readonly Tone[] = ["on-dark", "on-light"];
 
-/** The tone that suits a mode. */
-export function toneFor(theme: "dark" | "paper"): Tone {
-  return theme === "paper" ? "on-light" : "on-dark";
+/** The tone that suits a mode: light lines on the dark page, ink on the rest. */
+export function toneFor(theme: "dark" | "paper" | "classic"): Tone {
+  return theme === "dark" ? "on-dark" : "on-light";
 }
 
 export const ART = {
@@ -54,6 +55,36 @@ export function artUrl(name: ArtName, tone: Tone, width?: number): string {
 
 export function artSrcSet(name: ArtName, tone: Tone): string {
   return ART[name].widths.map((w) => `/art/${tone}/${name}-${w}.webp ${w}w`).join(", ");
+}
+
+// The Classic mode's painted art: full color, in one tone, under
+// /art/classic. Only Classic shows it, and only on the landing page; in Dark
+// and Paper none of it is fetched (see Art.tsx). The painted swallow strips
+// are in lib/sprites.ts with the engraved ones.
+export const CLASSIC_ART = {
+  "classic/hero/sky": { widths: [836, 1672], w: 1672, h: 941 },
+  // On the engraved scene's canvas, so it fills the same box.
+  "classic/hero/scene": { widths: [1085, 2170], w: 2170, h: 905 },
+  // The leafy frame's two halves: olive and urn, pomegranate and column.
+  "classic/hero/frame-left": { widths: [560, 976], w: 976, h: 725 },
+  "classic/hero/frame-right": { widths: [560, 977], w: 977, h: 725 },
+  "classic/hero/rowboat": { widths: [160, 320], w: 320, h: 149 },
+  "classic/hero/sailboat": { widths: [160, 320], w: 320, h: 362 },
+  // About's frieze in color, its edges already faded to transparent.
+  "classic/frieze/pergamon-athena": { widths: [600, 1200], w: 2164, h: 1384 },
+  // Opaque: the footer fades its top edge with a mask (footer.css).
+  "classic/footer/terrace": { widths: [1086, 2172], w: 2172, h: 724 },
+} as const;
+
+export type ClassicArtName = keyof typeof CLASSIC_ART;
+
+export function classicUrl(name: ClassicArtName): string {
+  const widths = CLASSIC_ART[name].widths;
+  return `/art/${name}-${widths[widths.length - 1]}.webp`;
+}
+
+export function classicSrcSet(name: ClassicArtName): string {
+  return CLASSIC_ART[name].widths.map((w) => `/art/${name}-${w}.webp ${w}w`).join(", ");
 }
 
 export type MedallionName = "wing" | "anchor" | "compass" | "shield" | "laurel";

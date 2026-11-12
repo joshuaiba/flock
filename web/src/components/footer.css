@@ -55,3 +55,13 @@
     --line-h: 8rem;
   }
 }
+
+/* Classic: the painted terrace, in full color. The painting is opaque, so its
+   top edge is faded here, over the stretch where the engraving fades itself
+   (clear down to a fifth of its height, whole from about half). Its foot is
+   faded a little as well, or the paving would end in a hard line above the
+   footer's text. */
+:root[data-theme="classic"] .site-footer-art {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 20%, #000 48%, #000 90%, transparent);
+  mask-image: linear-gradient(to bottom, transparent 20%, #000 48%, #000 90%, transparent);
+}

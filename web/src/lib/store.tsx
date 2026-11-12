@@ -9,8 +9,10 @@ import { useCallback, useMemo, useSyncExternalStore } from "react";
 export type Pin = { id: number; name: string; tag: string | null; kind: string };
 export const MAX_PINS = 5;
 
-/** The two modes: light lines on a near-black page, or ink on paper. */
-export type Theme = "dark" | "paper";
+/** The modes: light lines on a near-black page, ink on paper, or Classic, the
+ *  painted design the site began with. */
+export type Theme = "dark" | "paper" | "classic";
+const THEMES: readonly Theme[] = ["dark", "paper", "classic"];
 type Persisted = { theme: Theme; still: boolean; pins: Pin[] };
 const SERVER: Persisted = { theme: "dark", still: false, pins: [] };
 
@@ -40,7 +42,7 @@ function snapshot(): Persisted {
     const root = document.documentElement;
     const pins = read<Pin[]>("flock.pins", []);
     state = {
-      theme: root.dataset.theme === "paper" ? "paper" : "dark",
+      theme: THEMES.find((t) => t === root.dataset.theme) ?? "dark",
       still: root.hasAttribute("data-still"),
       pins: Array.isArray(pins) ? pins.slice(0, MAX_PINS) : [],
     };

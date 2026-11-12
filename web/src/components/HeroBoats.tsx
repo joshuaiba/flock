@@ -9,7 +9,8 @@ import { Art } from "./Art";
 // this component only holds the animations while nobody can see them, when
 // the hero has scrolled off screen or the tab is hidden. With motion off (the
 // OS setting, or Motion: Off in the Display menu) nothing runs at all and both
-// boats sit where the design puts them.
+// boats sit where the design puts them. In Classic the painted boats take the
+// engraved ones' places, with the same sizes and the same motion.
 
 export function HeroBoats() {
   const root = useRef<HTMLDivElement>(null);
@@ -38,11 +39,11 @@ export function HeroBoats() {
   return (
     <div ref={root} className="hero-boats">
       <div className="hero-boat hero-rowboat">
-        <Art name="hero/rowboat" sizes="max(8.2vw, 74px)" className="hero-bob" />
+        <Art name="hero/rowboat" classic="classic/hero/rowboat" sizes="max(8.2vw, 74px)" className="hero-bob" />
       </div>
       {/* Nearer the viewer than the rowboat, so it passes in front of it. */}
       <div className="hero-boat hero-sailboat">
-        <Art name="hero/sailboat" sizes="max(6.6vw, 60px)" className="hero-bob" />
+        <Art name="hero/sailboat" classic="classic/hero/sailboat" sizes="max(6.6vw, 60px)" className="hero-bob" />
       </div>
     </div>
   );

@@ -4,10 +4,11 @@
         /path/to/flock-art/flock-hero /path/to/flock-art/forum-additions/art/figures \\
         /path/to/flock-classic
 
-Writes web/public/art/on-dark/ (light lines, for the dark page) and
-web/public/art/on-light/ (ink lines, for paper). Every file in the pack is one
-flat color with an alpha channel, in both tones; the site shows the tone that
-suits the mode. The files are used as they are: this only resizes (1x and 2x
+Writes web/public/art/on-dark/ (light lines, for the dark page),
+web/public/art/on-light/ (ink lines, for paper and Classic) and
+web/public/art/classic/ (the painted art that only the Classic mode shows).
+Every file in the engraving pack is one flat color with an alpha channel, in
+both tones; the site shows the tone that suits the mode. The files are used as they are: this only resizes (1x and 2x
 variants, never upscaling) and crops, as the pack's INSTRUCTIONS.md allows.
 Nothing is redrawn, recolored or sharpened.
 
@@ -21,7 +22,9 @@ come as `<name>-on-dark.png` and `<name>-on-light.png`.
 
 The fourth folder is the Classic pack. Its `about-frieze/` holds the About
 section's frieze, a photograph of the Pergamon Altar kept as a tonal ghost in
-both tones (`pergamon-athena-on-dark.png`, `-on-light.png`).
+both tones (`pergamon-athena-on-dark.png`, `-on-light.png`). The rest of it is
+the painted design the site began with, in full color and one tone: the
+Display menu's third mode, Classic, shows it on the landing page.
 
 Only the art the site uses is built. The engraving pack also has an older hero
 scene, two more glide poses, the laurel garland, the Greek key and the title
@@ -93,6 +96,26 @@ FRIEZE: list[tuple[str, str, list[int]]] = [
     ("about-frieze/pergamon-athena", "frieze/pergamon-athena", [600, 1200]),
 ]
 
+# The Classic mode's painted art, from the Classic pack: full color, one tone.
+# (source without extension, output name under classic/, widths). The boats
+# are built at the engraved boats' sizes and the sprite strips at the engraved
+# strips' size (half: 130x195 cells), so the site draws them the same way.
+CLASSIC: list[tuple[str, str, list[int]]] = [
+    ("hero/sky", "hero/sky", [836, 1672]),
+    # Village and lake on the engraved scene's 2170x905 canvas, sky transparent.
+    ("hero/scene", "hero/scene", [1085, 2170]),
+    # The two halves of the leafy frame, drawn at most 560px wide.
+    ("hero/frame-left", "hero/frame-left", [560, 976]),
+    ("hero/frame-right", "hero/frame-right", [560, 977]),
+    ("props/rowboat", "hero/rowboat", [160, 320]),
+    ("props/sailboat", "hero/sailboat", [160, 320]),
+    ("sprites/swallow-award-strip", "sprites/swallow-award", [1040]),
+    ("sprites/swallow-solicitation-strip", "sprites/swallow-solicitation", [1040]),
+    # About's frieze in color, its edges already faded to transparent.
+    ("about-frieze/pergamon-athena-color", "frieze/pergamon-athena", [600, 1200]),
+    ("footer/terrace", "footer/terrace", [1086, 2172]),
+]
+
 
 def find(folder: Path, stem: str) -> Path:
     for ext in (".png", ".webp"):
@@ -140,6 +163,8 @@ def main(pack: Path, hero: Path, figures: Path, classic: Path) -> None:
             )
         for src, name, widths in FRIEZE:
             total += build(find(classic, f"{src}-{tone}"), OUT / tone / name, widths, None)
+    for src, name, widths in CLASSIC:
+        total += build(find(classic, src), OUT / "classic" / name, widths, None)
     print(f"total {total / 1e6:.1f} MB")
 
 

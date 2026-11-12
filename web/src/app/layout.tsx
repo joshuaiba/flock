@@ -25,13 +25,14 @@ export const metadata: Metadata = {
 
 // Runs before first paint so the mode and the "still" preference never flash.
 // Dark is the default. A value stored by the painted design is carried over:
-// "day" becomes "paper" and "dusk" becomes "dark".
-const BOOT = `try{var d=document.documentElement,k="flock.theme",s=localStorage.getItem(k),t=s?JSON.parse(s):"dark",m=t==="paper"||t==="day"?"paper":"dark";if(s&&m!==t)localStorage.setItem(k,JSON.stringify(m));d.dataset.theme=m;if(JSON.parse(localStorage.getItem("flock.still")||"false"))d.setAttribute("data-still","")}catch(e){}`;
+// "day" becomes "paper" and "dusk" becomes "dark". ("classic" is today's name
+// for the painted look, chosen in the Display menu.)
+const BOOT = `try{var d=document.documentElement,k="flock.theme",s=localStorage.getItem(k),t=s?JSON.parse(s):"dark",m=t==="paper"||t==="day"?"paper":t==="classic"?t:"dark";if(s&&m!==t)localStorage.setItem(k,JSON.stringify(m));d.dataset.theme=m;if(JSON.parse(localStorage.getItem("flock.still")||"false"))d.setAttribute("data-still","")}catch(e){}`;
 
 // Layers, in a fixed order: engravings (z-0, inside pages), the birds (z-10,
 // the flock canvas, drawn on the landing page only), text and controls (z-20
 // on the landing page, so the flock passes behind the words), then the top bar
-// (z-30).
+// (z-30). Classic adds a paper grain at z-15 (globals.css).
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html

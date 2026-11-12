@@ -2,12 +2,24 @@
 // right: award birds in the accent, solicitation birds in the text color.
 // Plus three single glide poses, drawn in the text color only. Everything
 // comes in two tones (light lines for the dark page, ink lines for paper); a
-// tone is loaded once and shared.
+// set is loaded once and shared.
 //
-// Strip metadata is from the pack's sprite-meta.json, at half size: the site
+// Classic has a third set: the painted strips (a brown award bird and a pale
+// blue solicitation bird), with the same cells, frame count and speed. It has
+// no glide poses of its own, so a gliding bird holds the strip's flattest
+// frame.
+//
+// Strip metadata is from the packs' sprite-meta.json, at half size: the site
 // ships 130x195 cells, sharp for birds up to 60px wide on a 2x display.
 
-import type { Tone } from "./art";
+import { toneFor, type Tone } from "./art";
+
+export type SpriteSet = Tone | "classic";
+
+/** The sprites a mode draws with (the value of <html data-theme>). */
+export function spriteSetFor(theme: string | undefined): SpriteSet {
+  return theme === "classic" ? "classic" : toneFor(theme === "paper" ? "paper" : "dark");
+}
 
 export const SPRITE = { cellW: 130, cellH: 195, frames: 8, fps: 12 } as const;
 
@@ -30,7 +42,7 @@ export type Sprites = {
   glides: HTMLImageElement[];
 };
 
-const pending = new Map<Tone, Promise<Sprites>>();
+const pending = new Map<SpriteSet, Promise<Sprites>>();
 
 function load(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -42,26 +54,26 @@ function load(src: string): Promise<HTMLImageElement> {
   });
 }
 
-function spriteUrl(tone: Tone, kind: "award" | "solicitation"): string {
-  return `/art/${tone}/sprites/swallow-${kind}-1040.webp`;
+function spriteUrl(set: SpriteSet, kind: "award" | "solicitation"): string {
+  return `/art/${set}/sprites/swallow-${kind}-1040.webp`;
 }
 
-/** Load one tone's sprite images (once). A failed load is forgotten, so the
+/** Load one set's sprite images (once). A failed load is forgotten, so the
  *  next caller tries again. */
-export function loadSprites(tone: Tone): Promise<Sprites> {
-  let p = pending.get(tone);
+export function loadSprites(set: SpriteSet): Promise<Sprites> {
+  let p = pending.get(set);
   if (!p) {
     p = Promise.all([
-      load(spriteUrl(tone, "award")),
-      load(spriteUrl(tone, "solicitation")),
-      ...GLIDES.map((g) => load(`/art/${tone}/props/${g.file}.webp`)),
+      load(spriteUrl(set, "award")),
+      load(spriteUrl(set, "solicitation")),
+      ...(set === "classic" ? [] : GLIDES.map((g) => load(`/art/${set}/props/${g.file}.webp`))),
     ])
       .then(([award, solicitation, ...glides]) => ({ award, solicitation, glides }))
       .catch((e) => {
-        pending.delete(tone);
+        pending.delete(set);
         throw e;
       });
-    pending.set(tone, p);
+    pending.set(set, p);
   }
   return p;
 }
@@ -93,9 +105,10 @@ export function drawSwallow(ctx: CanvasRenderingContext2D, s: Sprites, b: Swallo
   if (left) ctx.scale(-1, 1);
   ctx.rotate(tilt);
   ctx.globalAlpha = b.alpha ?? 1;
-  if (b.glide != null && !b.award) {
+  if (b.glide != null && !b.award && s.glides.length) {
     // The glide art is in the text color, so only solicitation birds use it;
-    // an award bird glides on the strip's flattest frame, in the accent.
+    // an award bird glides on the strip's flattest frame, in the accent. (So
+    // does every bird of a set without glide art.)
     const g = GLIDES[b.glide % GLIDES.length];
     const w = b.width * 0.92;
     const h = (w * g.h) / g.w;

@@ -1,5 +1,5 @@
 // The palette for the graph's canvases, read from the CSS tokens (see
-// app/globals.css) so they follow the mode: dark by default, or paper.
+// app/globals.css) so they follow the mode: dark by default, paper or Classic.
 
 export type Palette = {
   /** the page */
@@ -15,7 +15,7 @@ export type Palette = {
   line2: string;
   /** dollars awarded: award edges */
   accent: string;
-  /** true in paper mode */
+  /** true on a light ground: paper and Classic */
   paper: boolean;
 };
 
@@ -32,6 +32,6 @@ export function readPalette(): Palette {
     line: v("--line"),
     line2: v("--line2"),
     accent: v("--accent"),
-    paper: document.documentElement.dataset.theme === "paper",
+    paper: document.documentElement.dataset.theme !== "dark",
   };
 }

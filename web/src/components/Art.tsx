@@ -1,4 +1,15 @@
-import { ART, artSrcSet, artUrl, TONES, type ArtName, type MedallionName } from "@/lib/art";
+import {
+  ART,
+  artSrcSet,
+  artUrl,
+  CLASSIC_ART,
+  classicSrcSet,
+  classicUrl,
+  TONES,
+  type ArtName,
+  type ClassicArtName,
+  type MedallionName,
+} from "@/lib/art";
 
 // Building blocks for the engraving pack. Every image here is decorative:
 // alt="" and aria-hidden. Files are used as they are (resized and cropped
@@ -9,9 +20,14 @@ import { ART, artSrcSet, artUrl, TONES, type ArtName, type MedallionName } from 
  *  .art in globals.css); the hidden one is never fetched, because both load
  *  lazily. Size it with `className` on the wrapper; the image fills the
  *  wrapper. It is drawn at the --art opacity unless `opacity` says otherwise;
- *  fade it toward the content with a mask on the wrapper. */
+ *  fade it toward the content with a mask on the wrapper.
+ *
+ *  `classic` names the picture's painted twin. In Classic the twin is shown
+ *  in place of the engraving, in the same box and in full color; in Dark and
+ *  Paper it is hidden like the unused tone, and never fetched. */
 export function Art({
   name,
+  classic,
   sizes,
   className = "",
   imgClassName = "",
@@ -19,6 +35,7 @@ export function Art({
   style,
 }: {
   name: ArtName;
+  classic?: ClassicArtName;
   /** the `sizes` attribute: how wide the image is drawn, e.g. "100vw" or "280px" */
   sizes: string;
   className?: string;
@@ -29,7 +46,11 @@ export function Art({
 }) {
   const a = ART[name];
   return (
-    <span className={`art ${className}`} style={opacity == null ? style : { ...style, opacity }} aria-hidden="true">
+    <span
+      className={`art ${classic ? "art-swap " : ""}${className}`}
+      style={opacity == null ? style : { ...style, opacity }}
+      aria-hidden="true"
+    >
       {TONES.map((tone) => (
         <img
           key={tone}
@@ -45,6 +66,47 @@ export function Art({
           draggable={false}
         />
       ))}
+      {classic && <ClassicImg name={classic} sizes={sizes} className={`art-classic ${imgClassName}`} />}
+    </span>
+  );
+}
+
+function ClassicImg({ name, sizes, className }: { name: ClassicArtName; sizes: string; className: string }) {
+  const a = CLASSIC_ART[name];
+  return (
+    <img
+      src={classicUrl(name)}
+      srcSet={classicSrcSet(name)}
+      sizes={sizes}
+      width={a.w}
+      height={a.h}
+      alt=""
+      className={className}
+      loading="lazy"
+      decoding="async"
+      draggable={false}
+    />
+  );
+}
+
+/** A painted picture that only Classic has (the hero's sky and leafy frame).
+ *  Outside Classic it is not displayed, so it is never fetched. Size and
+ *  place it with `className` on the wrapper; the image fills the wrapper's
+ *  width unless `imgClassName` says otherwise. */
+export function ClassicArt({
+  name,
+  sizes,
+  className = "",
+  imgClassName = "",
+}: {
+  name: ClassicArtName;
+  sizes: string;
+  className?: string;
+  imgClassName?: string;
+}) {
+  return (
+    <span className={`classic-only ${className}`} aria-hidden="true">
+      <ClassicImg name={name} sizes={sizes} className={imgClassName} />
     </span>
   );
 }

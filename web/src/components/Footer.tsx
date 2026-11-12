@@ -9,7 +9,8 @@ import "./footer.css";
  *  `width` matches the page's column: 1100px, or the Field Report's 620px
  *  reading column (which keeps only the wordmark). `terrace` puts the terrace
  *  engraving behind the foot of a long page: full width, anchored to the
- *  bottom, fading out toward its own top edge. */
+ *  bottom, fading out toward its own top edge. In Classic it is the painted
+ *  terrace, in full color, with the same fade (footer.css). */
 export function Footer({
   sample,
   terrace = false,
@@ -28,6 +29,7 @@ export function Footer({
       {terrace && (
         <Art
           name="footer/terrace"
+          classic="classic/footer/terrace"
           sizes="(max-width: 660px) 660px, 100vw"
           opacity={0.3}
           className="site-footer-art"

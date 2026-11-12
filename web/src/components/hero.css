@@ -12,7 +12,9 @@
    already at the foot of the houses. It lies along the bottom edge at the
    --art opacity and fades toward the left, where the headline is. The picture
    does not move. The two boats on its lake do (HeroBoats.tsx): with the
-   swallows, they are the page's only ambient motion. */
+   swallows, they are the page's only ambient motion.
+
+   Classic swaps in the painted hero: see "Classic" below. */
 
 .hero {
   position: relative;
@@ -196,6 +198,140 @@
     right: 2rem;
     bottom: 1.5rem;
     left: auto;
+  }
+}
+
+/* ---- Classic: the painted hero ----
+   Everything here is behind data-theme="classic". Back to front, all inside
+   .hero-art (z 0, so the birds still fly in front of it and the words sit on
+   top):
+     the painted sky · the painted village and lake, in the engraved scene's
+     box · the painted boats, in the engraved boats' places · the leafy frame,
+     a half in each bottom corner
+   The painted art is in full color: no --art opacity and no mask. The sky and
+   the frame halves are .classic-only (globals.css): outside Classic they are
+   not displayed and their files are never fetched. Nothing here may set
+   `display` on them outside the Classic selector. */
+:root[data-theme="classic"] .hero-sky {
+  position: absolute;
+  inset: 0;
+  opacity: 0.9;
+  /* On scroll the sky moves at 0.15 of the page's speed: it is carried down by
+     the other 0.85 (--sy is the scroll in px, from HeroParallax.tsx; it is not
+     set when motion is off). */
+  transform: translate3d(0, calc(var(--sy, 0) * 0.85px), 0);
+  /* The sky comes in below the top bar (4rem tall). The bar is a veil of page
+     color, and over the sky's own color it would show as a pale band with a
+     hard edge. */
+  -webkit-mask-image: linear-gradient(to bottom, transparent 4rem, #000 10.5rem);
+  mask-image: linear-gradient(to bottom, transparent 4rem, #000 10.5rem);
+}
+:root[data-theme="classic"] .hero-sky > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+}
+:root[data-theme="classic"] .hero-scene-art {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+:root[data-theme="classic"] .hero-boat > .art {
+  opacity: 1;
+}
+/* A frame half is 30% of the hero wide, 560px at most, in a bottom corner. On
+   scroll it moves at 0.6 of the page's speed. */
+:root[data-theme="classic"] .hero-frame {
+  position: absolute;
+  bottom: 0;
+  width: 30%;
+  max-width: 560px;
+  transform: translate3d(0, calc(var(--sy, 0) * 0.4px), 0);
+  /* The files' pale ground stops dead at their top edge: soften that line. */
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 6%);
+  mask-image: linear-gradient(to bottom, transparent, #000 6%);
+}
+:root[data-theme="classic"] .hero-frame-left {
+  left: 0;
+}
+:root[data-theme="classic"] .hero-frame-right {
+  right: 0;
+}
+:root[data-theme="classic"] .hero-frame > img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+/* Leaf sway: each half turns between -0.8deg and 0.8deg around its outer
+   bottom corner, the left over 7s and the right over 9s, out of phase. A turn
+   toward the page would lift the half's outer edge or its foot off the edge
+   of the hero, so each end of the swing also slides it a few px outward (6px)
+   or down (4px): the edges stay covered. Held still, a half sits exactly in
+   its corner. */
+:root[data-theme="classic"] .hero-frame-left > .hero-sway {
+  transform-origin: bottom left;
+  animation: hero-sway-left 7s ease-in-out infinite alternate;
+}
+:root[data-theme="classic"] .hero-frame-right > .hero-sway {
+  transform-origin: bottom right;
+  animation: hero-sway-right 9s ease-in-out -4s infinite alternate;
+}
+/* Off screen, or in a hidden tab (HeroBoats.tsx marks its own box). */
+.hero-art:has(.hero-boats[data-paused]) .hero-sway {
+  animation-play-state: paused;
+}
+@keyframes hero-sway-left {
+  from {
+    transform: translate(0, 4px) rotate(-0.8deg);
+  }
+  to {
+    transform: translate(-6px, 0) rotate(0.8deg);
+  }
+}
+@keyframes hero-sway-right {
+  from {
+    transform: translate(0, 4px) rotate(0.8deg);
+  }
+  to {
+    transform: translate(6px, 0) rotate(-0.8deg);
+  }
+}
+/* On a phone there is no room for the frame. */
+@media (max-width: 639.98px) {
+  :root[data-theme="classic"] .hero-frame {
+    display: none;
+  }
+}
+/* The frame holds the corners, so the caption and legend sit under the
+   buttons, in line with the headline. */
+:root[data-theme="classic"] .hero-key {
+  position: relative;
+  inset: auto;
+  width: fit-content;
+  max-width: calc(100% - 2.5rem);
+  margin: 1.625rem 1.25rem 0;
+  text-align: left;
+  /* The words lie over painted hills here: a little page color behind them. */
+  text-shadow:
+    0 0 0.2em var(--bg),
+    0 0 0.6em var(--bg);
+}
+/* The outlined button, too, as in the design: 60% page color. */
+:root[data-theme="classic"] .hero-text .btn:not(.btn-primary) {
+  background: color-mix(in srgb, var(--bg) 60%, transparent);
+}
+:root[data-theme="classic"] .hero-legend {
+  justify-content: flex-start;
+}
+/* The painted solicitation bird is pale blue. */
+:root[data-theme="classic"] .hero-dot-open {
+  background: #9fb6c9;
+}
+@media (min-width: 640px) {
+  :root[data-theme="classic"] .hero-key {
+    max-width: calc(100% - clamp(2rem, 6.67vw, 6rem) - 2rem);
+    margin-left: clamp(2rem, 6.67vw, 6rem);
+    margin-right: 2rem;
   }
 }
 

@@ -48,10 +48,11 @@ export default function Home() {
       <section id="about" className="relative scroll-mt-16">
         {/* The page's one picture: the Pergamon Altar's frieze as a ghost in the
             top right corner, clear of the words, with its caption and the
-            photographer's credit. */}
+            photographer's credit. Classic shows the same photograph in color. */}
         <figure className="about-fresco">
           <Art
             name="frieze/pergamon-athena"
+            classic="classic/frieze/pergamon-athena"
             sizes="(min-width: 1024px) 600px, 60vw"
             opacity={0.5}
             className="aspect-[2164/1384] w-full"

@@ -4,13 +4,14 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
 import { clientGet, type RecentItem } from "@/lib/api";
 import { day, money } from "@/lib/format";
-import { toneFor, type Tone } from "@/lib/art";
 import {
   drawSwallow,
   GLIDE_COUNT,
   GLIDE_FRAME,
   loadSprites,
   SPRITE,
+  spriteSetFor,
+  type SpriteSet,
   type Sprites,
   type Swallow,
 } from "@/lib/sprites";
@@ -23,7 +24,8 @@ import { useStore } from "@/lib/store";
 // opaque, farther ones smaller, fainter and a little slower; an award's depth
 // follows its dollar amount. Faster birds flap faster, and at random a bird
 // holds a glide pose for a second or three. The strips come in two tones, and
-// the flock is redrawn in the other one when the mode changes.
+// the flock is redrawn in the other one when the mode changes. Classic has its
+// own painted strips (lib/sprites.ts).
 //
 // Motion is boids (separation, alignment, cohesion) with a gentle pull toward
 // the cursor. Flight stays close to level, and birds flow over or under the
@@ -190,7 +192,7 @@ export function Flock() {
     const tip = tipRef.current!;
     const ctx = canvas.getContext("2d")!;
     let sprites: Sprites | null = null;
-    let tone: Tone | null = null; // the tone `sprites` are in
+    let tone: SpriteSet | null = null; // the set `sprites` are from
     let W = 0;
     let H = 0;
     let wMax = W_MAX;
@@ -839,7 +841,7 @@ export function Flock() {
     // are. The strips are drawn for one mode, so a change of mode loads the
     // other tone; the birds keep flying in the old one until it arrives.
     const loadTone = () => {
-      const want = toneFor(document.documentElement.dataset.theme === "paper" ? "paper" : "dark");
+      const want = spriteSetFor(document.documentElement.dataset.theme);
       if (want === tone) return;
       tone = want;
       loadSprites(want).then(

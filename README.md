@@ -125,6 +125,14 @@ art comes from an engraving pack, in two tones; nothing decorative is drawn in
 code. The landing page's ambient motion is the swallows and the two boats on
 the hero's lake; no other art moves.
 
+The Display menu has a third mode, Classic, for fun: the painted design the
+site began with. On the landing page it shows the painted lakeside hero (a
+painted sky, village, lake and boats, a leafy frame in the bottom corners that
+sways, and painted swallows), About's frieze in color and the painted terrace
+in the footer. Every other page keeps its layout and its engravings and only
+takes the old parchment colors. In Dark and Paper none of the painted art is
+fetched.
+
 | Screen | Path | What it shows |
 | --- | --- | --- |
 | Landing | `/` | The headline, the engraved lakeside village along the bottom, two boats on its lake (both bob, and the sailboat drifts slowly across), the live flock in the open sky (award birds in the accent, solicitation birds in the text color), and the way into the Forum; then About, under a ghost of the Pergamon Altar's frieze |
@@ -208,11 +216,12 @@ Things to know:
   filled by the sample data, so with real data the site shows awards only
   until a solicitation source is added.
 - **The art is built from packs that are not in this repo.**
-  `web/public/art/` holds the resized `.webp` files the site serves, in two
-  folders: `on-dark/` (light lines, for the dark page) and `on-light/` (ink
-  lines, for paper). To rebuild them from the engraving pack, the landing
-  hero's pack (the scene and its two boats), the Forum's figures and the
-  Classic pack (About's frieze):
+  `web/public/art/` holds the resized `.webp` files the site serves, in
+  three folders: `on-dark/` (light lines, for the dark page), `on-light/` (ink
+  lines, for paper and Classic) and `classic/` (the painted art that only the
+  Classic mode shows, in full color). To rebuild them from the engraving pack,
+  the landing hero's pack (the scene and its two boats), the Forum's figures
+  and the Classic pack (About's frieze and the painted art):
   `uv run --with pillow python web/scripts/build-art.py /path/to/flock-art/flock-engraving
   /path/to/flock-art/flock-hero /path/to/flock-art/forum-additions/art/figures
   /path/to/flock-classic`

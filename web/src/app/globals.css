@@ -3,7 +3,9 @@
 /* The engraving design: a near-black page in one color, with classical line
    engravings ghosted at the edges and the data in quiet, plain UI. Dark is the
    default; "paper" is the same site in ink on a paper ground (the Display
-   menu). The only hue is the accent, and it means one thing: dollars awarded.
+   menu). "classic" is a third mode, for fun: the painted design the site
+   began with (parchment colors everywhere, and the painted art on the landing
+   page). The only hue is the accent, and it means one thing: dollars awarded.
    This file is the shared base. Component-specific rules live in plain
    stylesheets beside the component (CSS Modules are not available: every .css
    file goes through the Tailwind loader). */
@@ -51,6 +53,31 @@
   --gutter-art-opacity: 0.3;
 }
 
+/* Classic: the old parchment palette. Everything Classic-specific on the site
+   is behind this attribute. The chart, on-segment and gutter values are
+   Paper's: they were checked against this exact background. */
+[data-theme="classic"] {
+  --bg: #f5efe2;
+  --surface: #ede4d3;
+  --text: #3a2f26;
+  --muted: #75665a;
+  --faint: #a89a88;
+  --line: rgb(58 47 38 / 0.1);
+  --line2: rgb(58 47 38 / 0.2);
+  /* the old Pompeian red (#b9655a), deepened to pass 4.5:1 as small text */
+  --accent: #a2544a;
+  --art: 0.5;
+  --chart-aerial: #b45f3d;
+  --chart-maritime: #266ea4;
+  --chart-navigation: #a4771c;
+  --chart-counter: #734f99;
+  --chart-other: #3b834e;
+  --chart-uncategorized: #8f877a;
+  --chart-on-segment: #fbf8f1;
+  --gutter-art-opacity: 0.3;
+  --grain-opacity: 0.055; /* the painted design's paper grain */
+}
+
 /* Utility names for the tokens. The text color is `ink` in class names
    (text-ink, bg-ink, border-ink), which reads better than text-text. */
 @theme inline {
@@ -76,8 +103,22 @@
     color: var(--text);
     color-scheme: dark;
   }
-  html[data-theme="paper"] {
+  html[data-theme="paper"],
+  html[data-theme="classic"] {
     color-scheme: light;
+  }
+  /* Classic's paper grain, over the whole window: above the art and the birds
+     (z 0 to 10), below the landing page's words (z 20) and the top bar. It is
+     what ties the painted pictures to the page. */
+  html[data-theme="classic"] body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 15;
+    pointer-events: none;
+    opacity: var(--grain-opacity);
+    mix-blend-mode: multiply;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' seed='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)'/%3E%3C/svg%3E");
   }
   /* The page speaks in the interface face: Inter at 13px with tabular
      figures. Serif is asked for by name, where the design calls for it.
@@ -403,6 +444,9 @@
   [data-theme="paper"] select.field {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%236f6a60' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4.5 6.5 3.5 3.5 3.5-3.5'/%3E%3C/svg%3E");
   }
+  [data-theme="classic"] select.field {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%2375665a' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4.5 6.5 3.5 3.5 3.5-3.5'/%3E%3C/svg%3E");
+  }
   /* The native list of options takes the floating surface, not the system's. */
   select.field option {
     background: var(--surface);
@@ -578,8 +622,8 @@
 
   /* ---- Art (see components/Art.tsx) ----
      Every engraving is one flat color with transparency, in two tones: light
-     lines for the dark page and ink lines for paper. Both are in the markup;
-     the mode shows one. An engraving sits at a page edge at --art opacity
+     lines for the dark page and ink lines for paper and Classic. Both are in
+     the markup; the mode shows one. An engraving sits at a page edge at --art opacity
      (or its own), fades toward the content with a mask, never sits behind a
      table, a chart, a filter or the graph, and never moves (the two boats on
      the landing hero's lake are the one exception: see hero.css). */
@@ -594,9 +638,20 @@
     width: 100%;
     height: 100%;
   }
-  :root[data-theme="paper"] .art > .art-on-dark,
-  :root:not([data-theme="paper"]) .art > .art-on-light {
+  :root:not([data-theme="dark"]) .art > .art-on-dark,
+  :root[data-theme="dark"] .art > .art-on-light {
     display: none;
+  }
+  /* A few pictures on the landing page have a painted twin (.art-classic),
+     which Classic shows in place of the engraving, in full color. Outside
+     Classic the twin is never displayed, so it is never fetched. */
+  :root:not([data-theme="classic"]) .art > .art-classic,
+  :root:not([data-theme="classic"]) .classic-only,
+  :root[data-theme="classic"] .art-swap > .art-on-light {
+    display: none;
+  }
+  :root[data-theme="classic"] .art-swap {
+    opacity: 1 !important; /* over the opacity an engraving carries inline */
   }
 }
 
@@ -609,7 +664,7 @@
   }
 }
 
-/* Dark and paper cross-fade quickly: opacity only, like every other
+/* The modes cross-fade quickly: opacity only, like every other
    transition in the interface (opacity and a 4px move, 150 to 200ms). */
 ::view-transition {
   pointer-events: none;

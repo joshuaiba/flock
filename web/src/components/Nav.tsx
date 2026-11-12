@@ -111,7 +111,7 @@ export function Nav() {
   );
 }
 
-/** Dark or paper, and motion on or off, behind one small button. It closes on
+/** Dark, paper or Classic, and motion on or off, behind one small button. It closes on
  *  Escape (focus returns to the button), on a click outside, and when the page
  *  changes (it is keyed by the path). */
 function DisplayMenu() {
@@ -178,12 +178,15 @@ function DisplayMenu() {
             <span className="label" id={`${id}-theme`}>
               Mode
             </span>
-            <div className="seg w-36" role="group" aria-labelledby={`${id}-theme`}>
+            <div className="seg w-46" role="group" aria-labelledby={`${id}-theme`}>
               <button type="button" aria-pressed={theme === "dark"} onClick={() => setTheme("dark")}>
                 Dark
               </button>
               <button type="button" aria-pressed={theme === "paper"} onClick={() => setTheme("paper")}>
                 Paper
+              </button>
+              <button type="button" aria-pressed={theme === "classic"} onClick={() => setTheme("classic")}>
+                Classic
               </button>
             </div>
           </div>
@@ -191,7 +194,7 @@ function DisplayMenu() {
             <span className="label" id={`${id}-motion`}>
               Motion
             </span>
-            <div className="seg w-36" role="group" aria-labelledby={`${id}-motion`}>
+            <div className="seg w-46" role="group" aria-labelledby={`${id}-motion`}>
               <button type="button" aria-pressed={!still} onClick={() => still && toggleStill()}>
                 On
               </button>
