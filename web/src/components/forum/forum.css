@@ -1,6 +1,7 @@
-/* The Forum and the leaderboards: a working dashboard. No cards and no
-   ornaments inside it; sections are told apart by one hairline and by space
-   (see Panel in components/Signals.tsx). Plain CSS with prefixed names: CSS
+/* The Forum and the leaderboards: a working dashboard. No cards and no art
+   inside it; sections are told apart by space and by the rules of their own
+   tables (see Panel in components/Signals.tsx). The one hue besides the accent
+   is the money chart's category colors. Plain CSS with prefixed names: CSS
    Modules are not available here. */
 
 /* ---- The summary row: four totals, each against the prior period ---- */
@@ -8,11 +9,11 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   border-top: 1px solid var(--line2);
-  border-bottom: 1px solid var(--line2);
+  border-bottom: 1px solid var(--line);
 }
 .forum-kpi {
   min-width: 0;
-  padding: 1rem 1rem 1.05rem;
+  padding: 1rem 1rem 1.1rem;
 }
 /* Two across on a phone: a rule between the pair, and between the two rows. */
 @media (max-width: 1023.98px) {
@@ -32,7 +33,7 @@
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
   .forum-kpi {
-    padding: 1.1rem 1.5rem 1.2rem;
+    padding: 1.25rem 1.5rem 1.35rem;
     border-left: 1px solid var(--line);
   }
   .forum-kpi:first-child {
@@ -40,91 +41,181 @@
     border-left: 0;
   }
 }
+/* Three totals (an agency's signals have no stage). */
+@media (min-width: 1024px) {
+  .forum-kpis-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+.forum-kpi-label {
+  color: var(--muted);
+}
 .forum-kpi-value {
-  margin-top: 0.35rem;
-  font-family: var(--font-display);
-  font-size: clamp(2rem, 1.5rem + 1.6vw, 2.6rem);
-  font-weight: 500;
-  line-height: 1;
-  letter-spacing: -0.01em;
-  font-variant-numeric: lining-nums tabular-nums;
+  margin-top: 0.5rem;
 }
 .forum-kpi-delta {
-  margin-top: 0.5rem;
-  line-height: 1.3;
+  margin-top: 0.45rem;
+  line-height: 1.4;
 }
 
-/* ---- Figures outside a ledger: the same face and alignment as .ledger .num ---- */
+/* The small print under a section: what is counted and what is left out. */
+.panel-note {
+  max-width: 46rem;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* ---- Figures outside a ledger: the same size and alignment as .ledger .num ---- */
 .forum-num {
-  font-family: var(--font-sans);
   font-size: 0.875rem;
-  letter-spacing: 0;
   font-variant-numeric: tabular-nums lining-nums;
   white-space: nowrap;
 }
 
-/* A name in a dense row: the book serif, a step under body size. */
-.forum-name {
-  font-family: var(--font-serif);
-  font-size: 1.0625rem;
-  line-height: 1.3;
+/* The graph link beside a name shows when its row is pointed at, or when it
+   has keyboard focus. A touch screen has no pointing, so there it is always
+   shown. */
+.org-graph {
+  opacity: 0;
+  transition:
+    opacity 0.15s,
+    color 0.15s;
 }
-.forum-name-sm {
-  font-size: 1rem;
+tr:hover .org-graph,
+li:hover .org-graph,
+.org-link:hover .org-graph,
+.org-graph:focus-visible {
+  opacity: 1;
+}
+@media (hover: none) {
+  .org-graph {
+    opacity: 0.7;
+  }
 }
 
-/* A leaderboard's table: every cell is in the interface face (ranks, dates,
-   counts, category names); organization names keep the serif (.forum-name). */
-.forum-ledger td {
-  font-family: var(--font-sans);
-  font-size: 0.875rem;
-  line-height: 1.4;
-  letter-spacing: 0;
-  font-variant-numeric: tabular-nums lining-nums;
-}
-
-/* ---- Lists that read like ledgers (topics, agencies, production) ---- */
+/* ---- Lists that read like ledgers (agencies, production, watchlist) ---- */
 .forum-rows > li {
   border-bottom: 1px solid var(--line);
 }
-.forum-rows > li:hover {
-  background-color: color-mix(in srgb, var(--ochre) 13%, transparent);
-}
-/* A column header row over a grid list, matching .ledger th. */
+/* A column header row over a list, matching .ledger th. */
 .forum-cols {
-  padding-bottom: 0.4rem;
+  padding-bottom: 0.45rem;
   border-bottom: 1px solid var(--line2);
-  font-family: var(--font-sans);
   font-size: 0.75rem;
   font-weight: 500;
-  letter-spacing: 0.01em;
   color: var(--muted);
 }
 
-/* Topic heat: name, trend, posted, prior, change. On a phone the trend takes
-   its own line under the figures. */
-.forum-topic {
+/* ---- Tiles: one category each, in a row divided by hairlines (topics,
+   funding by category). Five across on a wide screen; the top rule belongs
+   to the row, the dividers to the tiles. ---- */
+.forum-tiles {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 2.75rem 2.75rem 3.5rem;
-  align-items: center;
-  column-gap: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-top: 1px solid var(--line2);
 }
-.forum-topic > .forum-topic-chart {
-  grid-column: 1 / -1;
-  grid-row: 2;
+.forum-tile {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding: 1.1rem 1rem 1.25rem 0;
+  border-bottom: 1px solid var(--line);
 }
-@media (min-width: 640px) {
-  .forum-topic {
-    grid-template-columns: minmax(0, 1fr) minmax(5rem, 7.5rem) 2.75rem 2.75rem 3.5rem;
-    column-gap: 1rem;
+.forum-tile:nth-child(even) {
+  padding-left: 1rem;
+  padding-right: 0;
+  border-left: 1px solid var(--line);
+}
+@media (min-width: 640px) and (max-width: 1023.98px) {
+  .forum-tiles {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
-  .forum-topic > .forum-topic-chart {
-    grid-column: 2;
-    grid-row: 1;
+  .forum-tile,
+  .forum-tile:nth-child(even) {
+    padding: 1.1rem 1.25rem 1.25rem;
+    border-left: 1px solid var(--line);
   }
+  .forum-tile:nth-child(3n + 1) {
+    padding-left: 0;
+    border-left: 0;
+  }
+}
+@media (min-width: 1024px) {
+  .forum-tiles {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+  .forum-tile,
+  .forum-tile:nth-child(even) {
+    padding: 1.25rem 1.5rem 1.4rem;
+    border-left: 1px solid var(--line);
+  }
+  .forum-tile:nth-child(5n + 1) {
+    padding-left: 0;
+    border-left: 0;
+  }
+}
+.forum-tile-name {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 500;
+  line-height: 1.2;
+  font-feature-settings: normal;
+}
+/* The tile's figure: a count or a dollar amount in the display serif, with a
+   few words after it. */
+.forum-tile-figure {
+  font-family: var(--font-display);
+  font-size: 1.4375rem;
+  line-height: 1.1;
+  font-variant-numeric: lining-nums;
+  font-feature-settings: normal;
 }
 
-/* ---- Leaderboard tabs: plain words, the current one underlined in ink ---- */
+/* ---- "Where the money went": a tall segmented bar (MoneyBar.tsx) ----
+   46px high, 2px gaps, the two outer ends rounded. A segment is as wide as
+   its share; the share is printed inside when there is room, in the color
+   checked against every segment color (--chart-on-segment). */
+.money-bar {
+  position: relative;
+  margin: 1.25rem 0 0.5rem;
+}
+.money-track {
+  display: flex;
+  gap: 2px;
+  height: 46px;
+}
+.money-seg {
+  display: flex;
+  min-width: 3px;
+  flex: 0 1 0%;
+  align-items: center;
+  overflow: hidden;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--chart-on-segment);
+  text-decoration: none;
+}
+.money-seg > span {
+  padding-left: 0.75rem;
+}
+.money-seg:first-child {
+  border-radius: 4px 0 0 4px;
+}
+.money-seg:last-child {
+  border-radius: 0 4px 4px 0;
+}
+.money-seg:only-child {
+  border-radius: 4px;
+}
+a.money-seg {
+  cursor: pointer;
+}
+.money-seg:focus-visible {
+  outline-offset: 2px;
+}
+
+/* ---- Leaderboard tabs: plain words, the current one underlined ---- */
 .forum-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -135,11 +226,8 @@
   display: inline-block;
   margin-bottom: -1px;
   padding: 0.55rem 0;
-  border-bottom: 2px solid transparent;
-  font-family: var(--font-sans);
-  font-size: 0.875rem;
-  font-weight: 500;
-  letter-spacing: 0;
+  border-bottom: 1px solid transparent;
+  font-size: 0.8125rem;
   color: var(--muted);
   text-decoration: none;
   transition:
@@ -151,6 +239,7 @@
 }
 .forum-tab[aria-current] {
   border-bottom-color: var(--text);
+  font-weight: 500;
   color: var(--text);
 }
 

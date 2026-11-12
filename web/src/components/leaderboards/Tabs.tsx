@@ -3,11 +3,11 @@ import { tabHref, TABS, type View } from "./view";
 import "../forum/forum.css";
 
 /** The six leaderboards as a row of plain links; the one on screen is
- *  underlined in ink. Each link keeps the window and the category, and starts
+ *  underlined. Each link keeps the window and the category, and starts
  *  that board in its own usual order. The row wraps on a narrow screen. */
 export function Tabs({ view }: { view: View }) {
   return (
-    <nav aria-label="Leaderboards" className="relative z-20">
+    <nav aria-label="Leaderboards">
       <ul className="forum-tabs">
         {TABS.map((tab) => (
           <li key={tab.key}>

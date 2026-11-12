@@ -3,9 +3,9 @@
 import { useId, useRef, useState } from "react";
 import { money } from "@/lib/format";
 
-/** One series over time: a 2px line over a faint wash, an end dot, and a
- *  crosshair with a parchment tooltip under the pointer (or keyboard focus).
- *  Used small as a sparkline and larger as one of a set of small multiples.
+/** One series over time: a thin line in the text color, an end dot, and a
+ *  crosshair with a tooltip under the pointer (or keyboard focus). Used as a
+ *  sparkline in a tile.
  *
  *  `split` is the index where the current period starts: buckets before it are
  *  the prior period and are drawn fainter, so "this period against the last"
@@ -17,7 +17,7 @@ export function SeriesChart({
   split,
   format = "count",
   unit = "",
-  color = "var(--accent)",
+  color = "var(--text)",
   height = 56,
   max,
   title,
@@ -50,7 +50,6 @@ export function SeriesChart({
   const x = (i: number) => (n <= 1 ? W / 2 : 4 + (i * (W - 8)) / (n - 1));
   const y = (v: number) => bottom - (v / peak) * (bottom - top);
   const line = values.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(" ");
-  const area = `${line} L${x(n - 1).toFixed(1)} ${bottom} L${x(0).toFixed(1)} ${bottom} Z`;
   const cut = split != null && split > 0 && split < n ? (x(split - 1) + x(split)) / 2 : 0;
   const show = (v: number) => (format === "money" ? money(v) : `${v.toLocaleString("en-US")}${unit ? ` ${unit}` : ""}`);
   const total = values.reduce((a, b) => a + b, 0);
@@ -87,17 +86,12 @@ export function SeriesChart({
             <rect x={cut} y="0" width={W - cut} height={H} />
           </clipPath>
         </defs>
-        <line x1="0" x2={W} y1={bottom} y2={bottom} stroke="var(--line2)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
-        {cut > 0 && (
-          <line x1={cut} x2={cut} y1={top - 2} y2={bottom} stroke="var(--line)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
-        )}
-        <g clipPath={`url(#${clip}-prev)`} opacity="0.45">
-          <path d={area} fill={color} opacity="0.1" />
-          <path d={line} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+        {/* The prior period at 40%, the current one at full strength. */}
+        <g clipPath={`url(#${clip}-prev)`} opacity="0.4">
+          <path d={line} fill="none" stroke={color} strokeWidth="1.25" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
         </g>
         <g clipPath={`url(#${clip}-cur)`}>
-          <path d={area} fill={color} opacity="0.12" />
-          <path d={line} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+          <path d={line} fill="none" stroke={color} strokeWidth="1.25" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
         </g>
         {at != null && (
           <line x1={x(at)} x2={x(at)} y1={top - 2} y2={bottom} stroke="var(--muted)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
@@ -126,14 +120,14 @@ export function SeriesChart({
 function Dot({ left, top, color, height }: { left: number; top: number; color: string; height: number }) {
   return (
     <span
-      className="pointer-events-none absolute block h-2 w-2 rounded-full"
+      className="pointer-events-none absolute block h-[5px] w-[5px] rounded-full"
       style={{
         left: `${left * 100}%`,
         top: top * height,
         transform: "translate(-50%, -50%)",
         background: color,
         // a ring in the page's own color lifts the dot off the line
-        boxShadow: "0 0 0 2px var(--bg)",
+        boxShadow: "0 0 0 1.5px var(--bg)",
       }}
     />
   );

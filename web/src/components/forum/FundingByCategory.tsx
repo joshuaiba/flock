@@ -53,7 +53,8 @@ export async function FundingByCategory({ days, tag, className = "" }: PanelProp
       note={
         <>
           Award dollars across {priorLabel(days)} (fainter) and {lastLabel(days)}. Each chart has its own scale, so
-          compare shapes, not heights. An award with two categories counts in both.
+          compare shapes, not heights. An award with two categories counts in both here; &ldquo;Where the money
+          went&rdquo; splits it instead.
           {!d.coverage.prior_complete && d.coverage.first_award_day && (
             <> The record starts on {day(d.coverage.first_award_day)}.</>
           )}
@@ -61,31 +62,33 @@ export async function FundingByCategory({ days, tag, className = "" }: PanelProp
         </>
       }
     >
-      <ul className="grid grid-cols-2 gap-x-8 gap-y-8 sm:grid-cols-3 lg:grid-cols-5">
+      <ul className="forum-tiles">
         {items.map((c) => {
           const name = tagLabel(c.category);
           const chosen = c.category === tag;
           return (
-            <li key={c.category} aria-current={chosen ? "true" : undefined} className="flex min-w-0 flex-col">
-              {/* A long name may take two lines; the chart is pushed to the
-                  bottom of the tile, so the charts in a row still line up. */}
-              <h3 className="forum-name">
+            <li key={c.category} aria-current={chosen ? "true" : undefined} className="forum-tile">
+              <h3 className="forum-tile-name">
                 {name}
                 {chosen && <span className="label ml-2 whitespace-nowrap">selected</span>}
               </h3>
-              <p className="mt-0.5 flex flex-wrap items-baseline gap-x-2.5">
-                <span className="forum-num text-accent">{money(c.amount)}</span>
-                <Delta cur={c.amount} prev={c.prev_amount} pct={c.pct} env={d} short />
-              </p>
+              {/* A long name may take two lines; the chart is pushed down, so
+                  the charts in a row still line up. */}
               <SeriesChart
-                className="mt-auto pt-2"
+                className="mt-auto pt-3"
                 values={c.series}
                 labels={labels}
                 split={Math.floor(n / 2)}
                 format="money"
-                height={56}
+                height={36}
                 title={`${name}, award dollars`}
               />
+              <p className="mt-3">
+                <span className="forum-tile-figure money">{money(c.amount)}</span>
+              </p>
+              <p>
+                <Delta cur={c.amount} prev={c.prev_amount} pct={c.pct} env={d} short />
+              </p>
             </li>
           );
         })}

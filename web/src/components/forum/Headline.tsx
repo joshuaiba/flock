@@ -1,6 +1,6 @@
 import { AsOf, Delta } from "@/components/Signals";
 import { money } from "@/lib/format";
-import { forSolicitations } from "@/lib/signals";
+import { forSolicitations, windowLabel } from "@/lib/signals";
 import { getDefinitions, getOverview } from "./data";
 import type { PanelProps } from "./shared";
 import "./forum.css";
@@ -11,7 +11,7 @@ import "./forum.css";
 /** "As of Nov 11, 2026 · sample data", under the page title. */
 export async function AsOfLine({ days, tag }: PanelProps) {
   const o = await getOverview(days, tag);
-  if (!o) return <p className="ui text-muted">The data service is not answering.</p>;
+  if (!o) return <p className="text-muted">The data service is not answering.</p>;
   return <AsOf env={o} />;
 }
 
@@ -25,14 +25,14 @@ function Stat({
 }: {
   label: string;
   value: string;
-  /** Pompeian red: only for dollars awarded */
+  /** the accent: only for dollars awarded */
   money?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <div className="forum-kpi">
-      <dt className="label">{label}</dt>
-      <dd className={`forum-kpi-value ${isMoney ? "text-accent" : ""}`}>{value}</dd>
+      <dt className="forum-kpi-label">{label}</dt>
+      <dd className={`figure forum-kpi-value ${isMoney ? "money" : ""}`}>{value}</dd>
       <dd className="forum-kpi-delta">{children}</dd>
     </div>
   );
@@ -44,7 +44,7 @@ export async function HeadlineStats({ days, tag }: PanelProps) {
   const [o, defs] = await Promise.all([getOverview(days, tag), getDefinitions()]);
   if (!o)
     return (
-      <p className="relative z-20 mt-6 border-y border-line2 py-6 text-muted">
+      <p className="mt-6 border-y border-line2 py-6 text-muted">
         The data service is not answering, so there are no headline figures to show.
       </p>
     );
@@ -55,8 +55,8 @@ export async function HeadlineStats({ days, tag }: PanelProps) {
   // baseline (see "About the numbers"); the overview carries no pct of its own.
   const thinPrior = defs != null && o.prev_amount > 0 && o.prev_amount < defs.min_baseline;
   return (
-    <dl className="forum-kpis relative z-20 mt-6">
-      <Stat label="Awarded" value={money(o.amount)} money>
+    <dl className="forum-kpis mt-6">
+      <Stat label={`Awarded, last ${windowLabel(days)}`} value={money(o.amount)} money>
         <Delta cur={o.amount} prev={o.prev_amount} pct={thinPrior ? null : undefined} env={o} />
       </Stat>
       <Stat label="Awards" value={o.awards.toLocaleString("en-US")}>
@@ -65,11 +65,11 @@ export async function HeadlineStats({ days, tag }: PanelProps) {
       <Stat label="New entrants" value={o.new_entrants.toLocaleString("en-US")}>
         <Delta cur={o.new_entrants} prev={o.prev_new_entrants} env={o} />
         {/* "New" is new to this record, which starts when the sources do. */}
-        <span className="ui block text-muted">first award in this record</span>
+        <span className="block text-muted">first award in this record</span>
       </Stat>
       {noSolicitations ? (
         <Stat label="Open solicitations" value="—">
-          <span className="ui text-muted">no solicitations on record</span>
+          <span className="text-muted">no solicitations on record</span>
         </Stat>
       ) : (
         <Stat label="Open solicitations" value={o.open_solicitations.toLocaleString("en-US")}>
@@ -80,10 +80,10 @@ export async function HeadlineStats({ days, tag }: PanelProps) {
   );
 }
 
-/** The summary row as plaster blocks, while the overview loads. */
+/** The summary row as quiet blocks, while the overview loads. */
 export function StatsSkeleton() {
   return (
-    <div className="forum-kpis relative z-20 mt-6" aria-busy="true">
+    <div className="forum-kpis mt-6" aria-busy="true">
       <span className="sr-only">Loading the headline figures</span>
       {Array.from({ length: 4 }, (_, i) => (
         <div key={i} className="forum-kpi" aria-hidden="true">

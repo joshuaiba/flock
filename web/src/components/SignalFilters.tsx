@@ -49,7 +49,6 @@ export function SignalFilters({
           value={tag ?? ""}
           onChange={(e) => router.push(href({ tag: e.target.value || null }), { scroll: false })}
           className="field w-[13.5rem] max-w-full"
-          style={{ height: "1.875rem" }}
         >
           <option value="">All categories</option>
           {TAGS.map((t) => (

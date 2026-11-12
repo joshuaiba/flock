@@ -1,16 +1,18 @@
 import Link from "next/link";
-import { medallionFor } from "@/lib/art";
 import { day } from "@/lib/format";
 import { change, pct, priorLabel, STAGE_LABEL, type Envelope, type SignalOrg, type StagePoint } from "@/lib/signals";
-import { MedallionImg } from "./Art";
+import "./forum/forum.css";
 
 // Shared pieces of the Forum, the leaderboards and the entity page's signals.
 // All of them render on the server; nothing here needs the browser.
 
-/** One section of a dashboard: a hairline, a plain serif title, an optional
- *  line saying what is counted, an optional one-sentence reading, then the
- *  content. It is not a card: sections are told apart by the rule and by
- *  space. It sits above the paper grain (z-20), like everything with text. */
+/** One section of a dashboard: a plain serif title, one sentence under it,
+ *  the content, and below the content the small print (what is counted and
+ *  what is left out). It is not a card: sections are told apart by space and
+ *  by the rules of their own tables.
+ *
+ *  The sentence is the `takeaway`, read off the data. A section that has none
+ *  opens with its `note` instead, and has no small print. */
 export function Panel({
   title,
   note,
@@ -21,9 +23,9 @@ export function Panel({
   children,
 }: {
   title: string;
-  /** a short line under the title: what is being counted */
+  /** what is being counted, and the caveats the reader must know */
   note?: React.ReactNode;
-  /** one sentence read off the data, shown above a chart */
+  /** one sentence read off the data */
   takeaway?: React.ReactNode;
   /** a link beside the title, e.g. to the full leaderboard */
   more?: { href: string; label: string };
@@ -31,8 +33,9 @@ export function Panel({
   id?: string;
   children: React.ReactNode;
 }) {
+  const lede = takeaway ?? note;
   return (
-    <section id={id} className={`relative z-20 flex flex-col border-t border-line2 pt-5 ${className}`}>
+    <section id={id} className={`flex scroll-mt-20 flex-col ${className}`}>
       <header className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
         <h2 className="panel-title">{title}</h2>
         {more && (
@@ -41,9 +44,9 @@ export function Panel({
           </Link>
         )}
       </header>
-      {takeaway && <p className="takeaway mt-2 max-w-[46rem]">{takeaway}</p>}
-      {note && <p className="ui mt-2 max-w-[46rem] text-muted">{note}</p>}
+      {lede && <p className="lede mt-1.5">{lede}</p>}
       <div className="mt-4 min-w-0 flex-1">{children}</div>
+      {takeaway && note && <p className="panel-note mt-3">{note}</p>}
     </section>
   );
 }
@@ -59,8 +62,8 @@ export function signedPct(v: number): string {
 }
 
 /** Change against the prior period: "+41% vs the prior 90 days". The sign
- *  carries the direction, in tabular figures. Says so when there is nothing to
- *  compare with, never a made-up zero.
+ *  carries the direction, in plain text and tabular figures. Says so when
+ *  there is nothing to compare with, never a made-up zero.
  *
  *  Pass `pct` when the API gives one for this figure: `null` there means the
  *  API withheld the percentage (the prior period is under its baseline), and
@@ -79,7 +82,7 @@ export function Delta({
   /** just the signed figure, for tight rows */
   short?: boolean;
 }) {
-  const quiet = "ui text-muted";
+  const quiet = "text-muted";
   if (!env.coverage.prior_complete) return <span className={quiet}>no earlier period on record</span>;
   if (given === null && prev > 0)
     return <span className={quiet}>too little in {priorLabel(env.window_days)} for a percentage</span>;
@@ -143,22 +146,21 @@ export function RankChange({
   );
 }
 
-/** An organization in a row: its medallion, its name linked to its page, and a
- *  small link that opens the graph on it. */
+/** An organization in a row: its name in the display serif, linked to its
+ *  page, and a small link that opens the graph on it. The graph link stays
+ *  out of the way until the row is pointed at or the link has focus (see
+ *  .org-graph in forum.css). */
 export function OrgLink({
   org,
-  size = 30,
   graph = true,
   className = "",
 }: {
   org: SignalOrg;
-  size?: number;
   graph?: boolean;
   className?: string;
 }) {
   return (
-    <span className={`inline-flex min-w-0 items-center gap-2 ${className}`}>
-      <MedallionImg name={medallionFor(org.tag, org.kind)} size={size} />
+    <span className={`org-link name inline-flex min-w-0 items-center gap-2 ${className}`}>
       <Link href={`/entity/${org.id}`} className="min-w-0 truncate">
         {org.name}
       </Link>
@@ -172,7 +174,7 @@ export function GraphLink({ id, name, label = false }: { id: number; name: strin
   return (
     <Link
       href={`/graph?focus=${encodeURIComponent(`org:${id}`)}`}
-      className={label ? "ui-link" : "shrink-0 text-muted/70 no-underline transition-colors hover:text-ink"}
+      className={label ? "ui-link" : "org-graph shrink-0 text-muted no-underline hover:text-ink"}
       aria-label={`Show ${name} in the graph`}
       title="Show in graph"
     >
@@ -191,17 +193,28 @@ export function GraphLink({ id, name, label = false }: { id: number; name: strin
 }
 
 /** The four stages as dots on a line. A dot is filled only when our data shows
- *  the company at that stage; a skipped stage stays hollow. */
-export function StageTrack({ path, className = "" }: { path: StagePoint[]; className?: string }) {
+ *  the company at that stage; a skipped stage stays hollow. `wide` is the
+ *  roomier spacing for a list of companies. */
+export function StageTrack({
+  path,
+  wide = false,
+  className = "",
+}: {
+  path: StagePoint[];
+  wide?: boolean;
+  className?: string;
+}) {
   const reached = path.filter((p) => p.day).map((p) => STAGE_LABEL[p.stage]);
   return (
     <span className={`inline-flex items-center ${className}`} role="img" aria-label={`Stages reached: ${reached.join(", ") || "none"}`}>
       {path.map((p, i) => (
         <span key={p.stage} className="inline-flex items-center" title={`${STAGE_LABEL[p.stage]}${p.day ? `: ${day(p.day)}` : ": not on record"}`}>
-          {i > 0 && <span className={`h-px w-4 sm:w-5 ${p.day && path[i - 1].day ? "bg-ink" : "bg-line2"}`} />}
-          <span
-            className={`block h-2.5 w-2.5 rounded-full border ${p.day ? "border-ink bg-ink" : "border-muted/60 bg-transparent"}`}
-          />
+          {i > 0 && (
+            <span
+              className={`${wide ? "w-8 sm:w-9" : "w-4 sm:w-5"} ${p.day && path[i - 1].day ? "h-[1.5px] bg-ink" : "h-px bg-line2"}`}
+            />
+          )}
+          <span className={`block h-[9px] w-[9px] rounded-full border ${p.day ? "border-ink bg-ink" : "border-muted bg-transparent"}`} />
         </span>
       ))}
     </span>
@@ -211,20 +224,19 @@ export function StageTrack({ path, className = "" }: { path: StagePoint[]; class
 /** "As of Nov 11, 2026 · sample data": the line every signals page carries. */
 export function AsOf({ env, className = "" }: { env: Pick<Envelope, "as_of" | "sample">; className?: string }) {
   return (
-    <p className={`ui text-muted ${className}`}>
+    <p className={`text-muted ${className}`}>
       As of {day(env.as_of)}
       {env.sample && " · sample data"}
     </p>
   );
 }
 
-/** Loading rows for a ledger or a list: plaster blocks, no spinner. */
+/** Loading rows for a ledger or a list: quiet blocks, no spinner. */
 export function SkeletonRows({ rows = 6, className = "" }: { rows?: number; className?: string }) {
   return (
     <div className={className} aria-hidden="true">
       {Array.from({ length: rows }, (_, i) => (
-        <div key={i} className="flex h-10 items-center gap-3 border-b border-line">
-          <span className="skeleton h-[22px] w-[22px] shrink-0 rounded-full" />
+        <div key={i} className="flex h-11 items-center gap-3 border-b border-line">
           <span className="skeleton h-3.5" style={{ width: `${46 - ((i * 7) % 22)}%` }} />
           <span className="skeleton ml-auto h-3.5 w-16" />
         </div>
@@ -236,7 +248,7 @@ export function SkeletonRows({ rows = 6, className = "" }: { rows?: number; clas
 /** A section-shaped placeholder while a signal loads. */
 export function PanelSkeleton({ title, rows = 6, className = "" }: { title: string; rows?: number; className?: string }) {
   return (
-    <section className={`relative z-20 border-t border-line2 pt-5 ${className}`} aria-busy="true">
+    <section className={className} aria-busy="true">
       <h2 className="panel-title">{title}</h2>
       <span className="sr-only">Loading</span>
       <span className="skeleton mt-3 h-3.5 w-full max-w-md" aria-hidden="true" />
@@ -245,7 +257,7 @@ export function PanelSkeleton({ title, rows = 6, className = "" }: { title: stri
   );
 }
 
-/** A quiet line inside a panel when a signal has no rows behind it. */
+/** A quiet serif line inside a panel when a signal has no rows behind it. */
 export function NoRows({ children }: { children: React.ReactNode }) {
-  return <p className="max-w-xl text-[1.0625rem] leading-[1.4] text-muted">{children}</p>;
+  return <p className="name max-w-xl font-normal text-muted">{children}</p>;
 }

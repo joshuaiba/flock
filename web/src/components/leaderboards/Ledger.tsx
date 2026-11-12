@@ -25,8 +25,8 @@ import {
 // table with its sortable headers, the paging line, and the states around it
 // (nothing to show, nothing to compare with, API not answering).
 
-// The tabs' own rule sits right above, so the section draws none of its own.
-const CARD = "scroll-mt-24 border-t-0! pt-0!";
+// Paging links jump to the ledger's top; this keeps it clear of the top bar.
+const CARD = "scroll-mt-24";
 
 /** Are two neighbouring values in the order asked for? Names are compared
  *  loosely: the database's alphabet is not exactly JavaScript's, and this must
@@ -77,7 +77,7 @@ async function load<R, P extends Page<R>>(board: Board<R, P>, view: View, sort: 
  *  screen then. */
 export function LedgerSkeleton({ title }: { title?: string }) {
   return (
-    <section id={LEDGER_ID} className={`relative z-20 ${CARD}`} aria-busy="true">
+    <section id={LEDGER_ID} className={CARD} aria-busy="true">
       {title ? <h2 className="panel-title">{title}</h2> : <span className="skeleton h-7 w-52" />}
       <span className="sr-only">Loading</span>
       <span className="skeleton mt-3 h-3.5 w-full max-w-xl" />
@@ -153,7 +153,7 @@ function Pager<R>({ page, view }: { page: Page<R>; view: View }) {
     );
   return (
     <nav className="mt-4 flex flex-wrap items-center justify-between gap-x-6 gap-y-3" aria-label="Pages of this leaderboard">
-      <p className="ui text-muted">
+      <p className="text-muted">
         Rows {n(from)} to {n(to)} of {n(page.total)}
       </p>
       {page.total > PAGE_SIZE && (
@@ -204,7 +204,7 @@ export async function Ledger<R, P extends Page<R>>({ board, view }: { board: Boa
 
   const ctx: Ctx<P> = { page, view, active, record: await pending };
   const title = board.title;
-  // Kept to a readable measure: the card is as wide as the widest table.
+  // Kept to a readable measure: the section is as wide as the widest table.
   const note = <span className="block max-w-3xl">{board.note(ctx)}</span>;
 
   if (board.needsPrior && !prior)
@@ -238,9 +238,9 @@ export async function Ledger<R, P extends Page<R>>({ board, view }: { board: Boa
 
   return (
     <Panel title={title} note={note} id={LEDGER_ID} className={CARD}>
-      {!prior && columns.length < board.columns.length && <p className="ui mb-3 max-w-3xl text-muted">{noPrior} Changes are not shown.</p>}
+      {!prior && columns.length < board.columns.length && <p className="mb-3 max-w-3xl text-muted">{noPrior} Changes are not shown.</p>}
       {fellBack && (
-        <p className="ui mb-3 max-w-3xl text-muted" role="status">
+        <p className="mb-3 max-w-3xl text-muted" role="status">
           The data service could not sort by that column just now, so the list is in its usual order.
         </p>
       )}
@@ -249,7 +249,7 @@ export async function Ledger<R, P extends Page<R>>({ board, view }: { board: Boa
           the visually hidden labels inside far-right cells (absolutely
           positioned) are clipped with the table instead of widening the page. */}
       <div className="relative overflow-x-auto" tabIndex={0} role="region" aria-label={`${caption}: table`}>
-        <table className={`ledger forum-ledger ${board.width}`}>
+        <table className={`ledger ${board.width}`}>
           <caption className="sr-only">{caption}</caption>
           <thead>
             <tr>

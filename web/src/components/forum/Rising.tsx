@@ -1,9 +1,22 @@
 import { NoRows, OrgLink, Panel, signedPct } from "@/components/Signals";
 import { serverGet } from "@/lib/api";
-import { money } from "@/lib/format";
-import { priorLabel, signalPath, type FundingPage } from "@/lib/signals";
-import { tagPhrase } from "@/lib/tags";
+import { money, plural } from "@/lib/format";
+import { pct, priorLabel, signalPath, type FundingPage } from "@/lib/signals";
+import { tagLabel, tagPhrase } from "@/lib/tags";
 import { carry, Down, lastLabel, Scroll, signedMoney, type PanelProps } from "./shared";
+
+/** The panel's one-line reading: who grew the fastest, and how many are rising. */
+function reading(d: FundingPage, days: number): string | undefined {
+  const top = d.items[0];
+  if (!top?.org || top.pct == null) return undefined;
+  // pct() writes tenfold growth and more as a multiple ("13×").
+  const grew =
+    top.pct >= 10
+      ? `grew to ${pct(top.pct)} its award dollars in ${priorLabel(days)}`
+      : `grew ${pct(top.pct)} on ${priorLabel(days)}`;
+  const rest = d.total > 1 ? ` ${plural(d.total, "company", "companies")} are rising.` : "";
+  return `${top.org.name} ${grew}, to ${money(top.amount)}.${rest}`;
+}
 
 /** Momentum leaderboard: the ten companies whose award dollars grew the most,
  *  by percentage, against the prior period. */
@@ -27,6 +40,7 @@ export async function Rising({ days, tag, className = "" }: PanelProps) {
       title="Rising"
       more={more}
       className={className}
+      takeaway={comparable ? reading(d, days) : undefined}
       note={
         <>
           Companies by growth in award dollars, {lastLabel(days)} against {priorLabel(days)}
@@ -46,21 +60,20 @@ export async function Rising({ days, tag, className = "" }: PanelProps) {
         </NoRows>
       ) : (
         <Scroll label="Rising companies">
-          {/* The dollar change has its own column from `sm` up; on a phone
-              it sits under the period's dollars, so the name keeps its room. */}
+          {/* The dollar change sits under the period's dollars, so the name
+              keeps its room; the category has its own column from `md` up. */}
           <table className="ledger min-w-[19.5rem]">
             <thead>
               <tr>
-                <th scope="col" className="num">
-                  <span aria-hidden="true">#</span>
+                <th scope="col" className="w-7">
                   <span className="sr-only">Rank</span>
                 </th>
                 <th scope="col">Company</th>
+                <th scope="col" className="hidden md:table-cell">
+                  Category
+                </th>
                 <th scope="col" className="num">
                   Awarded
-                </th>
-                <th scope="col" className="num hidden sm:table-cell">
-                  Change
                 </th>
                 <th scope="col" className="num">
                   Growth
@@ -70,20 +83,26 @@ export async function Rising({ days, tag, className = "" }: PanelProps) {
             <tbody>
               {d.items.map((r, i) => (
                 <tr key={r.org?.id ?? i}>
-                  <td className="num w-8 text-muted">{r.pct_rank ?? i + 1}</td>
+                  <td className="w-7 text-faint">{r.pct_rank ?? i + 1}</td>
                   {/* w-full + max-w-0: this cell takes the room the numbers
                       leave, and a long name is cut with an ellipsis. */}
-                  <td className="forum-name w-full max-w-0">
-                    {r.org ? <OrgLink org={r.org} size={22} className="max-w-full align-middle" /> : "Unnamed recipient"}
+                  <td className="w-full max-w-0">
+                    {r.org ? (
+                      <OrgLink org={r.org} className="max-w-full align-middle" />
+                    ) : (
+                      <span className="name">Unnamed recipient</span>
+                    )}
+                  </td>
+                  <td className="hidden whitespace-nowrap text-muted md:table-cell">
+                    {r.org?.tag ? tagLabel(r.org.tag) : ""}
                   </td>
                   <td className="num leading-tight">
-                    <span className="text-accent">{money(r.amount)}</span>
-                    <span className="block text-[0.75rem] text-muted sm:hidden">
+                    <span className="money">{money(r.amount)}</span>
+                    <span className="block text-[0.75rem] text-muted">
                       <span className="sr-only">change </span>
                       {signedMoney(r.delta)}
                     </span>
                   </td>
-                  <td className="num hidden text-muted sm:table-cell">{signedMoney(r.delta)}</td>
                   <td className="num">{r.pct != null && signedPct(r.pct)}</td>
                 </tr>
               ))}

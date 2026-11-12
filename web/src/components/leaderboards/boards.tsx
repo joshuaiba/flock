@@ -2,9 +2,10 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { MedallionImg } from "@/components/Art";
 import { OrgLink, RankChange, StageTrack } from "@/components/Signals";
-import { medallionForTag } from "@/lib/art";
+import { medallionForFamily } from "@/lib/art";
 import { day, dollars, plural } from "@/lib/format";
 import {
+  familyOfTag,
   mixText,
   pct,
   priorLabel,
@@ -107,9 +108,9 @@ function among(tag: string | null): string {
   return tag ? `, among companies with ${tagPhrase(tag)} awards` : "";
 }
 
-/** Dollars awarded: the one place Pompeian red is used. */
+/** Dollars awarded: the one place the accent is used. */
 function Awarded({ v }: { v: number }) {
-  return <span className="text-accent">{dollars(v)}</span>;
+  return <span className="money">{dollars(v)}</span>;
 }
 
 /** A change with its sign, "+12%" or "−$1,204": the sign carries the
@@ -132,9 +133,9 @@ function Move({ v, text, title }: { v: number; text: string; title?: string }) {
 
 const Dash = () => <span className="text-muted">—</span>;
 
-/** A company or agency: medallion, name, and the "show in graph" link. */
+/** A company or agency: its name, and the "show in graph" link. */
 function Who({ org }: { org: SignalOrg | null }) {
-  return org ? <OrgLink org={org} size={22} className="forum-name max-w-[15rem] sm:max-w-[22rem]" /> : <Dash />;
+  return org ? <OrgLink org={org} className="max-w-[15rem] sm:max-w-[22rem]" /> : <Dash />;
 }
 function Category({ org }: { org: SignalOrg | null }) {
   return org?.tag ? <span className="text-muted">{tagLabel(org.tag)}</span> : <Dash />;
@@ -517,9 +518,11 @@ export const TOPICS: Board<TopicRow, TopicPage> = {
       head: "Category",
       sort: "category",
       value: (r) => r.category,
-      cell: (r, { view }) => (
-        <span className="forum-name inline-flex items-center gap-2">
-          <MedallionImg name={medallionForTag(r.category)} size={22} />
+      // A list of categories is where a picture helps: each one carries its
+      // family's medallion as a small icon.
+      cell: (r, { view, record }) => (
+        <span className="name inline-flex items-center gap-2.5">
+          <MedallionImg name={medallionForFamily(familyOfTag(record?.families, r.category))} size={22} />
           <Link
             href={viewHref(view, { tab: "recipients", tag: r.category, sort: "amount", order: "desc", page: 1 })}
             title={`Top recipients in ${tagPhrase(r.category)}`}

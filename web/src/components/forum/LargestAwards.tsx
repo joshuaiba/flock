@@ -1,12 +1,29 @@
+import Link from "next/link";
 import { NoRows, OrgLink, Panel } from "@/components/Signals";
 import { serverGet } from "@/lib/api";
 import { day, money } from "@/lib/format";
 import { signalPath, type AwardRow, type Page } from "@/lib/signals";
-import { tagPhrase } from "@/lib/tags";
+import { tagLabel, tagPhrase } from "@/lib/tags";
 import { Down, lastLabel, Scroll, type PanelProps } from "./shared";
 
-/** The ten biggest single awards in the window: who got it, who paid, when,
- *  how much and what for, with a link to the source record when there is one. */
+const WORDS = ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"];
+
+/** The panel's one-line reading: how many awards are listed, and the category
+ *  that took the most of them. */
+function reading(items: AwardRow[], days: number, tag: string | null): string {
+  const n = items.length;
+  const head = `The ${n === 1 ? "largest single award" : `${WORDS[n]?.toLowerCase() ?? n} largest single awards`} in ${lastLabel(days)}${tag ? `, in ${tagPhrase(tag)}` : ""}.`;
+  if (tag || n < 2) return head;
+  const counts = new Map<string, number>();
+  for (const a of items) for (const t of a.tags) counts.set(t, (counts.get(t) ?? 0) + 1);
+  const [top, k] = [...counts].sort((a, b) => b[1] - a[1])[0] ?? [null, 0];
+  if (!top || k < 2) return head;
+  return `${head} ${WORDS[k] ?? k} went to ${tagPhrase(top)}.`;
+}
+
+/** The ten biggest single awards in the window: when, who got it, who paid,
+ *  in which category and how much, with a link to the source record when
+ *  there is one. */
 export async function LargestAwards({ days, tag, className = "" }: PanelProps) {
   const d = await serverGet<Page<AwardRow>>(signalPath("largest-awards", { window: days, tag, limit: 10 }));
   if (!d)
@@ -19,12 +36,8 @@ export async function LargestAwards({ days, tag, className = "" }: PanelProps) {
     <Panel
       title="Largest awards"
       className={className}
-      note={
-        <>
-          Single awards in {lastLabel(days)}
-          {tag && <>, in {tagPhrase(tag)}</>}, largest obligated amount first.
-        </>
-      }
+      takeaway={d.items.length > 0 ? reading(d.items, days, tag) : undefined}
+      note={<>Largest obligated amount first. Point at a recipient for what the award was for.</>}
     >
       {d.items.length === 0 ? (
         <NoRows>
@@ -32,20 +45,19 @@ export async function LargestAwards({ days, tag, className = "" }: PanelProps) {
         </NoRows>
       ) : (
         <Scroll label="Largest awards">
-          {/* On a phone the agency and the date move under the recipient, and
-              the description is left to the source record. */}
+          {/* On a phone the office and the date move under the recipient. */}
           <table className="ledger">
             <thead>
               <tr>
-                <th scope="col">Recipient</th>
-                <th scope="col" className="hidden md:table-cell">
-                  Awarded by
-                </th>
                 <th scope="col" className="hidden md:table-cell">
                   Date
                 </th>
+                <th scope="col">Recipient</th>
+                <th scope="col" className="hidden md:table-cell">
+                  Awarding office
+                </th>
                 <th scope="col" className="hidden lg:table-cell">
-                  For
+                  Category
                 </th>
                 <th scope="col" className="num">
                   Amount
@@ -64,33 +76,33 @@ export async function LargestAwards({ days, tag, className = "" }: PanelProps) {
                 );
                 return (
                   <tr key={a.id}>
-                    <td className="forum-name max-w-0 md:w-[26%]">
+                    <td className="hidden w-px whitespace-nowrap pr-8! text-muted md:table-cell">{day(a.day, true)}</td>
+                    <td className="max-w-0 md:w-[30%]" title={a.description ?? undefined}>
                       {a.recipient ? (
-                        <OrgLink org={a.recipient} size={22} className="max-w-full align-middle" />
+                        <OrgLink org={a.recipient} className="max-w-full align-middle" />
                       ) : (
-                        <span className="text-muted">Unnamed recipient</span>
+                        <span className="name text-muted">Unnamed recipient</span>
                       )}
-                      <span className="ui mt-0.5 flex flex-wrap items-center gap-x-2 text-muted md:hidden">
+                      <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[0.8125rem] text-muted md:hidden">
                         {a.agency && <span className="min-w-0 truncate">{a.agency.name}</span>}
                         <span className="whitespace-nowrap">{day(a.day)}</span>
                         <span className="sm:hidden">{source}</span>
                       </span>
                     </td>
-                    <td className="forum-name forum-name-sm hidden max-w-0 md:table-cell md:w-[24%]">
+                    <td className="hidden max-w-0 md:table-cell md:w-[32%]">
                       {a.agency ? (
-                        <OrgLink org={a.agency} size={18} graph={false} className="max-w-full align-middle" />
+                        <Link href={`/entity/${a.agency.id}`} className="block truncate font-medium no-underline hover:underline">
+                          {a.agency.name}
+                        </Link>
                       ) : (
                         <span className="text-muted">—</span>
                       )}
                     </td>
-                    <td className="ui hidden whitespace-nowrap text-muted md:table-cell">{day(a.day)}</td>
-                    <td className="ui hidden max-w-0 text-muted lg:table-cell lg:w-[34%]">
-                      <span className="block truncate" title={a.description ?? undefined}>
-                        {a.description ?? "—"}
-                      </span>
+                    <td className="hidden whitespace-nowrap text-muted lg:table-cell">
+                      {a.tags.length > 0 ? tagLabel(a.tags[0]) : "—"}
                     </td>
-                    <td className="num text-accent">{money(a.amount)}</td>
-                    <td className="hidden text-right sm:table-cell">{source}</td>
+                    <td className="num money">{money(a.amount)}</td>
+                    <td className="hidden w-px text-right sm:table-cell">{source}</td>
                   </tr>
                 );
               })}

@@ -43,19 +43,9 @@ function reading(d: TopicPage, days: number, tag: string | null): string {
   return `${sentence(rising[0], days)} ${rising.length} of ${plural(d.items.length, "topic")} ${rising.length === 1 ? "is" : "are"} rising.`;
 }
 
-/** The column heads over a list of topics; they match the grid in forum.css. */
-function TopicHead({ comparable }: { comparable: boolean }) {
-  return (
-    <div className="forum-topic forum-cols" aria-hidden="true">
-      <span>Topic</span>
-      <span className="forum-topic-chart hidden sm:block">Posted over time</span>
-      <span className="text-right">Posted</span>
-      <span className="text-right">{comparable && "Prior"}</span>
-      <span className="text-right">{comparable && "Change"}</span>
-    </div>
-  );
-}
-
+/** One topic as a tile: its name, the postings over time, then the count
+ *  against the prior period in words ("14 posted, up from 6") and what is
+ *  open now. */
 function Topic({
   r,
   labels,
@@ -69,53 +59,34 @@ function Topic({
   chosen: boolean;
 }) {
   const name = tagLabel(r.category);
+  const against = !comparable
+    ? "posted"
+    : r.delta === 0
+      ? `posted, level with ${r.prev_posted.toLocaleString("en-US")}`
+      : `posted, ${r.delta > 0 ? "up" : "down"} from ${r.prev_posted.toLocaleString("en-US")}`;
   return (
-    <li aria-current={chosen ? "true" : undefined} className="forum-topic py-2">
-      <div className="min-w-0 leading-tight">
-        <p className="forum-name">
-          {name}
-          {chosen && <span className="label ml-2 whitespace-nowrap">selected</span>}
-        </p>
-        <p className="ui text-muted">{r.open > 0 ? `${r.open} open now` : "none open now"}</p>
-      </div>
-      {/* On a phone the sparkline takes its own line under the name and figures. */}
+    <li aria-current={chosen ? "true" : undefined} className="forum-tile">
+      <h3 className="forum-tile-name">
+        {name}
+        {chosen && <span className="label ml-2 whitespace-nowrap">selected</span>}
+      </h3>
+      {/* A long name may take two lines; the chart is pushed down, so the
+          charts in a row still line up. */}
       <SeriesChart
-        className="forum-topic-chart"
+        className="mt-auto pt-3"
         values={r.series}
         labels={labels}
         split={Math.floor(r.series.length / 2)}
         unit="posted"
-        color="var(--text)"
-        height={32}
+        height={36}
         title={`${name}, solicitations posted`}
       />
-      <span className="forum-num text-right">
-        {r.posted.toLocaleString("en-US")}
-        <span className="sr-only"> posted</span>
-      </span>
-      <span className="forum-num text-right text-muted">
-        {comparable && (
-          <>
-            {r.prev_posted.toLocaleString("en-US")}
-            <span className="sr-only"> in the prior period</span>
-          </>
-        )}
-      </span>
-      <span className="forum-num text-right">
-        {comparable &&
-          (r.delta === 0 ? (
-            <span className="text-muted">level</span>
-          ) : r.pct != null ? (
-            signedPct(r.pct)
-          ) : (
-            // Too few postings before for a percentage: the count itself.
-            <>
-              {r.delta > 0 ? "+" : "−"}
-              {Math.abs(r.delta)}
-              <span className="sr-only"> {r.delta > 0 ? "more" : "fewer"}</span>
-            </>
-          ))}
-      </span>
+      <p className="mt-3 text-muted">
+        <span className="forum-tile-figure mr-1.5 text-ink">{r.posted.toLocaleString("en-US")}</span>
+        {against}
+        {comparable && r.pct != null && r.delta !== 0 && <span className="sr-only"> ({signedPct(r.pct)})</span>}
+      </p>
+      <p className="text-muted">{r.open > 0 ? `${r.open} open now` : "none open now"}</p>
     </li>
   );
 }
@@ -152,11 +123,6 @@ export async function HeatingUp({ days, tag, className = "" }: PanelProps) {
   const n = d.items[0].series.length;
   const labels = bucketLabels(d.series_start, d.bucket_days, n);
   const comparable = d.coverage.prior_complete;
-  const rising = comparable ? d.items.filter((r) => r.rising) : [];
-  const rest = comparable ? d.items.filter((r) => !r.rising) : d.items;
-  const row = (r: TopicRow) => (
-    <Topic key={r.category} r={r} labels={labels} comparable={comparable} chosen={r.category === tag} />
-  );
   return (
     <Panel
       title="Heating up"
@@ -170,32 +136,12 @@ export async function HeatingUp({ days, tag, className = "" }: PanelProps) {
         </>
       }
     >
-      {/* Two lists side by side on a wide screen: what is rising, and the rest.
-          Without a full prior period there is one list, in two columns. */}
-      {comparable ? (
-        <div className="grid gap-x-12 gap-y-8 lg:grid-cols-2">
-          {rising.length > 0 && (
-            <div className="min-w-0">
-              <h3 className="font-serif text-[1.0625rem]">Rising</h3>
-              <div className="mt-2">
-                <TopicHead comparable />
-                <ul className="forum-rows">{rising.map(row)}</ul>
-              </div>
-            </div>
-          )}
-          {rest.length > 0 && (
-            <div className="min-w-0">
-              <h3 className="font-serif text-[1.0625rem]">Level or falling</h3>
-              <div className="mt-2">
-                <TopicHead comparable />
-                <ul className="forum-rows">{rest.map(row)}</ul>
-              </div>
-            </div>
-          )}
-        </div>
-      ) : (
-        <ul className="forum-rows grid gap-x-12 border-t border-line2 lg:grid-cols-2">{rest.map(row)}</ul>
-      )}
+      {/* One tile per topic, in the API's order. */}
+      <ul className="forum-tiles">
+        {d.items.map((r) => (
+          <Topic key={r.category} r={r} labels={labels} comparable={comparable} chosen={r.category === tag} />
+        ))}
+      </ul>
     </Panel>
   );
 }

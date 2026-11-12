@@ -3,7 +3,6 @@
 // window, the category filter, the tables they came from, and how far back the
 // data reaches.
 
-import { medallionForTag } from "./art";
 import type { OrgKind, Stage } from "./api";
 import { tagLabel } from "./tags";
 
@@ -38,7 +37,34 @@ export type Overview = Envelope & {
   prev_open_solicitations: number;
   posted: number;
   prev_posted: number;
+  /** absent from an API that predates the money chart */
+  money_by_family?: MoneyByFamily;
 };
+
+// "Where the money went": the window's award dollars as parts of a whole. An
+// award's dollars are split evenly across the category families it is tagged
+// with (and, inside a family, across its tags there), so the parts add up to
+// the Awarded figure. The families and which tags belong to each are defined
+// once, in config/taxonomy.yaml, and reach the site through the API.
+export type MoneyTag = { tag: string; amount: number; share: number; awards: number };
+export type MoneyFamily = {
+  /** "aerial" | "maritime" | "navigation" | "counter" | "other", or
+   *  "uncategorized" for awards with no category tag */
+  family: string;
+  label: string;
+  covers: string;
+  amount: number;
+  /** of the window's total, 0 to 1 */
+  share: number;
+  /** an award counts once in each family it touches */
+  awards: number;
+  /** the family's dollars by tag; shares are of the family */
+  tags: MoneyTag[];
+};
+/** Always the five families in their fixed order, then "uncategorized". It
+ *  covers the whole window whatever the category filter is. */
+export type MoneyByFamily = { total: number; items: MoneyFamily[] };
+export type FamilyDef = { key: string; label: string; covers: string; tags: string[] };
 
 export type FundingRow = {
   org: SignalOrg | null;
@@ -184,6 +210,8 @@ export type Definitions = {
   opportunities: number;
   min_baseline: number;
   min_topic_baseline: number;
+  /** the category families, in their fixed order; absent from an older API */
+  families?: FamilyDef[];
   items: { key: string; name: string; text: string; tables: string[] }[];
 };
 
@@ -249,36 +277,11 @@ export function change(cur: number, prev: number, complete: boolean): { up: bool
   return { up: d > 0, flat: Math.abs(d) < 0.005, text: pct(d) };
 }
 
-// ------------------------------------------------------------ chart colors
+// ------------------------------------------------------------ categories in words
 
-// Ten categories are too many hues for this palette to keep apart, so charts
-// that color by category use the five medallion families instead. The color
-// follows the family, never its rank, and every chart that uses it also names
-// the categories in words.
-export const FAMILIES = ["aerial", "maritime", "navigation", "counter", "other"] as const;
-export type Family = (typeof FAMILIES)[number];
-
-export const FAMILY_LABEL: Record<Family, string> = {
-  aerial: "Aerial",
-  maritime: "Maritime",
-  navigation: "Navigation",
-  counter: "Counter-drone",
-  other: "Ground, software, command",
-};
-
-export function familyOf(tag: string): Family {
-  switch (medallionForTag(tag)) {
-    case "wing":
-      return "aerial";
-    case "anchor":
-      return "maritime";
-    case "compass":
-      return "navigation";
-    case "shield":
-      return "counter";
-    default:
-      return "other";
-  }
+/** The family a category tag belongs to, from the API's list of families. */
+export function familyOfTag(families: FamilyDef[] | undefined, tag: string): string | null {
+  return families?.find((f) => f.tags.includes(tag))?.key ?? null;
 }
 
 /** A list of categories in words: "Maritime 62%, Swarming 30%". */

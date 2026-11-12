@@ -46,9 +46,8 @@ export function Scroll({ label, children }: { label: string; children: React.Rea
   );
 }
 
-/** An empty state inside a section: one plain line saying what would appear
- *  here. No illustration: the dashboard keeps its ornaments to the page's
- *  edges. */
+/** An empty state inside a section: one plain serif line saying what would
+ *  appear here. No illustration: the dashboard keeps its art to the margins. */
 export function PanelEmpty({ children }: { children: React.ReactNode }) {
-  return <p className="forum-name max-w-md text-muted">{children}</p>;
+  return <NoRows>{children}</NoRows>;
 }

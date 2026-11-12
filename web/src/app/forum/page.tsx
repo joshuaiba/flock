@@ -22,11 +22,11 @@ type Search = Promise<{ [key: string]: string | string[] | undefined }>;
 
 // The dashboard's grid: twelve columns on a wide screen, one column (in this
 // same order) on a narrow one. The order is the order of importance: what
-// changed (the summary row), who is rising, what reached production, what is
-// heating up, then the supporting sections. min-w-0 lets a section shrink
-// below its widest table, which then scrolls inside it instead of stretching
-// the page.
-const GRID = "mt-12 grid grid-cols-1 gap-x-12 gap-y-14 lg:grid-cols-12";
+// changed (the summary row), who is rising, what reached production, what is heating up, then the supporting sections.
+// min-w-0 lets a section shrink below its widest table, which then scrolls
+// inside it instead of stretching the page. Sections are set apart by space;
+// there are no cards and no rules between them.
+const GRID = "mt-14 grid grid-cols-1 gap-x-14 gap-y-16 lg:grid-cols-12";
 const SPAN = {
   rising: "min-w-0 lg:col-span-7",
   production: "min-w-0 lg:col-span-5",
@@ -39,7 +39,7 @@ const SPAN = {
 
 /** The toolbar under the title: on the left the as-of date and where every
  *  figure is defined, on the right the window and the category. */
-const TOOLBAR = "relative z-20 mt-5 flex flex-wrap items-center justify-between gap-x-8 gap-y-3";
+const TOOLBAR = "mt-5 flex flex-wrap items-center justify-between gap-x-8 gap-y-3";
 
 /** `?window=` and `?tag=`, read leniently: an unknown window becomes 90 days
  *  and an unknown category becomes "all". */
@@ -51,9 +51,8 @@ async function readFilters(searchParams: Search): Promise<{ days: number; tag: s
 
 /** Everything under the title. Each signal is its own server component in its
  *  own Suspense, so a slow one never holds up the others. The boundaries are
- *  keyed by the filters: change the window and each panel shows its plaster
- *  skeleton until its new numbers arrive, never the old numbers under the new
- *  window. */
+ *  keyed by the filters: change the window and each panel shows its skeleton
+ *  until its new numbers arrive, never the old numbers under the new window. */
 async function Forum({ searchParams }: { searchParams: Search }) {
   const { days, tag } = await readFilters(searchParams);
   const key = `${days}:${tag ?? ""}`;
@@ -142,11 +141,8 @@ async function ForumFooter({ searchParams }: { searchParams: Search }) {
 export default function ForumPage({ searchParams }: { searchParams: Search }) {
   return (
     <>
-      <main className="mx-auto max-w-6xl px-4 pt-24 sm:px-6 sm:pt-28">
-        {/* The page's one ornament: the title in its plaque. */}
-        <div className="relative z-20">
-          <h1 className="title-plaque">The Forum</h1>
-        </div>
+      <main data-forum-column className="mx-auto max-w-[71.75rem] px-4 pt-24 sm:px-6 sm:pt-32">
+        <h1 className="page-title">The Forum</h1>
         <Suspense fallback={<ForumSkeleton />}>
           <Forum searchParams={searchParams} />
         </Suspense>

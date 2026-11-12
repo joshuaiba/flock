@@ -94,6 +94,7 @@ export function Watchlist({ className = "" }: { className?: string }) {
   return (
     <Panel
       title="Your watchlist"
+      id="watchlist"
       className={className}
       note={
         data
@@ -118,7 +119,7 @@ export function Watchlist({ className = "" }: { className?: string }) {
       ) : (
         <>
           {!data.since && (
-            <p className="ui mb-3 max-w-[46rem] text-muted">
+            <p className="mb-3 max-w-[46rem] text-muted">
               This is your first visit from this browser, so there is nothing to compare with yet. New awards and stages
               will be listed from your next visit.
             </p>
@@ -154,11 +155,11 @@ function Watched({ w, since }: { w: WatchRow; since: string | null }) {
         ? "last award today"
         : `last award ${plural(w.days_since_last, "day")} ago`;
   return (
-    <li className="py-2.5">
-      <div className="forum-name">
-        <OrgLink org={w.org} size={22} className="max-w-full" />
+    <li className="py-3">
+      <div>
+        <OrgLink org={w.org} className="max-w-full" />
       </div>
-      <p className="ui mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-muted">
+      <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-muted">
         {w.rank == null ? (
           <span>not ranked in the last 90 days</span>
         ) : (
@@ -181,7 +182,7 @@ function Watched({ w, since }: { w: WatchRow; since: string | null }) {
         <span>{last}</span>
       </p>
       {since && (
-        <div className="ui mt-1">
+        <div className="mt-1">
           {w.new_awards.length === 0 ? (
             <p className="text-muted">No new awards since your last visit.</p>
           ) : (
@@ -189,7 +190,7 @@ function Watched({ w, since }: { w: WatchRow; since: string | null }) {
               <p>
                 {capped ? `${AWARD_CAP} or more new awards` : plural(w.new_awards.length, "new award")}
                 {" · "}
-                <span className="text-accent">{money(w.new_amount)}</span>
+                <span className="money">{money(w.new_amount)}</span>
                 {capped && <span className="text-muted"> in the newest {AWARD_CAP}</span>}
               </p>
               <ul className="mt-1 text-muted">
@@ -198,7 +199,7 @@ function Watched({ w, since }: { w: WatchRow; since: string | null }) {
                     {/* With the year: an award new to the record can carry an
                         old date (a late filing, a newly loaded source). */}
                     <span className="shrink-0 whitespace-nowrap">{day(a.day)}</span>
-                    <span className="shrink-0 text-accent">{money(a.amount)}</span>
+                    <span className="money shrink-0">{money(a.amount)}</span>
                     <span className="min-w-0 truncate">{truncate(a.description, 90)}</span>
                   </li>
                 ))}

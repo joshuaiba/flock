@@ -80,9 +80,10 @@
     color-scheme: light;
   }
   /* The page speaks in the interface face: Inter at 13px with tabular
-     figures. Serif is asked for by name, where the design calls for it. */
+     figures. Serif is asked for by name, where the design calls for it.
+     The page color is on <html> alone: a background on <body> would cover
+     the margin engravings, which sit behind the content at z-index -1. */
   body {
-    background: var(--bg);
     font-family: var(--font-sans);
     font-weight: 400;
     font-size: 0.8125rem;
