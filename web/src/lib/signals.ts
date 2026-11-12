@@ -16,7 +16,14 @@ export type Envelope = {
   tag: string | null;
   sample: boolean;
   sources: string[];
-  coverage: { first_award_day: string | null; prior_complete: boolean };
+  coverage: {
+    first_award_day: string | null;
+    /** false when the record starts after the prior period does: show no change */
+    prior_complete: boolean;
+    first_solicitation_day: string | null;
+    /** the same test for solicitations, which can start on a different day */
+    solicitations_prior_complete: boolean;
+  };
 };
 export type Page<T> = Envelope & { total: number; limit: number; offset: number; items: T[] };
 
@@ -217,11 +224,21 @@ export const STAGE_LABEL: Record<StageKey, string> = {
   production: "Production",
 };
 
-/** 0.41 -> "41%", 4.83 -> "483%", 12.3 -> "12x". */
+/** Growth as text: 0.41 -> "41%", 4.83 -> "483%". Tenfold growth and more is
+ *  written as a multiple of the prior figure: growth of 12.3 is "13×" (the
+ *  new figure is 13.3 times the old one). */
 export function pct(v: number): string {
   const a = Math.abs(v);
-  if (a >= 10) return `${Math.round(a + 1)}x`;
+  if (a >= 10) return `${Math.round(a + 1).toLocaleString("en-US")}×`;
+  // A real change too small to round to 1% is not "0%".
+  if (a > 0 && a < 0.005) return "under 1%";
   return `${Math.round(a * 100)}%`;
+}
+
+/** An envelope whose `prior_complete` is the solicitation one, for figures
+ *  that count solicitations (open, posted) inside a response about awards. */
+export function forSolicitations<E extends Pick<Envelope, "window_days" | "coverage">>(env: E): E {
+  return { ...env, coverage: { ...env.coverage, prior_complete: env.coverage.solicitations_prior_complete } };
 }
 
 /** Change between two counts or amounts, or null when there is nothing to
@@ -272,4 +289,28 @@ export function mixText(mix: MixPart[], total: number, max = 3): string {
     .slice(0, max)
     .map((m) => `${tagLabel(m.category)} ${Math.round((m.amount / total) * 100)}%`)
     .join(", ");
+}
+
+// ------------------------------------------------------------ series
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "Aug 14 to Aug 28" for each bucket of a series that starts on `start`
+ *  (ISO date) and has buckets of `bucketDays` days (may be fractional: bucket
+ *  i covers the days whose offset * n / span rounds down to i). A series that
+ *  runs longer than about ten months carries the year, so the same month in
+ *  two different years cannot be mistaken for each other. */
+export function bucketLabels(start: string, bucketDays: number, n: number): string[] {
+  const [y, m, d] = start.split("-").map(Number);
+  const t0 = Date.UTC(y, m - 1, d);
+  const years = bucketDays * n > 300;
+  const fmt = (offset: number) => {
+    const t = new Date(t0 + offset * 86_400_000);
+    return `${MONTHS[t.getUTCMonth()]} ${t.getUTCDate()}${years ? `, ${t.getUTCFullYear()}` : ""}`;
+  };
+  return Array.from({ length: n }, (_, i) => {
+    const from = Math.ceil(i * bucketDays);
+    const to = Math.ceil((i + 1) * bucketDays) - 1;
+    return to <= from ? fmt(from) : `${fmt(from)} to ${fmt(to)}`;
+  });
 }

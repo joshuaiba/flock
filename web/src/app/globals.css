@@ -27,6 +27,13 @@
   --grain-opacity: 0.055;
   --grain-blend: multiply;
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  /* Charts that color by category use five families (see lib/signals.ts), in
+     this fixed order. Pompeian red stays reserved for money. */
+  --chart-aerial: var(--terracotta);
+  --chart-maritime: #8fb3c7; /* the sky, a step deeper: the page's own is lost on plaster */
+  --chart-navigation: var(--ochre);
+  --chart-counter: var(--cypress);
+  --chart-other: var(--sage);
 }
 
 [data-theme="dusk"] {
@@ -50,6 +57,10 @@
   --grain-blend: soft-light; /* multiply vanishes on a dark page */
   /* the footer painting's top fade, longer at dusk (see components/footer.css) */
   --terrace-mask: linear-gradient(to bottom, transparent 0%, rgb(0 0 0 / 0.38) 30%, #000 56%);
+  /* the page's dusk sky and cypress are too dark to read as chart marks */
+  --chart-maritime: #a9c2dc;
+  --chart-counter: #5d7361;
+  --chart-other: #b3c9a6;
 }
 
 @theme inline {
@@ -315,6 +326,115 @@
   .reveal[data-shown] {
     opacity: 1;
     transform: none;
+  }
+}
+
+/* ---- the Forum: panels, ledgers, charts ---- */
+@layer components {
+  /* A panel's title: small caps in the display serif. */
+  .panel-title {
+    font-family: var(--font-display);
+    font-variant-caps: small-caps;
+    font-size: 1.55rem;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    line-height: 1.1;
+  }
+  /* The one-line reading of a chart, computed from its data. */
+  .takeaway {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-size: 1.2rem;
+    line-height: 1.25;
+    color: var(--ink);
+  }
+
+  /* A ledger: no boxes, fine sepia hairlines, generous rows, and a faint ochre
+     wash on the row under the pointer. Numbers go in cells marked .num. */
+  .ledger {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+  }
+  .ledger th {
+    padding: 0.55rem 1rem 0.55rem 0;
+    font-family: var(--font-caps);
+    font-size: 0.66rem;
+    font-weight: 400;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: var(--muted);
+    border-bottom: 1px solid var(--frame);
+  }
+  .ledger td {
+    padding: 0.85rem 1rem 0.85rem 0;
+    vertical-align: middle;
+    border-bottom: 1px solid var(--hair);
+  }
+  .ledger th:last-child,
+  .ledger td:last-child {
+    padding-right: 0;
+  }
+  .ledger tbody tr {
+    transition: background-color 0.15s;
+  }
+  .ledger tbody tr:hover {
+    background-color: color-mix(in srgb, var(--ochre) 13%, transparent);
+  }
+  .ledger .num {
+    text-align: right;
+    white-space: nowrap;
+    font-family: var(--font-serif);
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+  .ledger th a,
+  .ledger th button {
+    color: inherit;
+    text-decoration: none;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+  .ledger th[aria-sort="ascending"],
+  .ledger th[aria-sort="descending"] {
+    color: var(--ink);
+  }
+
+  /* Loading: plaster-colored blocks that breathe, never a spinner. */
+  .skeleton {
+    display: block;
+    border-radius: 4px;
+    background-color: color-mix(in srgb, var(--ink) 9%, var(--card));
+    animation: skeleton-breathe 1.5s ease-in-out infinite alternate;
+  }
+
+  /* A chart tooltip: a small parchment card. */
+  .tip {
+    position: absolute;
+    z-index: 30;
+    pointer-events: none;
+    padding: 0.4rem 0.65rem;
+    white-space: nowrap;
+    border: 1px solid var(--frame);
+    border-radius: 4px;
+    background: var(--paper);
+    box-shadow: 0 10px 22px -14px rgb(40 30 22 / 0.6);
+    font-family: var(--font-serif);
+    font-variant-numeric: tabular-nums lining-nums;
+    font-size: 0.92rem;
+    line-height: 1.3;
+    color: var(--ink);
+  }
+}
+
+@keyframes skeleton-breathe {
+  from {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 1;
   }
 }
 
