@@ -4,7 +4,7 @@ import { Art } from "@/components/Art";
 import { Footer } from "@/components/Footer";
 import { Hero } from "@/components/Hero";
 import { serverGet, type Summary } from "@/lib/api";
-import { FRESCO_CAPTION, FRESCO_CREDIT } from "@/lib/art";
+import { FRIEZE_CAPTION, FRIEZE_CREDIT } from "@/lib/art";
 
 async function FooterWithData() {
   const s = await serverGet<Summary>("summary");
@@ -46,17 +46,29 @@ export default function Home() {
       </Hero>
 
       <section id="about" className="relative scroll-mt-16">
-        {/* The page's one engraving: the Boscoreale wall as a ghost in the top
-            right corner, clear of the words, with its caption. */}
+        {/* The page's one picture: the Pergamon Altar's frieze as a ghost in the
+            top right corner, clear of the words, with its caption and the
+            photographer's credit. */}
         <figure className="about-fresco">
-          <Art name="fresco/wall" sizes="(min-width: 1024px) 600px, 60vw" opacity={0.5} className="aspect-[2499/1856] w-full" />
+          <Art
+            name="frieze/pergamon-athena"
+            sizes="(min-width: 1024px) 600px, 60vw"
+            opacity={0.5}
+            className="aspect-[2164/1384] w-full"
+          />
           <figcaption className="caption mt-3 pr-4 text-right sm:pr-10">
-            {FRESCO_CAPTION} {FRESCO_CREDIT}
+            {FRIEZE_CAPTION}
+            <span className="about-credit">
+              Photo: <a href={FRIEZE_CREDIT.photographer.href}>{FRIEZE_CREDIT.photographer.name}</a>,{" "}
+              <a href={FRIEZE_CREDIT.license.href}>{FRIEZE_CREDIT.license.name}</a>, adapted.
+            </span>
           </figcaption>
         </figure>
 
-        <div className="relative z-20 mx-auto max-w-[71.75rem] px-4 pt-20 sm:px-6 sm:pt-28 lg:pt-32">
-          <div className="max-w-[30rem] lg:min-h-[21rem]">
+        {/* The column's own box lies over the figure, so it lets the pointer
+            through to the credit's links; its two blocks take it back. */}
+        <div className="pointer-events-none relative z-20 mx-auto max-w-[71.75rem] px-4 pt-20 sm:px-6 sm:pt-28 lg:pt-32">
+          <div className="pointer-events-auto max-w-[30rem] lg:min-h-[21rem]">
             <h2 className="page-title text-balance">A map of defense funding for drones and autonomy.</h2>
             <p className="reading mt-6 text-muted">
               Flock is a knowledge graph. It connects what the Pentagon asks for to who gets paid, and watches whether
@@ -64,7 +76,7 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="mt-14 grid border-t border-line2 md:mt-20 md:grid-cols-3">
+          <div className="pointer-events-auto mt-14 grid border-t border-line2 md:mt-20 md:grid-cols-3">
             {ABOUT.map((a) => (
               <div
                 key={a.title}

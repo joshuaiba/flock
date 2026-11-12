@@ -1,7 +1,8 @@
 """Build the site's art from the Flock engraving pack.
 
-    uv run --with pillow python web/scripts/build-art.py /path/to/flock-engraving \\
-        /path/to/flock-hero [/path/to/forum-additions/art/figures]
+    uv run --with pillow python web/scripts/build-art.py /path/to/flock-art/flock-engraving \\
+        /path/to/flock-art/flock-hero /path/to/flock-art/forum-additions/art/figures \\
+        /path/to/flock-classic
 
 Writes web/public/art/on-dark/ (light lines, for the dark page) and
 web/public/art/on-light/ (ink lines, for paper). Every file in the pack is one
@@ -15,8 +16,12 @@ clean line engraving with no boats in it, and the two boats as separate files,
 because the site moves them (`on-dark/scene.png`, `rowboat.png`, `sailboat.png`,
 and the same under `on-light/`).
 
-The optional third folder holds the Forum's margin figures (nike, athena,
-trophy), which come as `<name>-on-dark.png` and `<name>-on-light.png`.
+The third folder holds the Forum's margin figures (nike, athena, trophy), which
+come as `<name>-on-dark.png` and `<name>-on-light.png`.
+
+The fourth folder is the Classic pack. Its `about-frieze/` holds the About
+section's frieze, a photograph of the Pergamon Altar kept as a tonal ghost in
+both tones (`pergamon-athena-on-dark.png`, `-on-light.png`).
 
 Only the art the site uses is built. The engraving pack also has an older hero
 scene, two more glide poses, the laurel garland, the Greek key and the title
@@ -59,9 +64,8 @@ JOBS: list[Job] = [
     # The vignette sits in the left of a wide empty canvas: crop to the drawing.
     ("vignettes/swallow-on-column", "vignettes/swallow-on-column", [280, 560], (24, 100, 930, 920)),
     ("footer/terrace", "footer/terrace", [1086, 2172], None),
-    # A photograph of a Roman wall painting, kept as a tonal ghost with faded
-    # edges (a painting has no linework to extract).
-    ("fresco/boscoreale-wall", "fresco/wall", [625, 1250], None),
+    # A detail of a photograph of a Roman wall painting, kept as a tonal ghost
+    # with faded edges (a painting has no linework to extract).
     ("fresco/boscoreale-garland-band", "fresco/garland-band", [625, 1250], None),
 ]
 
@@ -80,6 +84,13 @@ FIGURES: list[tuple[str, list[int]]] = [
     ("nike", [973]),
     ("athena", [619]),
     ("trophy", [736]),
+]
+
+# The About section's frieze, from the Classic pack: a photograph of the
+# Pergamon Altar (Carole Raddato, CC BY-SA 2.0) as a tonal ghost with faded
+# edges, 2164x1384. It is drawn at most 600px wide.
+FRIEZE: list[tuple[str, str, list[int]]] = [
+    ("about-frieze/pergamon-athena", "frieze/pergamon-athena", [600, 1200]),
 ]
 
 
@@ -113,7 +124,7 @@ def build(
     return total
 
 
-def main(pack: Path, hero: Path, figures: Path | None) -> None:
+def main(pack: Path, hero: Path, figures: Path, classic: Path) -> None:
     # Start clean, so art the site no longer uses does not linger.
     if OUT.exists():
         shutil.rmtree(OUT)
@@ -123,15 +134,16 @@ def main(pack: Path, hero: Path, figures: Path | None) -> None:
             total += build(find(pack / tone, src), OUT / tone / name, widths, crop)
         for name, widths in HERO:
             total += build(find(hero / tone, name), OUT / tone / "hero" / name, widths, None)
-        if figures:
-            for name, widths in FIGURES:
-                total += build(
-                    find(figures, f"{name}-{tone}"), OUT / tone / "figures" / name, widths, None
-                )
+        for name, widths in FIGURES:
+            total += build(
+                find(figures, f"{name}-{tone}"), OUT / tone / "figures" / name, widths, None
+            )
+        for src, name, widths in FRIEZE:
+            total += build(find(classic, f"{src}-{tone}"), OUT / tone / name, widths, None)
     print(f"total {total / 1e6:.1f} MB")
 
 
 if __name__ == "__main__":
-    if len(sys.argv) not in (3, 4):
+    if len(sys.argv) != 5:
         raise SystemExit(__doc__)
-    main(Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3]) if len(sys.argv) == 4 else None)
+    main(*(Path(a) for a in sys.argv[1:]))

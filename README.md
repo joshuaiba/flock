@@ -127,7 +127,7 @@ the hero's lake; no other art moves.
 
 | Screen | Path | What it shows |
 | --- | --- | --- |
-| Landing | `/` | The headline, the engraved lakeside village along the bottom, two boats on its lake (both bob, and the sailboat drifts slowly across), the live flock in the open sky (award birds in the accent, solicitation birds in the text color), and the way into the Forum; then About, under a ghost of the Boscoreale fresco |
+| Landing | `/` | The headline, the engraved lakeside village along the bottom, two boats on its lake (both bob, and the sailboat drifts slowly across), the live flock in the open sky (award birds in the accent, solicitation birds in the text color), and the way into the Forum; then About, under a ghost of the Pergamon Altar's frieze |
 | The Forum | `/forum` | The signals dashboard: the summary row, where the money went (award dollars by category family, as parts of a whole), momentum, stage transitions, topic heat, largest awards, funding by category, agency appetite and watchlist changes, over 30 days, 90 days or 1 year, for all categories or one. Engraved figures stand in the side margins on a wide window |
 | Leaderboards | `/forum/leaderboards` | The full rankings behind the Forum's panels |
 | Graph explorer | `/graph` | Companies as filled dots sized by dollars, agencies and offices as rings, solicitations as small diamonds; award edges in the accent, weight by dollars; search; filters for window (Recent, the default: the 90 days up to the newest award on record, so the map is never empty when the data has not been loaded lately; or 30 days / 90 days / 1 year back from today / everything on record), category, agency, minimum dollars, node type and watchlist only. Selecting a node dims everything but its neighbors and opens a side card. It opens in 3D (drag to orbit, click a node to fly to it, drag a node to move it) with a toggle to a flat view that keeps the filters and the selection |
@@ -211,16 +211,28 @@ Things to know:
   `web/public/art/` holds the resized `.webp` files the site serves, in two
   folders: `on-dark/` (light lines, for the dark page) and `on-light/` (ink
   lines, for paper). To rebuild them from the engraving pack, the landing
-  hero's pack (the scene and its two boats) and the Forum's figures:
-  `uv run --with pillow python web/scripts/build-art.py /path/to/flock-engraving
-  /path/to/flock-hero /path/to/forum-additions/art/figures`. The script only
+  hero's pack (the scene and its two boats), the Forum's figures and the
+  Classic pack (About's frieze):
+  `uv run --with pillow python web/scripts/build-art.py /path/to/flock-art/flock-engraving
+  /path/to/flock-art/flock-hero /path/to/flock-art/forum-additions/art/figures
+  /path/to/flock-classic`
+  (the first three packs live in one `flock-art/` folder; its `START-HERE.md` lists them). The script only
   resizes and crops; it never redraws or recolors.
-- **The fresco is a real Roman wall painting.** It is the west wall of Room L
-  of the Villa of P. Fannius Synistor at Boscoreale, in The Metropolitan Museum
-  of Art (accession 03.14.4, marked Public Domain on
+- **About's frieze is a photograph under CC BY-SA 2.0.** It shows Athena and
+  Nike against the giant Alkyoneus, on the east frieze of the Pergamon Altar
+  (second century BC, Pergamon Museum, Berlin).
+  [The photo](https://www.flickr.com/photos/carolemage/5912953449) is by Carole
+  Raddato, under [CC BY-SA 2.0](https://creativecommons.org/licenses/by-sa/2.0/)
+  (checked 2026-11-12). The site shows it adapted, as a tonal ghost with faded
+  edges. The license asks for the credit, so the line under it on the landing
+  page names her, the license, and that the image was adapted: keep it with the
+  picture.
+- **The entity page's garland is from a real Roman wall painting.** It is a
+  detail of the west wall of Room L of the Villa of P. Fannius Synistor at
+  Boscoreale, in The Metropolitan Museum of Art (accession 03.14.4, marked
+  Public Domain on
   [its collection page](https://www.metmuseum.org/art/collection/search/247008),
-  checked 2026-11-11). The site shows it as a tonal ghost; the caption under it
-  on the landing page carries the credit line.
+  checked 2026-11-11). The site shows it as a tonal ghost, with a caption.
 - **The category families live in one place.** `config/taxonomy.yaml` groups
   the ten category tags into five families (aerial, maritime, navigation,
   counter-drone, and ground, software and command). The API reads them for

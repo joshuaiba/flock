@@ -199,7 +199,7 @@
   }
 }
 
-/* ---- About, under the hero: the fresco ghost in the top right corner ---- */
+/* ---- About, under the hero: the frieze ghost in the top right corner ---- */
 .about-fresco {
   position: absolute;
   z-index: 0;
@@ -215,4 +215,14 @@
     width: min(600px, 86vw);
     margin: 3rem 0 -2rem auto;
   }
+}
+/* The photograph's credit: a small line of its own under the caption, in the
+   interface face. */
+.about-credit {
+  display: block;
+  margin-top: 0.3rem;
+  font-family: var(--font-sans);
+  font-style: normal;
+  font-size: 0.75rem;
+  line-height: 1.4;
 }

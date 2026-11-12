@@ -33,9 +33,11 @@ export const ART = {
   "vignettes/swallow-on-column": { widths: [280, 560], w: 906, h: 820 },
   // fades out toward its own top edge
   "footer/terrace": { widths: [1086, 2172], w: 2172, h: 724 },
-  // A real Roman wall painting, as a tonal ghost with faded edges.
-  "fresco/wall": { widths: [625, 1250], w: 2499, h: 1856 },
+  // A detail of a real Roman wall painting, as a tonal ghost with faded edges.
   "fresco/garland-band": { widths: [625, 1250], w: 2499, h: 687 },
+  // A photograph of the Pergamon Altar's frieze, as a tonal ghost with faded
+  // edges: About's one picture.
+  "frieze/pergamon-athena": { widths: [600, 1200], w: 2164, h: 1384 },
   // The Forum's margin figures.
   "figures/nike": { widths: [973], w: 973, h: 1511 },
   "figures/athena": { widths: [619], w: 619, h: 1475 },
@@ -70,8 +72,13 @@ export function medallionForFamily(family: string | null | undefined): Medallion
   return BY_FAMILY[family ?? ""] ?? "laurel";
 }
 
-// The caption under the fresco. The wording follows the design's mockup and
-// is unverified: check it against the museum's record, and that the image is
-// marked Open Access, before this ships.
-export const FRESCO_CAPTION = "Wall painting from a villa at Boscoreale, first century BC.";
-export const FRESCO_CREDIT = "The Metropolitan Museum of Art, Open Access.";
+// The caption under About's frieze, and the credit line the photograph's
+// license asks for: who took it, the license, and that it was adapted (the
+// site shows it cropped, toned and faded at the edges). Both links were
+// checked against the photo's Flickr page on 2026-11-12.
+export const FRIEZE_CAPTION =
+  "Athena and Nike against the giant Alkyoneus. East frieze of the Pergamon Altar, second century BC, Pergamon Museum, Berlin.";
+export const FRIEZE_CREDIT = {
+  photographer: { name: "Carole Raddato", href: "https://www.flickr.com/photos/carolemage/5912953449" },
+  license: { name: "CC BY-SA 2.0", href: "https://creativecommons.org/licenses/by-sa/2.0/" },
+} as const;
