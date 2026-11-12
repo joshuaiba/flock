@@ -15,6 +15,7 @@ empty list (or zeros with `coverage.prior_complete` false), never a placeholder.
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from typing import Annotated, Literal
 
 import psycopg
@@ -23,7 +24,7 @@ from psycopg.rows import dict_row
 from pydantic import BaseModel
 
 from pipeline import db
-from pipeline.api.queries import taxonomy
+from pipeline.api.queries import families, family_of, taxonomy
 
 WINDOWS = (7, 30, 90, 365)
 # Growth from a prior period smaller than this is not ranked by percentage.
@@ -35,6 +36,13 @@ MIN_TOPIC_BASELINE = 3
 # Charts and sparklines: this many buckets across the prior and current period.
 SERIES_BUCKETS = 12
 STAGES = ["solicitation", "phase_1", "phase_2", "production"]
+# The last part of "Where the money went": awards with no category tag.
+UNCATEGORIZED = {
+    "key": "uncategorized",
+    "label": "Uncategorized",
+    "covers": "Awards with no category tag",
+    "tags": [],
+}
 
 AWARD_TABLES = ["awards", "taggings", "tags", "organizations"]
 OPP_TABLES = ["opportunities", "taggings", "tags", "organizations"]
@@ -71,6 +79,23 @@ DEFINITIONS: list[dict] = [
             "(the awarding agency or office exactly as the source recorded it; offices are not "
             "rolled up into their parent) and by category. An award with two category tags "
             "counts once in each category, so categories can add up to more than the total."
+        ),
+        "tables": AWARD_TABLES,
+    },
+    {
+        "key": "money_by_family",
+        "name": "Where the money went",
+        "text": (
+            "Award dollars in the window, divided so that the parts add up to the total. The "
+            "ten categories are grouped into five families: aerial, maritime, navigation, "
+            "counter-drone, and ground, software and command. An award's dollars are split "
+            "evenly across the families its category tags belong to: an award tagged maritime "
+            "and swarming puts half in maritime and half in aerial. Inside a family, that "
+            "family's part is split evenly across the award's tags in it. An award with no "
+            "category tag is shown as uncategorized. An award is counted once in each family "
+            "it touches, so award counts can add up to more than the total. This covers every "
+            "category whatever the category filter says. Category totals everywhere else still "
+            "count an award with two category tags in full in each."
         ),
         "tables": AWARD_TABLES,
     },
@@ -190,6 +215,28 @@ class Page(Envelope):
     offset: int
 
 
+class MoneyTag(BaseModel):
+    tag: str
+    amount: float
+    share: float  # of its family's dollars, 0 to 1
+    awards: int
+
+
+class MoneyFamily(BaseModel):
+    family: str  # a family key from config/taxonomy.yaml, or "uncategorized"
+    label: str
+    covers: str
+    amount: float
+    share: float  # of the window's dollars, 0 to 1
+    awards: int  # an award counts once in each family it touches
+    tags: list[MoneyTag]
+
+
+class MoneyByFamily(BaseModel):
+    total: float  # equals the window's `amount` for all categories
+    items: list[MoneyFamily]
+
+
 class Overview(Envelope):
     amount: float
     prev_amount: float
@@ -201,6 +248,9 @@ class Overview(Envelope):
     prev_open_solicitations: int
     posted: int
     prev_posted: int
+    # Award dollars split so the parts add up. Always the whole window: the
+    # category filter does not apply to it.
+    money_by_family: MoneyByFamily
 
 
 class FundingRow(BaseModel):
@@ -390,6 +440,13 @@ class OrgSignals(Envelope):
     days_since_last: int | None
 
 
+class Family(BaseModel):
+    key: str
+    label: str
+    covers: str
+    tags: list[str]
+
+
 class Definitions(BaseModel):
     as_of: date
     refreshed_at: datetime
@@ -399,6 +456,8 @@ class Definitions(BaseModel):
     opportunities: int
     min_baseline: int
     min_topic_baseline: int
+    # The category families, in their fixed order (config/taxonomy.yaml).
+    families: list[Family]
     items: list[dict]
 
 
@@ -542,13 +601,86 @@ def definitions(conn: Conn) -> Definitions:
         opportunities=meta["opportunities"],
         min_baseline=MIN_BASELINE,
         min_topic_baseline=MIN_TOPIC_BASELINE,
+        families=families(),
         items=DEFINITIONS,
     )
 
 
+def _money_by_family(conn: psycopg.Connection, window: int) -> dict:
+    """The window's award dollars split so that the parts add up to the total.
+
+    An award's amount is divided evenly across the distinct families of its
+    category tags, and a family's part evenly across the award's tags in that
+    family. An award with no category tag (or only tags outside the taxonomy)
+    is "uncategorized". The rows and the window bounds are those behind the
+    all-categories total in signal_funding, so the parts sum to that figure.
+    """
+    rows = _rows(
+        conn,
+        """SELECT a.tags, COALESCE(sum(a.amount), 0) AS amount, count(*) AS awards
+           FROM signal_awards a JOIN signal_windows w ON w.window_days = %(w)s
+           WHERE a.day > w.cur_after AND a.day <= w.as_of
+           GROUP BY a.tags""",
+        w=window,
+    )
+    fams = [*families(), UNCATEGORIZED]
+    of = family_of()
+    zero = Decimal(0)
+    amount = {f["key"]: zero for f in fams}
+    awards = {f["key"]: 0 for f in fams}
+    tag_amount = {slug: zero for f in fams for slug in f["tags"]}
+    tag_awards = dict.fromkeys(tag_amount, 0)
+    total = zero
+    for r in rows:
+        dollars = Decimal(r["amount"])
+        total += dollars
+        by_family: dict[str, list[str]] = {}
+        for slug in dict.fromkeys(r["tags"]):
+            if slug in of:
+                by_family.setdefault(of[slug], []).append(slug)
+        if not by_family:
+            by_family = {UNCATEGORIZED["key"]: []}
+        part = dollars / len(by_family)
+        for key, slugs in by_family.items():
+            amount[key] += part
+            awards[key] += r["awards"]
+            for slug in slugs:
+                tag_amount[slug] += part / len(slugs)
+                tag_awards[slug] += r["awards"]
+    return {
+        "total": float(total),
+        "items": [
+            {
+                "family": f["key"],
+                "label": f["label"],
+                "covers": f["covers"],
+                "amount": float(amount[f["key"]]),
+                "share": float(amount[f["key"]] / total) if total > 0 else 0.0,
+                "awards": awards[f["key"]],
+                "tags": [
+                    {
+                        "tag": slug,
+                        "amount": float(tag_amount[slug]),
+                        "share": (
+                            float(tag_amount[slug] / amount[f["key"]])
+                            if amount[f["key"]] > 0
+                            else 0.0
+                        ),
+                        "awards": tag_awards[slug],
+                    }
+                    for slug in f["tags"]
+                ],
+            }
+            for f in fams
+        ],
+    }
+
+
 @router.get("/overview")
 def overview(conn: Conn, window: Window = 90, tag: Tag = None) -> Overview:
-    """The four headline figures, each with its prior-period value."""
+    """The four headline figures, each with its prior-period value, and the
+    window's award dollars split by category family (`money_by_family`, which
+    covers every category whatever `tag` is)."""
     sl = _check(window, tag)
     env = _envelope(conn, window, tag, sorted({*AWARD_TABLES, *OPP_TABLES}))
     money = _rows(
@@ -589,6 +721,7 @@ def overview(conn: Conn, window: Window = 90, tag: Tag = None) -> Overview:
         prev_open_solicitations=o.get("prev_open", 0),
         posted=o.get("posted", 0),
         prev_posted=o.get("prev_posted", 0),
+        money_by_family=_money_by_family(conn, window),
     )
 
 

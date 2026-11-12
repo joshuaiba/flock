@@ -55,6 +55,40 @@ def _root() -> str:
     return taxonomy()["root"]
 
 
+def check_families(tax: dict) -> list[dict]:
+    """The category families of a taxonomy, in the file's order, as
+    [{key, label, covers, tags}]. Raises ValueError unless every tag belongs to
+    exactly one family and every family names only known tags."""
+    known = list(tax["tags"])
+    out: list[dict] = []
+    seen: dict[str, str] = {}
+    for key, fam in (tax.get("families") or {}).items():
+        tags = list(fam.get("tags") or [])
+        for slug in tags:
+            if slug not in known:
+                raise ValueError(f"family {key!r} names an unknown tag: {slug!r}")
+            if slug in seen:
+                raise ValueError(f"tag {slug!r} is in two families: {seen[slug]!r} and {key!r}")
+            seen[slug] = key
+        out.append({"key": key, "label": fam["label"], "covers": fam["covers"], "tags": tags})
+    missing = [slug for slug in known if slug not in seen]
+    if missing:
+        raise ValueError(f"tags in no family: {', '.join(missing)}")
+    return out
+
+
+@lru_cache
+def families() -> list[dict]:
+    """The category families from config/taxonomy.yaml, checked (see check_families)."""
+    return check_families(taxonomy())
+
+
+@lru_cache
+def family_of() -> dict[str, str]:
+    """Tag slug -> family key."""
+    return {slug: f["key"] for f in families() for slug in f["tags"]}
+
+
 def _rows(conn: psycopg.Connection, sql: str, **params) -> list[dict]:
     with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(sql, {"root": _root(), **params})

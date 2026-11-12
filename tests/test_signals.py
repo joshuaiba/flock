@@ -260,6 +260,136 @@ def test_overview_headline_figures(world):
     assert get(client, "overview", window=365)["amount"] == 6_770_000
 
 
+def _family_tags(db) -> None:
+    """The rest of the taxonomy's tags, so awards can be tagged with any of them."""
+    for slug in queries.taxonomy()["tags"]:
+        db.execute(
+            """INSERT INTO tags (slug, source, source_id) VALUES (%s, 'taxonomy', %s)
+               ON CONFLICT (source, source_id) DO NOTHING""",
+            (slug, slug),
+        )
+
+
+def test_money_by_family_parts_add_up_to_the_awarded_total(world):
+    client, db, ids = world
+    # The fixture alone: Alpha $1M maritime, Bravo $50K uas, and Charlie's $5M
+    # tagged maritime and swarming, which is half maritime and half aerial.
+    m = get(client, "overview")["money_by_family"]
+    order = ["aerial", "maritime", "navigation", "counter", "other", "uncategorized"]
+    assert [i["family"] for i in m["items"]] == order
+    by = {i["family"]: i for i in m["items"]}
+    assert m["total"] == 6_050_000
+    assert (by["aerial"]["amount"], by["aerial"]["awards"]) == (2_550_000, 2)
+    assert (by["maritime"]["amount"], by["maritime"]["awards"]) == (3_500_000, 2)
+    assert all(by[f]["amount"] == 0 and by[f]["awards"] == 0 for f in order[2:])
+    assert by["uncategorized"]["tags"] == []
+    assert by["aerial"]["label"] == "Aerial" and by["aerial"]["covers"].startswith("Drones")
+
+    _family_tags(db)
+    add = lambda key, amount, slugs: add_award(  # noqa: E731
+        db, ids, key, "Bravo", "Air Force", 8, amount, "Research and development", slugs
+    )
+    add("same", 300_000, ("uas", "swarming"))  # two tags, one family
+    add("two", 100_000.01, ("uas", "counter-uas"))  # two families
+    add("three", 100_000, ("gps-denied-nav", "ground-robotics", "uxs-c2", "loitering-munitions"))
+    add("none", 70_000, ())  # autonomy, but no category tag
+    # In the prior period, so not in the 90-day split.
+    add_award(db, ids, "old", "Bravo", "Air Force", 95, 999_999, "Research", ("maritime",))
+    db.commit()
+    refresher.refresh(db)
+
+    o = get(client, "overview")
+    m = o["money_by_family"]
+    by = {i["family"]: i for i in m["items"]}
+    assert [i["family"] for i in m["items"]] == order
+    # The parts add up to the Awarded figure, to the cent.
+    assert o["amount"] == pytest.approx(6_620_000.01, abs=0.001)
+    assert m["total"] == pytest.approx(o["amount"], abs=0.01)
+    assert sum(i["amount"] for i in m["items"]) == pytest.approx(o["amount"], abs=0.01)
+    assert sum(i["share"] for i in m["items"]) == pytest.approx(1)
+    third = 100_000 / 3
+    assert by["aerial"]["amount"] == pytest.approx(2_550_000 + 300_000 + 50_000.005 + third)
+    assert by["maritime"]["amount"] == pytest.approx(3_500_000)
+    assert by["navigation"]["amount"] == pytest.approx(third)
+    assert by["counter"]["amount"] == pytest.approx(50_000.005)
+    assert by["other"]["amount"] == pytest.approx(third)
+    assert by["uncategorized"]["amount"] == 70_000
+    # An award counts once in each family it touches.
+    assert {f: by[f]["awards"] for f in order} == {
+        "aerial": 5,  # Bravo, Charlie, same, two, three
+        "maritime": 2,
+        "navigation": 1,
+        "counter": 1,
+        "other": 1,
+        "uncategorized": 1,
+    }
+    assert sum(i["awards"] for i in m["items"]) > o["awards"] == 7
+
+    # Inside a family, its tags add up to it, in the taxonomy's order.
+    fams = {f["key"]: f["tags"] for f in queries.families()}
+    for i in m["items"][:-1]:
+        assert [t["tag"] for t in i["tags"]] == fams[i["family"]]
+        assert sum(t["amount"] for t in i["tags"]) == pytest.approx(i["amount"], abs=0.01)
+        if i["amount"]:
+            assert sum(t["share"] for t in i["tags"]) == pytest.approx(1)
+    aerial = {t["tag"]: t for t in by["aerial"]["tags"]}
+    # uas: Bravo's $50K, half of "same", and its family's half of "two".
+    assert aerial["uas"]["amount"] == pytest.approx(50_000 + 150_000 + 50_000.005)
+    assert aerial["swarming"]["amount"] == pytest.approx(2_500_000 + 150_000)
+    assert aerial["loitering-munitions"]["amount"] == pytest.approx(third)
+    assert aerial["collaborative-combat-aircraft"] == {
+        "tag": "collaborative-combat-aircraft",
+        "amount": 0,
+        "share": 0,
+        "awards": 0,
+    }
+    assert (aerial["uas"]["awards"], aerial["swarming"]["awards"]) == (3, 2)
+    other = {t["tag"]: t for t in by["other"]["tags"]}
+    # "three" has two tags in this family: each takes half of the family's third.
+    assert other["ground-robotics"]["amount"] == pytest.approx(third / 2)
+    assert other["uxs-c2"]["amount"] == pytest.approx(third / 2)
+    assert other["autonomy-software"]["amount"] == 0
+
+    # The category filter narrows the headline figures, never this split.
+    filtered = get(client, "overview", tag="maritime")
+    assert filtered["amount"] == 6_000_000
+    assert filtered["money_by_family"] == m
+    # Each window has its own split, and each adds up to its own total.
+    for window in (30, 365):
+        w = get(client, "overview", window=window)
+        parts = sum(i["amount"] for i in w["money_by_family"]["items"])
+        assert parts == pytest.approx(w["amount"], abs=0.01)
+        assert w["money_by_family"]["total"] == pytest.approx(w["amount"], abs=0.01)
+    assert get(client, "overview", window=365)["money_by_family"]["total"] > m["total"]
+
+
+def test_every_tag_is_in_exactly_one_family():
+    tax = queries.taxonomy()
+    fams = queries.families()
+    assert [f["key"] for f in fams] == ["aerial", "maritime", "navigation", "counter", "other"]
+    assert all(f["label"] and f["covers"] and f["tags"] for f in fams)
+    assert sorted(t for f in fams for t in f["tags"]) == sorted(tax["tags"])
+    assert queries.family_of()["uas"] == "aerial"
+    assert set(queries.family_of()) == set(tax["tags"])
+
+    def broken(change) -> dict:
+        copy = {
+            **tax,
+            "families": {k: {**f, "tags": list(f["tags"])} for k, f in tax["families"].items()},
+        }
+        change(copy["families"])
+        return copy
+
+    with pytest.raises(ValueError, match="in no family"):
+        queries.check_families(broken(lambda f: f["maritime"]["tags"].clear()))
+    with pytest.raises(ValueError, match="in two families"):
+        queries.check_families(broken(lambda f: f["other"]["tags"].append("uas")))
+    with pytest.raises(ValueError, match="unknown tag"):
+        queries.check_families(broken(lambda f: f["other"]["tags"].append("submarines")))
+    with pytest.raises(ValueError, match="in no family"):
+        queries.check_families({**tax, "families": None})
+
+
 def test_funding_by_company_ranks_and_filters(world):
     client, _, _ = world
     f = get(client, "funding")
@@ -706,6 +836,10 @@ def test_an_empty_database_gives_empty_answers_not_errors(db):
         for path in ["funding", "momentum", "new-entrants", "transitions", "topics", "agencies"]:
             assert get(client, path)["items"] == []
         assert get(client, "categories/series")["items"] == []
+        assert o["money_by_family"]["total"] == 0
+        assert [(i["amount"], i["share"], i["awards"]) for i in o["money_by_family"]["items"]] == [
+            (0, 0, 0)
+        ] * 6
         assert client.get("/api/summary").json()["awards_30d"] == 0
         assert client.get("/api/digest").json()["awards"] == 0
     finally:
@@ -760,6 +894,14 @@ def test_the_dashboard_and_the_other_pages_agree(db):
             assert get(client, path)["items"], path
         assert get(client, "transitions", window=365)["items"]
         assert get(client, "overview")["sample"] is True
+
+        # "Where the money went" adds up to the Awarded figure in every window.
+        for window in signals.WINDOWS:
+            o = get(client, "overview", window=window)
+            parts = o["money_by_family"]["items"]
+            assert sum(i["amount"] for i in parts) == pytest.approx(o["amount"], abs=0.01)
+            assert o["money_by_family"]["total"] == pytest.approx(o["amount"], abs=0.01)
+        assert sum(i["amount"] > 0 for i in parts) >= 4, "the sample data spans the families"
     finally:
         app.dependency_overrides.clear()
 
@@ -822,7 +964,17 @@ def test_definitions_cover_every_signal(world):
         "largest_awards",
         "agencies",
         "watchlist",
+        "money_by_family",
     }
     assert all(i["text"] and i["tables"] for i in d["items"])
+    # The families, for the site: it keeps no copy of the tag-to-family table.
+    assert d["families"] == queries.families()
+    assert [f["key"] for f in d["families"]] == [
+        "aerial",
+        "maritime",
+        "navigation",
+        "counter",
+        "other",
+    ]
     assert (d["awards"], d["opportunities"]) == (6, 4)
     assert d["as_of"] == str(date.fromisoformat(str(ids["today"])))
