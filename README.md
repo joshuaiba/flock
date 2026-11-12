@@ -121,10 +121,16 @@ illustration pack; nothing decorative is drawn in code.
 
 | Screen | Path | What it shows |
 | --- | --- | --- |
-| Landing | `/` | The layered lake scene (sky, clouds, hills, shimmering water, boats, a leafy frame), the live flock, the month's totals |
-| Graph explorer | `/graph` | Companies, agencies and solicitations as painted medallions, one design per category; award edges in faded red, weight by dollars; search, category filters, 30 days / 90 days / 1 year |
-| Entity page | `/entity/<id>` | An organization under a fresco banner: totals, path to production, awards, related entities, sources |
+| Landing | `/` | The layered lake scene (sky, clouds, hills, shimmering water, boats, a leafy frame), the live flock, the month's totals, and the way into the Forum |
+| The Forum | `/forum` | The signals dashboard: funding, momentum, new entrants, stage transitions, topic heat, largest awards, agency appetite and watchlist changes, over 30 days, 90 days or 1 year, for all categories or one |
+| Leaderboards | `/forum/leaderboards` | The full rankings behind the Forum's panels |
+| Graph explorer | `/graph` | Companies, agencies and solicitations as painted medallions, one design per category; award edges in faded red, weight by dollars; search; filters for window (30 days / 90 days / 1 year / everything on record), category, agency, minimum dollars, node type and watchlist only. It opens in 3D (drag to orbit, click a node to fly to it, drag a node to move it) with a toggle to a flat view that keeps the filters and the selection |
+| Entity page | `/entity/<id>` | An organization under a fresco banner: totals, its signals for the last 90 days (momentum, rank, stage reached, time since the last award), path to production, awards, related entities, sources |
 | Field report | `/feed` | The week's digest as a letter under a fresco header, then every recent award and solicitation as a list |
+| About the numbers | `/about/numbers` | What each figure means, the tables it is computed from, how far back the record reaches, and what the numbers cannot tell you |
+
+Clicking a bird in the flock opens the page of the company that received that
+award; a solicitation bird opens the graph on its node.
 
 Run it locally in two terminals:
 
@@ -186,9 +192,12 @@ Things to know:
   of Art (accession 03.14.4, marked Public Domain on
   [its collection page](https://www.metmuseum.org/art/collection/search/247008),
   checked 2026-11-11). The footer carries the credit line.
-- **The graph is laid out once and then stays put.** ForceAtlas2, then
-  noverlap (`web/src/lib/graphLayout.ts`). In development,
-  `/graph?stress=2000` loads a synthetic 2,000-node graph for profiling.
+- **The graph is laid out once and then stays put.** The 3D view groups
+  categories into constellations with `d3-force-3d`
+  (`web/src/components/Graph3DLayout.ts`); the flat view uses ForceAtlas2, then
+  noverlap (`web/src/lib/graphLayout.ts`). A node moves only when dragged. In
+  development, `/graph?stress=2000` loads a synthetic 2,000-node graph for
+  profiling.
 - **Motion can be turned off.** The site follows the OS reduced-motion setting,
   and the `still` link in the nav freezes the scene: the hero becomes a
   still painting with a few birds held in a loose V.
