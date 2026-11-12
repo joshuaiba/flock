@@ -116,7 +116,10 @@ and a few other values are read straight from the process environment.
 product is one softly animated pastel painting, in the spirit of faded villa
 frescoes and Italian lake landscapes: a painted lakeside scene at the back, a
 murmuration of painted swallows in the middle (one bird per recent award or
-open solicitation), and marble and text on top. All of the art comes from an
+open solicitation), and text on top. The painting is at the edges: the landing
+page, page headers, the footer. The pages where people work (the Forum, the
+graph, an entity's sheet) are plain and quiet, with serif headings and names
+and a sans face for controls and figures. All of the art comes from an
 illustration pack; nothing decorative is drawn in code.
 
 | Screen | Path | What it shows |
@@ -130,7 +133,10 @@ illustration pack; nothing decorative is drawn in code.
 | About the numbers | `/about/numbers` | What each figure means, the tables it is computed from, how far back the record reaches, and what the numbers cannot tell you |
 
 Clicking a bird in the flock opens the page of the company that received that
-award; a solicitation bird opens the graph on its node.
+award; a solicitation bird opens the graph on its node. The flock lives in the
+landing page's hero only: it moves with the scene as the page scrolls, and over
+the last third of the hero's scroll the birds climb away and fade. No other
+page has birds.
 
 Run it locally in two terminals:
 
@@ -186,7 +192,9 @@ Things to know:
   `web/public/art/` holds the resized `.webp` files the site serves. To
   rebuild them from the pack: `uv run --with pillow python
   web/scripts/build-art.py /path/to/flock-assets`. The script only resizes and
-  crops; it never redraws or recolors.
+  crops; it never redraws or recolors. The title plaque behind page titles
+  (`frame-d-*.png`) is copied as it is, because CSS `border-image` slices it in
+  the source's own pixels.
 - **The fresco is a real Roman wall painting.** It is the west wall of Room L
   of the Villa of P. Fannius Synistor at Boscoreale, in The Metropolitan Museum
   of Art (accession 03.14.4, marked Public Domain on
@@ -199,8 +207,9 @@ Things to know:
   development, `/graph?stress=2000` loads a synthetic 2,000-node graph for
   profiling.
 - **Motion can be turned off.** The site follows the OS reduced-motion setting,
-  and the `still` link in the nav freezes the scene: the hero becomes a
-  still painting with a few birds held in a loose V.
+  and Display → Motion → Off in the top bar freezes the scene: the hero becomes
+  a still painting with a few birds held in a loose V. Day and dusk are in the
+  same menu.
 
 ## Where agents are used and why
 
