@@ -102,7 +102,10 @@ def agent_for(tax: Taxonomy) -> Agent:
 def _agent_for(root: str, tags: tuple[tuple[str, str], ...]) -> Agent:
     tax = Taxonomy(root=root, tags=dict(tags))
     schema = schema_for(tax)
-    agent = llm.build_agent(schema, instructions=instructions(tax), name=AGENT_NAME)
+    # The instructions are the same for every entity, so they are worth caching.
+    agent = llm.build_agent(
+        schema, instructions=instructions(tax), name=AGENT_NAME, cache_instructions=True
+    )
 
     @agent.output_validator
     def _validate(output):

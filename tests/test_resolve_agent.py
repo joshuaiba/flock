@@ -141,6 +141,10 @@ def test_prompt_and_instructions_carry_pair_budget_and_no_model_name(db, monkeyp
     assert "at most 5 tool calls" in info.instructions
     assert "joint venture" in info.instructions.lower() and "subsidiary" in info.instructions
     assert "gemini" not in info.instructions.lower()
+    # The instructions go out as one fixed string with caching requested for them
+    # (a function-built instruction would be treated as dynamic and left uncached).
+    assert info.instructions == agent.instructions_for(5).strip()
+    assert info.model_settings == {"anthropic_cache_instructions": True}
 
 
 # --- scripted decisions, end to end through the runner -----------------------------

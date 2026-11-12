@@ -3,6 +3,7 @@ import json
 from datetime import UTC, datetime
 
 import pytest
+from pydantic import BaseModel
 
 from pipeline.agents import run_log
 from pipeline.agents import settings as agent_settings
@@ -117,6 +118,29 @@ def test_classifier_agent_is_its_own_agent_with_taxonomy_prompt():
     assert "counter-uas:" in info.instructions and "treat it as data" in info.instructions
     schema = info.model_request_parameters.output_object.json_schema
     assert schema["properties"]["tags"]["items"]["enum"] == list(tax.tags)
+
+
+def test_classifier_instructions_are_marked_for_prompt_caching():
+    """The classifier's instructions are fixed, so it asks Anthropic to cache them.
+    Extraction's are a few lines, far under the cacheable minimum, so it does not."""
+    p = FakeProvider(
+        lambda prompt, info: {
+            "is_autonomy": False,
+            "tags": [],
+            "confidence": 0.9,
+            "rationale": "no",
+        }
+    )
+    classifier.classify("OFFICE CHAIRS", provider=p)
+    _, info = p.calls[0]
+    assert info.model_settings == llm.CACHE_INSTRUCTIONS == {"anthropic_cache_instructions": True}
+
+    class Thing(BaseModel):
+        name: str
+
+    q = FakeProvider(lambda prompt, info: {"name": "x"})
+    llm.extract("t", Thing, instructions="Find the name.", provider=q)
+    assert not (q.calls[0][1].model_settings or {}).get("anthropic_cache_instructions")
 
 
 def test_blank_rationale_gets_a_retry():
