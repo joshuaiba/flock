@@ -177,3 +177,26 @@ def test_tags_come_from_the_taxonomy():
 )
 def test_stage_is_read_from_the_description(text, stage):
     assert queries._stage_of(text) == stage
+
+
+def test_graph_nodes_carry_short_names_and_the_sample_flag(seeded):
+    client, _, _ = seeded
+    g = client.get("/api/graph", params={"days": 365}).json()
+    assert g["sample"] is True
+    by_name = {n["name"]: n for n in g["nodes"]}
+    assert by_name["Department of the Army"]["display_name"] == "Army"
+    assert by_name["U.S. Special Operations Command"]["display_name"] == "SOCOM"
+    assert by_name["Air Force Research Laboratory"]["display_name"] == "AFRL"
+    for n in g["nodes"]:
+        if n["kind"] == "company":
+            # The seed's names end in a legal suffix; the label drops it.
+            assert n["display_name"] and n["name"].startswith(n["display_name"])
+            assert n["display_name"] != n["name"]
+        elif n["kind"] == "opportunity":
+            assert n.get("display_name") is None
+
+
+def test_graph_sample_is_false_without_seed_rows(seeded):
+    client, db, _ = seeded
+    db.execute("UPDATE awards SET source = 'usaspending' WHERE source = 'seed'")
+    assert client.get("/api/graph", params={"days": 365}).json()["sample"] is False

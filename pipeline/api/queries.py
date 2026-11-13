@@ -17,6 +17,8 @@ import psycopg
 import yaml
 from psycopg.rows import dict_row
 
+from pipeline.api.names import display_name
+
 TAXONOMY = Path(__file__).resolve().parent.parent.parent / "config" / "taxonomy.yaml"
 
 # Awards tagged with the taxonomy root, with their non-root tag slugs and a
@@ -197,12 +199,18 @@ def graph(
     record: the data is not loaded on a fixed schedule, so the last `days` days
     can be empty while the record's own latest stretch is not. Either way the
     answer says when the newest award was (`latest`, and `age` in days), so the
-    caller can tell which windows have anything in them."""
+    caller can tell which windows have anything in them.
+
+    Each organization node also carries `display_name`, a short label for the
+    graph ("AeroVironment", "Army"; see pipeline/api/names.py), next to its full
+    legal `name`. `sample` is true while any seed rows exist, the same test the
+    signal views use (signal_meta.sample), so the page can say "Sample data"."""
     at = _one(
         conn,
         AWARDS_CTE
-        + "SELECT current_date AS today, max(aa.day) AS latest FROM aa"
-        + " WHERE aa.recipient_id IS NOT NULL",
+        + "SELECT current_date AS today, max(aa.day) AS latest,"
+        + " EXISTS (SELECT 1 FROM awards WHERE source = 'seed') AS sample"
+        + " FROM aa WHERE aa.recipient_id IS NOT NULL",
     )
     today, latest = at["today"], at["latest"]
     through = latest if recent and latest else today
@@ -295,7 +303,12 @@ def graph(
         "SELECT id, canonical_name, kind, uei FROM organizations WHERE id = ANY(%(ids)s)",
         ids=org_ids,
     ):
-        nodes[f"org:{o['id']}"].update(kind=o["kind"], name=o["canonical_name"], uei=o["uei"])
+        nodes[f"org:{o['id']}"].update(
+            kind=o["kind"],
+            name=o["canonical_name"],
+            display_name=display_name(o["canonical_name"], o["kind"]),
+            uei=o["uei"],
+        )
 
     for e in _rows(
         conn,
@@ -324,6 +337,7 @@ def graph(
         "through": through,
         "latest": latest,
         "age": (today - latest).days if latest else None,
+        "sample": bool(at["sample"]),
         "nodes": out,
         "edges": [e for e in edges.values() if e["source"] in ids and e["target"] in ids],
     }
