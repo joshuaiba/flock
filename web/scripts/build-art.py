@@ -2,7 +2,16 @@
 
     uv run --with pillow python web/scripts/build-art.py /path/to/flock-art/flock-engraving \\
         /path/to/flock-art/flock-hero /path/to/flock-art/forum-additions/art/figures \\
-        /path/to/flock-classic
+        /path/to/flock-classic [/path/to/flock-nodes]
+
+    uv run --with pillow python web/scripts/build-art.py --nodes /path/to/flock-nodes
+
+The first form is the full build: it deletes web/public/art and rebuilds all
+of it, including the graph's node art when the fifth folder is given. Some art
+under web/public/art was placed by hand and has no source here (the engraved
+footer terrace is one), so check `git status web/public/art` after a full
+build and restore what it dropped. The second form builds only the node art,
+into web/public/art/<tone>/nodes/, and deletes nothing.
 
 Writes web/public/art/on-dark/ (light lines, for the dark page),
 web/public/art/on-light/ (ink lines, for paper and Classic) and
@@ -25,6 +34,10 @@ section's frieze, a photograph of the Pergamon Altar kept as a tonal ghost in
 both tones (`pergamon-athena-on-dark.png`, `-on-light.png`). The rest of it is
 the painted design the site began with, in full color and one tone: the
 Display menu's third mode, Classic, shows it on the landing page.
+
+The fifth folder is the graph's node pack (flock-nodes): coins, wreaths,
+tablets and the selection crown, one 256px square sprite each in both tones
+(the tablets are 128px and the crown 384px), written to `nodes/`.
 
 Only the art the site uses is built. The engraving pack also has an older hero
 scene, two more glide poses, the laurel garland, the Greek key and the title
@@ -116,6 +129,24 @@ CLASSIC: list[tuple[str, str, list[int]]] = [
     ("footer/terrace", "footer/terrace", [1086, 2172]),
 ]
 
+# The graph's node art, from the nodes pack: one square sprite per name in
+# both tones, drawn from about 12px up to the crown's 1.6x a large node. Coins
+# carry the five category families plus a plain one; wreaths are the agencies
+# (Army oak, Navy rope, Air Force feather, the rest laurel); tablets are open
+# and closed solicitations; the crown marks the selected node. Widths are
+# 64/128/256, except the tablets, whose sources are 128px (build() never
+# upscales, so they get 64 and 128 only), and the crown, which is 384px.
+NODES: list[tuple[str, list[int]]] = [
+    *[
+        (f"coin-{n}", [64, 128, 256])
+        for n in ["aerial", "maritime", "navigation", "counter", "other", "plain"]
+    ],
+    *[(f"wreath-{n}", [64, 128, 256]) for n in ["oak", "rope", "feather", "laurel"]],
+    ("tablet-open", [64, 128]),
+    ("tablet-closed", [64, 128]),
+    ("crown-selected", [128, 384]),
+]
+
 
 def find(folder: Path, stem: str) -> Path:
     for ext in (".png", ".webp"):
@@ -147,7 +178,15 @@ def build(
     return total
 
 
-def main(pack: Path, hero: Path, figures: Path, classic: Path) -> None:
+def build_nodes(nodes: Path) -> int:
+    total = 0
+    for tone in TONES:
+        for name, widths in NODES:
+            total += build(find(nodes / tone, name), OUT / tone / "nodes" / name, widths, None)
+    return total
+
+
+def main(pack: Path, hero: Path, figures: Path, classic: Path, nodes: Path | None = None) -> None:
     # Start clean, so art the site no longer uses does not linger.
     if OUT.exists():
         shutil.rmtree(OUT)
@@ -165,10 +204,17 @@ def main(pack: Path, hero: Path, figures: Path, classic: Path) -> None:
             total += build(find(classic, f"{src}-{tone}"), OUT / tone / name, widths, None)
     for src, name, widths in CLASSIC:
         total += build(find(classic, src), OUT / "classic" / name, widths, None)
+    if nodes:
+        total += build_nodes(nodes)
     print(f"total {total / 1e6:.1f} MB")
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 5:
+    args = sys.argv[1:]
+    if len(args) == 2 and args[0] == "--nodes":
+        # Only the node art, over whatever is already there: nothing is deleted.
+        print(f"total {build_nodes(Path(args[1])) / 1e6:.1f} MB")
+    elif len(args) in (4, 5):
+        main(*(Path(a) for a in args))
+    else:
         raise SystemExit(__doc__)
-    main(*(Path(a) for a in sys.argv[1:]))

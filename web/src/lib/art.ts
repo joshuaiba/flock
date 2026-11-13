@@ -43,6 +43,24 @@ export const ART = {
   "figures/nike": { widths: [973], w: 973, h: 1511 },
   "figures/athena": { widths: [619], w: 619, h: 1475 },
   "figures/trophy": { widths: [736], w: 736, h: 1526 },
+  // The graph's node art (lib/nodeSprites.ts draws it). Coins carry a
+  // category family (plain has no emblem) and sit on a disc in the text
+  // color, so they take the opposite tone; wreaths are agencies, tablets
+  // solicitations, and the crown the selected node, all in the mode's tone.
+  // Square. The tablets' sources are 128px, so they stop there.
+  "nodes/coin-aerial": { widths: [64, 128, 256], w: 256, h: 256 },
+  "nodes/coin-maritime": { widths: [64, 128, 256], w: 256, h: 256 },
+  "nodes/coin-navigation": { widths: [64, 128, 256], w: 256, h: 256 },
+  "nodes/coin-counter": { widths: [64, 128, 256], w: 256, h: 256 },
+  "nodes/coin-other": { widths: [64, 128, 256], w: 256, h: 256 },
+  "nodes/coin-plain": { widths: [64, 128, 256], w: 256, h: 256 },
+  "nodes/wreath-oak": { widths: [64, 128, 256], w: 256, h: 256 },
+  "nodes/wreath-rope": { widths: [64, 128, 256], w: 256, h: 256 },
+  "nodes/wreath-feather": { widths: [64, 128, 256], w: 256, h: 256 },
+  "nodes/wreath-laurel": { widths: [64, 128, 256], w: 256, h: 256 },
+  "nodes/tablet-open": { widths: [64, 128], w: 128, h: 128 },
+  "nodes/tablet-closed": { widths: [64, 128], w: 128, h: 128 },
+  "nodes/crown-selected": { widths: [128, 384], w: 384, h: 384 },
 } as const;
 
 export type ArtName = keyof typeof ART;
