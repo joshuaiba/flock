@@ -40,6 +40,20 @@ import {
   type L,
   type N,
 } from "@/lib/graphLayout";
+import type { Tone } from "@/lib/art";
+import {
+  artTone,
+  coinFor,
+  coinTone,
+  COIN_BY_FAMILY,
+  currentTheme,
+  getSpriteImage,
+  onSpritesReady,
+  preloadSprites,
+  tabletFor,
+  wreathFor,
+  type NodeSprite,
+} from "@/lib/nodeSprites";
 import { readPalette, type Palette } from "@/lib/paint";
 import type { Scene3 } from "./Graph3DLayout";
 import { fitPad, readChrome, roomFor, type Chrome } from "./graphRoom";
@@ -55,7 +69,10 @@ import { fitPad, readChrome, roomFor, type Chrome } from "./graphRoom";
 // a solicitation is a small open diamond. Money edges are one curve per
 // company and agency, in the accent, wider and stronger with the dollars they
 // carry; every other edge is a faint dotted curve in the text color. Selecting
-// or hovering a node fades everything it does not touch. Fog in the page color
+// or hovering a node fades everything it does not touch. Once the engraved
+// sprites have loaded, the same rules as the flat view's dress the marks in
+// them: a coin for a company large enough on screen, a wreath for an agency,
+// a tablet for a solicitation, a crown for the selected node. Fog in the page color
 // fades whatever lies farther back, so the depth reads at a glance.
 //
 // Drawing is kept cheap so a large graph stays fluid. All edges of a kind (and
@@ -122,6 +139,14 @@ export type Stage = {
 // draw function without touching the layout, the hit testing or the fading;
 // art that changes with the size on screen can keep several marks per kind
 // and swap a sprite's material by its projected radius (`pr` in the stage).
+//
+// That is what the engraved art does (lib/nodeSprites.ts). Each node has a
+// plain mark, drawn in code and ready at once, and an engraved one, made
+// once its sprites have loaded: a silver coin for a company, a wreath for an
+// agency or office, a tablet for a solicitation. A company shows its coin
+// only from COIN_AT pixels across on screen (a plain dot below, as in the
+// flat view); agencies and solicitations show their art at any size, sized
+// on screen each frame. The selected node wears a crown, a sprite of its own.
 
 /** One picture a node can take. `key` names it: nodes with the same key share it. */
 export type Mark = {
@@ -134,7 +159,138 @@ export type Mark = {
   solid: boolean;
   /** paint the mark, filling a size-by-size canvas, in the palette's colors */
   paint: (g: CanvasRenderingContext2D, size: number, palette: Palette) => void;
+  /** the share of `alpha` below which a pixel is cut away (0.5 when left
+   *  out); engraved lines are thin and soft, so their cut is much lower */
+  cut?: number;
+  /** the least opacity the mark fades to (a dimmed coin still reads as a coin) */
+  floor?: number;
+  /** the engraved sprites the mark is painted from: it is made only once they have loaded */
+  sprites?: readonly (readonly [NodeSprite, Tone])[];
 };
+
+// ---- Engraved marks ----
+
+/** The coin sprite reaches this far past the disc it is drawn over, so its rim sits just outside. */
+const COIN_SPAN = 1.075;
+/** The page-colored outline around a coin's disc, as a share of its radius (about 1.4px on a mid-sized coin). */
+const COIN_OUTLINE = 0.07;
+/** A company turns from a dot into a coin at this diameter on screen, and back below COIN_OFF (no flicker at the edge). */
+const COIN_AT = 24;
+const COIN_OFF = 22;
+/** An agency's wreath: this many times the ring's radius across, and never under WREATH_MIN pixels on screen. */
+const WREATH_SPAN = 2.8;
+const WREATH_MIN = 30;
+/** The page-colored disc behind a wreath's hollow middle, as a share of its diameter. */
+const WREATH_DISC = 0.36;
+/** A solicitation's tablet: about TABLET_PX across where the camera looks, never under TABLET_MIN. */
+const TABLET_PX = 15;
+const TABLET_MIN = 12;
+/** The crown around the selected node, as a multiple of the mark's drawn diameter. */
+const CROWN_SPAN = 1.6;
+/** How faint engraved lines may be before the alpha cut drops them. */
+const ART_CUT = 0.08;
+/** A dimmed coin keeps at least this opacity. */
+const COIN_FLOOR = 0.3;
+
+/** A silver coin: a disc in the text color at 95%, with a thin page-colored
+ *  outline, and the coin sprite over it in the opposite tone, reaching
+ *  COIN_SPAN past the disc. */
+export function drawCoin(g: CanvasRenderingContext2D, size: number, palette: Palette, coin: CanvasImageSource) {
+  const mid = size / 2;
+  const disc = mid / COIN_SPAN;
+  g.fillStyle = palette.bg;
+  g.beginPath();
+  g.arc(mid, mid, disc * (1 + COIN_OUTLINE), 0, Math.PI * 2);
+  g.fill();
+  g.globalAlpha = 0.95;
+  g.fillStyle = palette.text;
+  g.beginPath();
+  g.arc(mid, mid, disc, 0, Math.PI * 2);
+  g.fill();
+  g.globalAlpha = 1;
+  g.imageSmoothingQuality = "high";
+  g.drawImage(coin, 0, 0, size, size);
+}
+
+/** A wreath over a page-colored disc that fills its hollow middle, so the
+ *  edges that reach the node stop at the wreath. */
+export function drawWreath(g: CanvasRenderingContext2D, size: number, palette: Palette, wreath: CanvasImageSource) {
+  const mid = size / 2;
+  g.fillStyle = palette.bg;
+  g.beginPath();
+  g.arc(mid, mid, size * WREATH_DISC * 0.5, 0, Math.PI * 2);
+  g.fill();
+  g.imageSmoothingQuality = "high";
+  g.drawImage(wreath, 0, 0, size, size);
+}
+
+/** A sprite alone, filling the texture (a tablet, the crown). */
+export function drawArt(g: CanvasRenderingContext2D, size: number, art: CanvasImageSource) {
+  g.imageSmoothingQuality = "high";
+  g.drawImage(art, 0, 0, size, size);
+}
+
+/** The textures are painted from the sprites at their full size: the GPU's
+ *  mipmaps scale them down from there. */
+const paintFrom = (name: NodeSprite, tone: Tone, draw: (img: CanvasImageSource) => void) => {
+  const img = getSpriteImage(name, tone);
+  if (img) draw(img);
+};
+
+export function makeCoin(n: N, tone: Tone): Mark {
+  const name = n.family ? COIN_BY_FAMILY[n.family] : coinFor(n);
+  return {
+    key: `coin:${name}:${tone}`,
+    size: 256,
+    alpha: 1,
+    solid: true,
+    cut: ART_CUT,
+    floor: COIN_FLOOR,
+    sprites: [[name, tone]],
+    paint: (g, s, p) => paintFrom(name, tone, (img) => drawCoin(g, s, p, img)),
+  };
+}
+
+export function makeWreath(n: N, tone: Tone): Mark {
+  const name = wreathFor({ name: n.name, display_name: n.display });
+  return {
+    key: `wreath:${name}:${tone}`,
+    size: 256,
+    alpha: 1,
+    solid: true,
+    cut: ART_CUT,
+    sprites: [[name, tone]],
+    paint: (g, s, p) => paintFrom(name, tone, (img) => drawWreath(g, s, p, img)),
+  };
+}
+
+export function makeTablet(n: N, tone: Tone): Mark {
+  const name = tabletFor(n);
+  return {
+    key: `tablet:${name}:${tone}`,
+    size: 128,
+    alpha: 1,
+    solid: false,
+    cut: ART_CUT,
+    sprites: [[name, tone]],
+    paint: (g, s) => paintFrom(name, tone, (img) => drawArt(g, s, img)),
+  };
+}
+
+export function makeCrown(tone: Tone): Mark {
+  return {
+    key: `crown:${tone}`,
+    size: 384,
+    alpha: 1,
+    solid: false,
+    cut: ART_CUT,
+    sprites: [["crown-selected", tone]],
+    paint: (g, s) => paintFrom("crown-selected", tone, (img) => drawArt(g, s, img)),
+  };
+}
+
+/** Whether every sprite a mark is painted from has loaded. */
+const artReady = (m: Mark) => !m.sprites || m.sprites.every(([name, tone]) => !!getSpriteImage(name, tone));
 
 /** A company's dot: text color, a hairline of page color around it so dots
  *  that overlap in depth stay apart, as in the flat view. Drawn for a radius,
@@ -226,6 +382,11 @@ export function makeSolicitation(n: N): Mark {
 }
 
 const markOf = (n: N): Mark => (n.kind === "company" ? makeCompany(n) : n.org ? makeAgency(n) : makeSolicitation(n));
+
+/** The engraved mark of a node, in the tones of the current mode: a coin's
+ *  sprite takes the opposite tone, as it lies on a disc in the text color. */
+const artOf = (n: N, theme: ReturnType<typeof currentTheme>): Mark =>
+  n.kind === "company" ? makeCoin(n, coinTone(theme)) : n.org ? makeWreath(n, artTone(theme)) : makeTablet(n, artTone(theme));
 
 /** A mark as the stage keeps it: its texture, and a material for the node at
  *  rest (it fades when something else is in focus) and one for a lit node. */
@@ -427,7 +588,14 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
   renderer.sortObjects = false;
 
   const looks = new Map<string, Look>();
-  let lookOf: Look[] = []; // per node, in the order of data.nodes
+  let theme = currentTheme();
+  let lookOf: Look[] = []; // per node, in the order of data.nodes: its plain mark
+  let artMarks: Mark[] = []; // per node: its engraved mark
+  let artLooks: (Look | null)[] = []; // per node: that mark once its sprites have loaded
+  let artOn = new Uint8Array(0); // per node: the engraved mark is the one drawn
+  let litOn = new Uint8Array(0); // per node: it takes the lit material
+  let scaleOf = new Float32Array(0); // per node: the sprite's width in world units, as last set
+  let crownLook: Look | null = null;
   let sprites: Sprite[] = [];
   let slot = new Map<string, number>(); // node id -> index into data.nodes and sprites
   const ready = Promise.resolve();
@@ -564,6 +732,40 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
     group.add(ring);
     return ring;
   });
+  // The crown around the selected node, once its sprite has loaded; until
+  // then the selected node keeps the thin ring.
+  const crown = new Sprite();
+  crown.frustumCulled = false;
+  crown.renderOrder = 2;
+  crown.visible = false;
+  group.add(crown);
+
+  /** Make the engraved marks whose sprites have arrived, and the crown. */
+  const attachArt = () => {
+    if (!alive) return;
+    let added = false;
+    artMarks.forEach((m, i) => {
+      if (artLooks[i] || !artReady(m)) return;
+      artLooks[i] = lookFor(m);
+      added = true;
+    });
+    const cm = makeCrown(artTone(theme));
+    if (!crownLook && artReady(cm)) {
+      crownLook = lookFor(cm);
+      crown.material = crownLook.lit;
+      added = true;
+    }
+    if (!added) return;
+    tone();
+    dirty = true;
+    wake();
+  };
+  const preload = () => {
+    preloadSprites(artTone(theme), ["wreath-oak", "wreath-rope", "wreath-feather", "wreath-laurel", "tablet-open", "tablet-closed", "crown-selected"]);
+    preloadSprites(coinTone(theme), Object.values(COIN_BY_FAMILY));
+  };
+  const unsubscribe = onSpritesReady(attachArt);
+  preload();
 
   // ---- Focus: what is lit, and how far the rest has faded ----
 
@@ -576,11 +778,13 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
   const tone = () => {
     const faded = 1 - (1 - FADED) * dim;
     for (const { mark, rest, lit } of looks.values()) {
-      rest.opacity = faded;
+      const f = Math.max(mark.floor ?? 0, faded);
+      const cut = mark.cut ?? 0.5;
+      rest.opacity = f;
       lit.opacity = 1;
       // the cut follows the opacity, so a faded mark keeps its shape
-      rest.alphaTest = mark.alpha * faded * 0.5;
-      lit.alphaTest = mark.alpha * 0.5;
+      rest.alphaTest = mark.alpha * f * cut;
+      lit.alphaTest = mark.alpha * cut;
       // once faded, a mark no longer hides the lit ones behind it
       rest.depthWrite = mark.solid && dim < 0.5;
     }
@@ -601,10 +805,17 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
     for (const b of awardsLit) (b.object.material as LineMaterial).linewidth = px(b.width) * LIT_WIDTH;
   };
 
+  /** Give node i the material it should have: its plain or engraved mark, lit or at rest. */
+  const apply = (i: number) => {
+    const look = artOn[i] ? artLooks[i] ?? lookOf[i] : lookOf[i];
+    sprites[i].material = litOn[i] ? look.lit : look.rest;
+  };
+
   const dress = (id: string, on: boolean) => {
     const i = slot.get(id);
     if (i === undefined) return;
-    sprites[i].material = on ? lookOf[i].lit : lookOf[i].rest;
+    litOn[i] = on ? 1 : 0;
+    apply(i);
   };
 
   const shown = (l: L) => !hidden.has(l.source.id) && !hidden.has(l.target.id);
@@ -683,8 +894,46 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
   let py = new Float32Array(0);
   let pr = new Float32Array(0); // radius on screen, in CSS pixels
   let pw = new Float32Array(0); // distance in front of the camera; 0 when not on screen
+  let dr = new Float32Array(0); // radius of the mark as drawn on screen (a wreath, a tablet), in CSS pixels
   let perUnit = 1; // pixels per world unit at distance 1
+  let reach = 1; // the camera's distance from the point it looks at
   let dirty = true; // labels and screen positions need working out again
+
+  /** Size node i's mark for how large it is on screen (w in front of the
+   *  camera), and choose between its plain and its engraved mark: a company
+   *  is a coin only from COIN_AT pixels across, a wreath and a tablet keep a
+   *  least size on screen. The node's radius, used for picking, stays as it is. */
+  const fitMark = (i: number, n: N, w: number) => {
+    const unit = w / perUnit; // world units per screen pixel at the node's depth
+    let d = 2 * n.r; // the mark's diameter in world units
+    let span = 1; // how far the sprite reaches past it
+    let on = false;
+    if (artLooks[i]) {
+      if (n.kind === "company") {
+        on = d / unit >= (artOn[i] ? COIN_OFF : COIN_AT);
+        if (on) span = COIN_SPAN;
+      } else if (n.org) {
+        on = true;
+        d = Math.max(WREATH_SPAN * n.r, WREATH_MIN * unit);
+      } else {
+        on = true;
+        d = Math.max((TABLET_PX * reach) / perUnit, TABLET_MIN * unit);
+      }
+    }
+    dr[i] = d / 2 / unit;
+    if (on !== !!artOn[i]) {
+      artOn[i] = on ? 1 : 0;
+      apply(i);
+    }
+    const s = d * span;
+    if (Math.abs(s - scaleOf[i]) > scaleOf[i] * 0.004) {
+      scaleOf[i] = s;
+      const sprite = sprites[i];
+      sprite.scale.set(s, s, 1);
+      sprite.updateMatrix();
+      sprite.updateMatrixWorld(true);
+    }
+  };
 
   const project = () => {
     if (!data) return;
@@ -707,6 +956,7 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
       px[i] = x * W;
       py[i] = y * H;
       pr[i] = r;
+      fitMark(i, n, w);
       pw[i] = px[i] + r < 0 || px[i] - r > W || py[i] + r < 0 || py[i] - r > H ? 0 : w;
     }
   };
@@ -814,7 +1064,7 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
     for (const cell of grid.values()) cell.length = 0;
     for (let i = 0; i < pw.length; i++) {
       if (!pw[i]) continue;
-      const r = Math.max(pr[i], 1.5);
+      const r = Math.max(dr[i], 1.5);
       // only the cells on screen: a mark right in front of the camera may be huge
       const gx0 = Math.max(-1, Math.floor((px[i] - r) / CELL));
       const gx1 = Math.min(Math.ceil(W / CELL), Math.floor((px[i] + r) / CELL));
@@ -841,7 +1091,7 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
           // the nearest point of the rectangle to the mark's center
           const nx = Math.max(x0, Math.min(px[i], x1));
           const ny = Math.max(y0, Math.min(py[i], y1));
-          const r = Math.max(pr[i], 1.5);
+          const r = Math.max(dr[i], 1.5);
           if ((nx - px[i]) ** 2 + (ny - py[i]) ** 2 < r * r) return true;
         }
       }
@@ -920,11 +1170,13 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
         const text = truncate(n.display, forced ? 60 : 34);
         if (!n.labelWidth) n.labelWidth = meter.measureText(truncate(n.display, 34)).width;
         const w = forced ? meter.measureText(text).width : n.labelWidth;
-        const r = Math.max(2, pr[i]);
+        // the selected node's crown reaches CROWN_SPAN times its mark: its
+        // name goes below the crown, or clears the thin ring five pixels out
+        const crowned = n.id === selected && crown.visible;
+        const r = Math.max(2, dr[i] * (crowned ? CROWN_SPAN : 1));
         const x = px[i];
         const y = py[i];
-        // the selected node's ring sits five pixels out: its name clears it
-        const g = LABEL_GAP + (n.id === selected ? 5 : 0);
+        const g = LABEL_GAP + (n.id === selected && !crowned ? 5 : 0);
         const litOnly = dim > 0.5 && litIds.has(n.id);
         const d = (r + g) * 0.72; // the diagonals sit off the mark's corner
         const right: [number, number] = [x + r + g, y - h / 2];
@@ -937,7 +1189,7 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
           [x + d, y + d],
           [x - d - w, y + d],
         ];
-        const spots = n.org ? [below, right, left, above, ...corners] : [right, left, above, below, ...corners];
+        const spots = n.org || crowned ? [below, right, left, above, ...corners] : [right, left, above, below, ...corners];
         let spot = spots.find(([sx, sy]) => free(sx - 2, sy - 1, sx + w + 2, sy + h + 1) && !onMark(sx - 2, sy, sx + w + 2, sy + h, i, litOnly));
         if (!spot && forced) spot = spots[0];
         if (!spot) return;
@@ -1538,6 +1790,7 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
     if (turned) busy = true;
     // edge widths follow the zoom at the point the camera looks at
     const reachOut = Math.max(camera.position.distanceTo(controls.target), 1);
+    reach = reachOut;
     widen(perUnit / reachOut);
 
     // 6. Level of detail. While the camera rushes, or from far out, a crowded
@@ -1559,18 +1812,30 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
     if (turned || moved || dirty) {
       project();
       if (turned && inside && !pointer) setHover(nodeAt(at.x, at.y));
-      label(now);
+      // The crown, else the thin ring, around the selected node; the hovered
+      // one gets the fainter ring only. Placed before the names, which clear them.
       [selected, hover === selected ? null : hover].forEach((id, k) => {
         const i = id ? slot.get(id) : undefined;
         const ring = rings[k];
-        ring.visible = i !== undefined && !!pw[i];
-        if (i === undefined || !pw[i]) return;
+        const on = i !== undefined && !!pw[i];
+        const crowned = on && k === 0 && !!crownLook;
+        if (k === 0) crown.visible = crowned;
+        ring.visible = on && !crowned;
+        if (!on) return;
         const n = data!.nodes[i];
+        const unit = pw[i] / perUnit;
+        if (crowned) {
+          crown.position.set(n.x, n.y, n.z);
+          crown.scale.setScalar(2 * dr[i] * unit * CROWN_SPAN);
+          crown.updateMatrixWorld(true);
+          return;
+        }
         ring.position.set(n.x, n.y, n.z);
         ring.quaternion.copy(camera.quaternion);
-        ring.scale.setScalar(n.r + (5 * pw[i]) / perUnit); // five pixels clear of the mark
+        ring.scale.setScalar((dr[i] + 5) * unit); // five pixels clear of the mark
         ring.updateMatrixWorld(true);
       });
+      label(now);
       dirty = false;
     }
     moved = false;
@@ -1615,7 +1880,10 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
     for (const s of sprites) nodesGroup.remove(s);
     sprites = [];
     lookOf = [];
+    artMarks = [];
+    artLooks = [];
     slot = new Map();
+    crown.visible = false;
     for (const b of batches) {
       b.links = [];
       b.object.visible = false;
@@ -1636,6 +1904,11 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
       data = next;
       if (!next) return;
       lookOf = next.nodes.map((n) => lookFor(markOf(n)));
+      artMarks = next.nodes.map((n) => artOf(n, theme));
+      artLooks = next.nodes.map(() => null);
+      artOn = new Uint8Array(next.nodes.length);
+      litOn = new Uint8Array(next.nodes.length);
+      scaleOf = Float32Array.from(next.nodes, (n) => n.r * 2);
       next.nodes.forEach((n, i) => {
         const s = new Sprite(lookOf[i].rest);
         s.scale.set(n.r * 2, n.r * 2, 1);
@@ -1668,6 +1941,7 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
       py = new Float32Array(next.nodes.length);
       pr = new Float32Array(next.nodes.length);
       pw = new Float32Array(next.nodes.length);
+      dr = Float32Array.from(next.nodes, (n) => n.r);
       if (selected && !next.byId.has(selected)) selected = null;
       renderer.getSize(size);
       W = size.x;
@@ -1677,6 +1951,7 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
       homed = false;
       refilter();
       fit(false);
+      attachArt(); // the sprites may already be loaded
       wake();
     },
     setHidden(nextHidden, nextTags) {
@@ -1710,6 +1985,26 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
       (awardsThin.object.material as LineBasicMaterial).color.set(palette.accent);
       for (const b of [...awards, ...awardsLit]) (b.object.material as LineMaterial).color.set(palette.accent);
       for (const m of ringMaterials) m.color.set(palette.text);
+      // The engraved marks take the tones of the mode: they are dropped and
+      // made again, from the sprites of the new tone as they arrive. Until
+      // then each node shows its plain mark.
+      theme = currentTheme();
+      for (const [key, look] of looks) {
+        if (!look.mark.sprites) continue;
+        look.rest.dispose();
+        look.lit.dispose();
+        look.texture.dispose();
+        looks.delete(key);
+      }
+      crownLook = null;
+      crown.visible = false;
+      if (data) {
+        artMarks = data.nodes.map((n) => artOf(n, theme));
+        artLooks = data.nodes.map(() => null);
+        artOn.fill(0);
+        sprites.forEach((_, i) => apply(i));
+      }
+      preload();
       // The marks are painted in the palette's colors: paint them again.
       for (const look of looks.values()) {
         const old = look.texture;
@@ -1720,7 +2015,9 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
         }
         old.dispose();
       }
+      attachArt();
       tone();
+      dirty = true;
       wake();
     },
     setBlocked(next) {
@@ -1738,6 +2035,7 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
     zoom,
     dispose() {
       alive = false;
+      unsubscribe();
       clearTimeout(sleepTimer);
       measureTimers.forEach(clearTimeout);
       wrap.removeEventListener("pointerdown", onDown, true);
