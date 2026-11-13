@@ -284,6 +284,31 @@ export function familyOfTag(families: FamilyDef[] | undefined, tag: string): str
   return families?.find((f) => f.tags.includes(tag))?.key ?? null;
 }
 
+// The five category families, as a static table. This mirrors the `families`
+// block of config/taxonomy.yaml, which stays the source of truth: the API reads
+// that file and serves the families with its responses (familyOfTag above
+// takes them from there). The graph needs the grouping before any response
+// has arrived, to place its clusters and pick each node's art, so it keeps
+// this copy. If the YAML changes, change this table with it.
+
+export type Family = "aerial" | "maritime" | "navigation" | "counter" | "other";
+
+export const FAMILIES: readonly { key: Family; label: string; tags: readonly string[] }[] = [
+  { key: "aerial", label: "Aerial", tags: ["uas", "swarming", "collaborative-combat-aircraft", "loitering-munitions"] },
+  { key: "maritime", label: "Maritime", tags: ["maritime"] },
+  { key: "navigation", label: "Navigation", tags: ["gps-denied-nav"] },
+  { key: "counter", label: "Counter-drone", tags: ["counter-uas"] },
+  { key: "other", label: "Ground, software, command", tags: ["ground-robotics", "autonomy-software", "uxs-c2"] },
+];
+
+const FAMILY_OF = new Map(FAMILIES.flatMap((f) => f.tags.map((t) => [t, f.key] as const)));
+
+/** The family of a category tag, from the static table. A tag the table does
+ *  not know (a new one the YAML gained first) falls in "other". */
+export function familyOf(tag: string): Family {
+  return FAMILY_OF.get(tag) ?? "other";
+}
+
 /** A list of categories in words: "Maritime 62%, Swarming 30%". */
 export function mixText(mix: MixPart[], total: number, max = 3): string {
   if (total <= 0) return "";

@@ -2,7 +2,7 @@ import {
   BufferAttribute,
   BufferGeometry,
   CanvasTexture,
-  FogExp2,
+  Fog,
   Group,
   LinearFilter,
   LinearMipmapLinearFilter,
@@ -10,6 +10,8 @@ import {
   LineDashedMaterial,
   LineSegments,
   Matrix4,
+  NotEqualStencilFunc,
+  ReplaceStencilOp,
   Spherical,
   Sprite,
   SpriteMaterial,
@@ -27,27 +29,40 @@ import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 import { day, money, plural, truncate } from "@/lib/format";
-import type { L, N } from "@/lib/graphLayout";
+import {
+  bendPoint,
+  CAPTION_RISE,
+  curveEnds,
+  EDGE_ALPHA_MAX,
+  EDGE_ALPHA_MIN,
+  INNER_RING,
+  QUIET_ALPHA,
+  type L,
+  type N,
+} from "@/lib/graphLayout";
 import { readPalette, type Palette } from "@/lib/paint";
-import { tagLabel } from "@/lib/tags";
 import type { Scene3 } from "./Graph3DLayout";
+import { fitPad, readChrome, roomFor, type Chrome } from "./graphRoom";
 
 // Everything the 3D view draws and every way it is handled, kept apart from
 // React (Graph3D.tsx mounts it). react-force-graph-3d provides the WebGL
 // renderer, the camera, the orbit controls and the render loop; this file puts
 // the graph into that scene and runs once per rendered frame.
 //
-// Nodes are plain marks in the text color, the same three as the flat view: a
-// filled dot for a company, a ring for an agency or office, a small diamond
-// for a solicitation. Award edges are lines in the accent, weight by amount;
-// every other edge is a faint dotted line in the text color.
+// It draws what the flat view draws, by the same rules (lib/graphLayout.ts):
+// a company is a dot with its area in proportion to its dollars, an agency or
+// office is a ring with a finer ring inside it, sized by what it paid out, and
+// a solicitation is a small open diamond. Money edges are one curve per
+// company and agency, in the accent, wider and stronger with the dollars they
+// carry; every other edge is a faint dotted curve in the text color. Selecting
+// or hovering a node fades everything it does not touch. Fog in the page color
+// fades whatever lies farther back, so the depth reads at a glance.
 //
-// Drawing is kept cheap so a large graph stays fluid. All edges of a kind are
-// one object (one draw call), not one object per edge. Each mark is a sprite
-// sharing one of a few materials, and sprites are drawn grouped by material,
-// not sorted by distance every frame: the depth buffer decides which mark is
-// in front. Edges are drawn first and never cover a mark. Fog in the page
-// color fades distant nodes into the page.
+// Drawing is kept cheap so a large graph stays fluid. All edges of a kind (and
+// of a band of dollars) are one object, so one draw call, not one per edge.
+// Each mark is a sprite sharing one of a few materials, and sprites are drawn
+// grouped by material, not sorted by distance every frame: the depth buffer
+// decides which mark is in front. Edges are drawn first and never cover a mark.
 //
 // The layout is frozen (Graph3DLayout.ts) and nothing moves by itself: there
 // is no idle rotation and nothing travels along the edges. A node moves only
@@ -96,42 +111,194 @@ export type Stage = {
   dispose: () => void;
 };
 
-// The three marks, and which one a node takes.
-const SHAPES = ["dot", "ring", "diamond"] as const;
-type Shape = (typeof SHAPES)[number];
-const shapeOf = (n: N) => (n.kind === "company" ? 0 : n.kind === "opportunity" ? 2 : 1);
+// ---- Node marks ----
+//
+// Each kind of node is drawn by its own pair of functions: makeCompany,
+// makeAgency and makeSolicitation say which picture a node takes, and
+// drawCompany, drawAgency and drawSolicitation paint that picture into a
+// texture. A sprite is always 2r world units across, so it covers the node's
+// mark exactly, and the stage shares one texture (and one pair of materials)
+// among all nodes that take the same picture. Engraved art can replace a
+// draw function without touching the layout, the hit testing or the fading;
+// art that changes with the size on screen can keep several marks per kind
+// and swap a sprite's material by its projected radius (`pr` in the stage).
 
-// Mark opacity by kind: everything else, open solicitations, closed ones.
-// The same values as the flat view: opaque, so no edge shows through a dot.
-const KIND_ALPHA = [1, 1, 0.5];
-const FADED = 0.3; // what non-neighbors dim to while a node is hovered or selected
+/** One picture a node can take. `key` names it: nodes with the same key share it. */
+export type Mark = {
+  key: string;
+  /** the texture's width and height in pixels */
+  size: number;
+  /** the strongest opacity painted into the texture, for the alpha cut */
+  alpha: number;
+  /** it hides what lies behind it (writes depth); an open outline does not */
+  solid: boolean;
+  /** paint the mark, filling a size-by-size canvas, in the palette's colors */
+  paint: (g: CanvasRenderingContext2D, size: number, palette: Palette) => void;
+};
 
-// Edge opacity at rest, and for the lit edges of a hovered or selected node.
-const OTHER_EDGE_ALPHA = 0.36;
-const AWARD_EDGE_ALPHA = 0.55;
-const OTHER_LIT_ALPHA = 0.68;
-const AWARD_LIT_ALPHA = 0.95;
-/** Award edge widths in CSS pixels: under $2.5M, under $50M, larger. */
-const AWARD_WIDTHS = [1.1, 1.8, 2.7];
-/** The dotted line of an edge that is not an award, in world units. */
-const DOT = 2;
-const DOT_GAP = 7;
+/** A company's dot: text color, a hairline of page color around it so dots
+ *  that overlap in depth stay apart, as in the flat view. Drawn for a radius,
+ *  in world pixels: the dot then takes up the whole texture. */
+export function drawCompany(g: CanvasRenderingContext2D, size: number, palette: Palette, r: number) {
+  const mid = size / 2;
+  const k = size / (2 * r); // texture pixels per world pixel
+  g.fillStyle = palette.bg;
+  g.beginPath();
+  g.arc(mid, mid, mid, 0, Math.PI * 2);
+  g.fill();
+  g.globalAlpha = 0.9;
+  g.fillStyle = palette.text;
+  g.beginPath();
+  g.arc(mid, mid, Math.max(mid * 0.6, mid - 0.7 * k), 0, Math.PI * 2);
+  g.fill();
+  g.globalAlpha = 1;
+}
+
+/** An agency's or office's two rings: the outer one at the node's radius, the
+ *  inner one at INNER_RING of it and fainter, both filled with the page color
+ *  so no edge shows through. */
+export function drawAgency(g: CanvasRenderingContext2D, size: number, palette: Palette, r: number) {
+  const mid = size / 2;
+  const k = size / (2 * r);
+  const outer = 1.3 * k;
+  g.fillStyle = palette.bg;
+  g.strokeStyle = palette.text;
+  g.beginPath();
+  g.arc(mid, mid, mid - outer / 2, 0, Math.PI * 2);
+  g.fill();
+  g.lineWidth = outer;
+  g.stroke();
+  g.globalAlpha = 0.6;
+  g.beginPath();
+  g.arc(mid, mid, mid * INNER_RING, 0, Math.PI * 2);
+  g.lineWidth = k;
+  g.stroke();
+  g.globalAlpha = 1;
+}
+
+/** A solicitation's diamond: an outline only, fainter once it has closed. */
+export function drawSolicitation(g: CanvasRenderingContext2D, size: number, palette: Palette, r: number, open: boolean) {
+  const mid = size / 2;
+  const k = size / (2 * r);
+  const w = k; // one world pixel
+  const d = mid - w / 2 - 1;
+  g.globalAlpha = open ? 0.6 : 0.35;
+  g.strokeStyle = palette.text;
+  g.lineJoin = "miter";
+  g.lineWidth = w;
+  g.beginPath();
+  g.moveTo(mid, mid - d);
+  g.lineTo(mid + d, mid);
+  g.lineTo(mid, mid + d);
+  g.lineTo(mid - d, mid);
+  g.closePath();
+  g.stroke();
+  g.globalAlpha = 1;
+}
+
+/** Company dots come in a few bands of size, so the hairline around a dot is
+ *  about as thin on a small one as on a large one. Upper radius of each band. */
+const COMPANY_BANDS = [5, 8, 12, 18, 26];
+
+export function makeCompany(n: N): Mark {
+  let b = COMPANY_BANDS.findIndex((top) => n.r <= top);
+  if (b < 0) b = COMPANY_BANDS.length - 1;
+  // drawn for the middle of the band
+  const r = (COMPANY_BANDS[b] + (b ? COMPANY_BANDS[b - 1] : 3.5)) / 2;
+  return { key: `company:${b}`, size: b < 2 ? 64 : 128, alpha: 1, solid: true, paint: (g, s, p) => drawCompany(g, s, p, r) };
+}
+
+export function makeAgency(n: N): Mark {
+  // agencies are few: one picture per whole pixel of radius
+  const r = Math.max(5, Math.round(n.r));
+  return { key: `agency:${r}`, size: 256, alpha: 1, solid: true, paint: (g, s, p) => drawAgency(g, s, p, r) };
+}
+
+export function makeSolicitation(n: N): Mark {
+  const open = !!n.open;
+  return {
+    key: `solicitation:${open ? "open" : "closed"}`,
+    size: 64,
+    alpha: open ? 0.6 : 0.35,
+    solid: false,
+    paint: (g, s, p) => drawSolicitation(g, s, p, n.r, open),
+  };
+}
+
+const markOf = (n: N): Mark => (n.kind === "company" ? makeCompany(n) : n.org ? makeAgency(n) : makeSolicitation(n));
+
+/** A mark as the stage keeps it: its texture, and a material for the node at
+ *  rest (it fades when something else is in focus) and one for a lit node. */
+type Look = { mark: Mark; texture: Texture; rest: SpriteMaterial; lit: SpriteMaterial };
+
+// ---- Fading ----
+
+/** What an unrelated node fades to while a node is selected. */
+const FADED = 0.16;
+/** What an unrelated edge fades to. */
+const EDGE_FADED = 0.03;
+/** The selected node's money edges: strong, and a little wider. */
+const LIT_AWARD_ALPHA = 0.85;
+const LIT_WIDTH = 1.25;
+/** Hover previews the fade of a selection, not as far. */
+const HOVER_DIM = 0.6;
+
+// ---- Edges ----
+
+/** Money edges are drawn in this many bands of dollars, each with its own width
+ *  and opacity (one draw call each): a close match to the flat view's
+ *  per-edge stroke, which WebGL lines cannot vary within one draw. Ten bands
+ *  put every edge within a twentieth of the opacity range of its own. */
+const BANDS = 10;
+/** The dotted line of an edge that is not an award, in world pixels (the flat view's dash). */
+const DOT = 1.5;
+const DOT_GAP = 3;
+/** Straight pieces per curved edge: fewer when there are many edges, where
+ *  each curve is short on screen and the pieces would cost frame rate. */
+const SEGMENTS = 10;
+const SEGMENTS_SOME = 6; // over 800 edges
+const SEGMENTS_MANY = 4; // over 2,500
+/** Money edges drawn as plain lines while a crowded graph is in a rush, and their opacity. */
+const THIN_ALPHA = 0.16;
+/** Edge widths are in world pixels; on screen they follow the zoom, within these bounds. */
+const MIN_LINE_PX = 0.6;
+const MAX_LINE_PX = 7;
 
 const FOV = 38; // degrees: a long lens, so the far side is not distorted
 const FLY_MS = 600;
+/** The first view of a graph: from the front, a little above and to the right. */
+const HOME = new Vector3(0.16, 0.3, 1);
 const MAX_LABELS = 72;
 /** With more edges than this in view, detail is dropped while the camera moves fast. */
 const HEAVY_EDGES = 1500;
 const LIGHT_EDGES = 1200; // how many award edges are still drawn in that case
 
-// Names over the canvas: a company in the display serif, an agency or office
-// in the interface face, a category smaller and quieter.
+// ---- Labels ----
+//
+// Names over the canvas, in the flat view's faces: a company in the display
+// serif at 16px, an agency or office in the interface face at 11.5px, and a
+// category's caption in italic EB Garamond at 13.5px. Every one has a 5px halo
+// of page color behind it (a text stroke painted under the fill).
+
 const LABEL_BASE =
-  "pointer-events-none absolute left-0 top-0 whitespace-nowrap leading-none opacity-0 transition-opacity duration-200 [text-shadow:0_0_3px_var(--bg),0_0_3px_var(--bg),0_0_5px_var(--bg)]";
-const NAME_CLASS = `${LABEL_BASE} font-display text-[17px] font-medium text-ink`;
-const ORG_CLASS = `${LABEL_BASE} font-sans text-[12.5px] text-muted`;
-const ORG_LIT_CLASS = `${LABEL_BASE} font-sans text-[12.5px] text-ink`;
-const REGION_CLASS = `${LABEL_BASE} font-sans text-[11px] text-muted`;
+  "pointer-events-none absolute left-0 top-0 whitespace-nowrap leading-none opacity-0 transition-opacity duration-200 text-ink";
+const COMPANY_CLASS = `${LABEL_BASE} font-display text-[16px]`;
+const AGENCY_CLASS = `${LABEL_BASE} font-sans text-[11.5px]`;
+const CAPTION_CLASS = `${LABEL_BASE} font-serif italic text-[13.5px]`;
+const LABEL_SIZE = { company: 16, agency: 11.5, caption: 13.5 };
+/** Where a line's baseline sits below the top of its box, as a share of the size. */
+const BASELINE = 0.8;
+/** Companies named without hovering: the largest few by dollars. */
+const TOP_COMPANIES = 7;
+/** Space between a mark and its name, in pixels. */
+const LABEL_GAP = 6;
+/** Opacity of each kind of name at rest and when faded. */
+const AGENCY_ALPHA = 0.85;
+const CAPTION_ALPHA = 0.55;
+const CAPTION_FADED = 0.25;
+const NAME_FADED = 0.22;
+/** A grid of node rectangles on screen, for testing where a name may go. */
+const CELL = 48;
 
 type Batch = {
   object: LineSegments | LineSegments2;
@@ -139,8 +306,10 @@ type Batch = {
   /** a dotted line: its dash distances are worked out again whenever its ends move */
   dotted: boolean;
   links: L[];
-  /** six numbers per edge: both ends */
+  /** six numbers per straight piece: both ends */
   array: Float32Array;
+  /** a money band's width in world pixels (fat batches) */
+  width: number;
 };
 type Spring = {
   n: N;
@@ -157,58 +326,44 @@ type Flight = {
   t: number;
   dur: number;
 };
+/** kind: 0 company, 1 agency or office (and a solicitation), 2 caption */
 type Tag = { el: HTMLDivElement; key: string; x: number; y: number; alpha: number; kind: number; freeAt: number; seen: number };
 
-const kindOf = (n: N) => (n.kind === "opportunity" ? (n.open ? 1 : 2) : 0);
-const widthOf = (l: L) => (l.w < 1.4 ? 0 : l.w < 2.7 ? 1 : 2);
 const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 
-/** One mark as a texture, in the palette's own colors: a filled dot, a ring
- *  with a finer ring inside it, or a diamond. The outlines are filled with the
- *  page color, so no edge shows through them. */
-function markTexture(shape: Shape, palette: Palette): Texture {
-  const size = 128;
-  const c = document.createElement("canvas");
-  c.width = c.height = size;
-  const g = c.getContext("2d")!;
-  const mid = size / 2;
-  g.fillStyle = shape === "dot" ? palette.text : palette.bg;
-  g.strokeStyle = palette.text;
-  g.lineJoin = "miter";
-  if (shape === "diamond") {
-    const w = 12;
-    const r = mid - w;
-    g.beginPath();
-    g.moveTo(mid, mid - r);
-    g.lineTo(mid + r, mid);
-    g.lineTo(mid, mid + r);
-    g.lineTo(mid - r, mid);
-    g.closePath();
-    g.fill();
-    g.lineWidth = w;
-    g.stroke();
-  } else if (shape === "ring") {
-    const w = 8;
-    g.beginPath();
-    g.arc(mid, mid, mid - w / 2 - 1, 0, Math.PI * 2);
-    g.fill();
-    g.lineWidth = w;
-    g.stroke();
-    g.beginPath();
-    g.arc(mid, mid, (mid - 1) * 0.52, 0, Math.PI * 2);
-    g.lineWidth = 5;
-    g.stroke();
-  } else {
-    g.beginPath();
-    g.arc(mid, mid, mid - 1, 0, Math.PI * 2);
-    g.fill();
+/** Which band of dollars a money edge is drawn in (its opacity is linear in log dollars). */
+const bandOf = (l: L) =>
+  Math.max(0, Math.min(BANDS - 1, Math.floor(((l.alpha - EDGE_ALPHA_MIN) / (EDGE_ALPHA_MAX - EDGE_ALPHA_MIN)) * BANDS)));
+
+/** Write an edge's curve into `a` from offset `o` as `seg` straight pieces,
+ *  and return the offset after it. The curve is the flat view's: a quadratic
+ *  bowed BEND of its length, worked out on the y-down map (the scene is y-up),
+ *  with its middle at the depth halfway between its ends. */
+function writeCurve(l: L, a: Float32Array, o: number, seg: number): number {
+  const [p, q] = curveEnds(l);
+  const { cx, cy: down } = bendPoint(p.x, -p.y, q.x, -q.y);
+  const cy = -down;
+  const cz = (p.z + q.z) / 2;
+  let x0 = p.x;
+  let y0 = p.y;
+  let z0 = p.z;
+  for (let i = 1; i <= seg; i++) {
+    const t = i / seg;
+    const u = 1 - t;
+    const x1 = u * u * p.x + 2 * u * t * cx + t * t * q.x;
+    const y1 = u * u * p.y + 2 * u * t * cy + t * t * q.y;
+    const z1 = u * u * p.z + 2 * u * t * cz + t * t * q.z;
+    a[o++] = x0;
+    a[o++] = y0;
+    a[o++] = z0;
+    a[o++] = x1;
+    a[o++] = y1;
+    a[o++] = z1;
+    x0 = x1;
+    y0 = y1;
+    z0 = z1;
   }
-  const t = new CanvasTexture(c);
-  t.colorSpace = SRGBColorSpace;
-  t.generateMipmaps = true;
-  t.minFilter = LinearMipmapLinearFilter;
-  t.magFilter = LinearFilter;
-  return t;
+  return o;
 }
 
 export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageOptions): Stage {
@@ -229,6 +384,7 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
   let hidden: ReadonlySet<string> = new Set();
   let tags: ReadonlySet<string> = new Set();
   let liveTags = new Set<string>(); // categories that still have a member on the map
+  let named7 = new Set<string>(); // the companies named without hovering
   let selected: string | null = null;
   let hover: string | null = null;
   let query = "";
@@ -255,7 +411,9 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
   controls.maxDistance = 6000;
   controls.autoRotate = false; // the graph never turns by itself
 
-  const fog = new FogExp2(palette.bg, 0.0004);
+  // Linear fog in the page color, set each frame from where the camera is:
+  // the near side of the graph is clear and the far side fades into the page.
+  const fog = new Fog(palette.bg, 1, 10000);
   world.fog = fog;
 
   // ---- What is drawn ----
@@ -268,38 +426,63 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
   const sorted = renderer.sortObjects;
   renderer.sortObjects = false;
 
-  let textures: Texture[] = [];
-  // [shape][kind]: `rest` materials fade when something is in focus, `lit` ones never do
-  let rest: SpriteMaterial[][] = [];
-  let lit: SpriteMaterial[][] = [];
+  const looks = new Map<string, Look>();
+  let lookOf: Look[] = []; // per node, in the order of data.nodes
   let sprites: Sprite[] = [];
   let slot = new Map<string, number>(); // node id -> index into data.nodes and sprites
-
-  // A mark hides whatever is behind it (the corners of its square are cut away
-  // by the alpha test). Closed solicitations are see-through, so they are
-  // drawn after the rest and hide nothing.
-  const spriteMaterial = (map: Texture, kind: number) =>
-    new SpriteMaterial({ map, transparent: true, depthTest: true, depthWrite: kind < 2, alphaTest: 0.5, fog: true });
-
-  /** Draw the three marks in the palette's colors. */
-  const drawMarks = () =>
-    SHAPES.map((shape) => {
-      const t = markTexture(shape, palette);
-      t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-      t.needsUpdate = true;
-      return t;
-    });
-  textures = drawMarks();
-  rest = textures.map((t) => KIND_ALPHA.map((_, kind) => spriteMaterial(t, kind)));
-  lit = textures.map((t) => KIND_ALPHA.map((_, kind) => spriteMaterial(t, kind)));
   const ready = Promise.resolve();
 
+  const paintTexture = (mark: Mark): Texture => {
+    const c = document.createElement("canvas");
+    c.width = c.height = mark.size;
+    mark.paint(c.getContext("2d")!, mark.size, palette);
+    const t = new CanvasTexture(c);
+    t.colorSpace = SRGBColorSpace;
+    t.generateMipmaps = true;
+    t.minFilter = LinearMipmapLinearFilter;
+    t.magFilter = LinearFilter;
+    t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+    t.needsUpdate = true;
+    return t;
+  };
+
+  // A solid mark hides whatever is behind it (the corners of its square are
+  // cut away by the alpha test). An open outline is drawn after the rest and
+  // hides nothing.
+  const spriteMaterial = (map: Texture, solid: boolean) =>
+    new SpriteMaterial({ map, transparent: true, depthTest: true, depthWrite: solid, alphaTest: 0.5, fog: true });
+
+  /** The stage's copy of a mark: made on first use, then shared. */
+  const lookFor = (mark: Mark): Look => {
+    let look = looks.get(mark.key);
+    if (!look) {
+      const texture = paintTexture(mark);
+      look = { mark, texture, rest: spriteMaterial(texture, mark.solid), lit: spriteMaterial(texture, mark.solid) };
+      looks.set(mark.key, look);
+    }
+    return look;
+  };
+
+  // A curve is drawn as short straight pieces, and translucent pieces would
+  // darken where they overlap at every joint, beading the line. So each kind
+  // of line writes its own number into the stencil buffer and draws only
+  // where that number is not yet written: within one batch every pixel is
+  // blended once, while different batches (a strong band over a weak one, the
+  // lit edges over the rest) still add up as they do on the flat map.
+  let stencils = 0;
+  const once = <M extends LineBasicMaterial | LineDashedMaterial | LineMaterial>(m: M): M => {
+    m.stencilWrite = true;
+    m.stencilRef = ++stencils;
+    m.stencilFunc = NotEqualStencilFunc;
+    m.stencilZPass = ReplaceStencilOp;
+    return m;
+  };
   const thinMaterial = (color: string) =>
-    new LineBasicMaterial({ color, transparent: true, depthTest: false, depthWrite: false, fog: true });
+    once(new LineBasicMaterial({ color, transparent: true, depthTest: false, depthWrite: false, fog: true }));
   const dottedMaterial = (color: string) =>
-    new LineDashedMaterial({ color, dashSize: DOT, gapSize: DOT_GAP, transparent: true, depthTest: false, depthWrite: false, fog: true });
+    once(new LineDashedMaterial({ color, dashSize: DOT, gapSize: DOT_GAP, transparent: true, depthTest: false, depthWrite: false, fog: true }));
   const fatMaterial = (color: string, linewidth: number, fogged = true) =>
-    new LineMaterial({ color, linewidth, transparent: true, depthTest: false, depthWrite: false, fog: fogged });
+    once(new LineMaterial({ color, linewidth, transparent: true, depthTest: false, depthWrite: false, fog: fogged }));
 
   const batch = (material: LineBasicMaterial | LineDashedMaterial | LineMaterial, order: number): Batch => {
     const fat = material instanceof LineMaterial;
@@ -309,15 +492,17 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
     object.renderOrder = order;
     object.visible = false;
     group.add(object);
-    const b: Batch = { object, fat, dotted, links: [], array: new Float32Array(0) };
-    return b;
+    return { object, fat, dotted, links: [], array: new Float32Array(0), width: 1 };
   };
+
+  let seg = SEGMENTS; // straight pieces per curve, for this graph
 
   /** Give a batch its edges: (re)allocate if it grew, then write the positions. */
   const load = (b: Batch, links: L[]) => {
     b.links = links;
-    if (b.array.length < links.length * 6 || b.array.length === 0) {
-      b.array = new Float32Array(Math.max(links.length, 1) * 6);
+    const need = Math.max(links.length, 1) * seg * 6;
+    if (b.array.length < need) {
+      b.array = new Float32Array(need);
       b.object.geometry.dispose();
       (b.object as { geometry: BufferGeometry }).geometry = b.fat
         ? new LineSegmentsGeometry().setPositions(b.array)
@@ -326,42 +511,39 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
     write(b);
   };
 
-  /** Copy the current node positions into a batch's buffer. */
+  /** Copy the current node positions into a batch's buffer, as curves. */
   const write = (b: Batch) => {
     const a = b.array;
     let o = 0;
-    for (const l of b.links) {
-      a[o++] = l.source.x;
-      a[o++] = l.source.y;
-      a[o++] = l.source.z;
-      a[o++] = l.target.x;
-      a[o++] = l.target.y;
-      a[o++] = l.target.z;
-    }
+    for (const l of b.links) o = writeCurve(l, a, o, seg);
+    const pieces = b.links.length * seg;
     if (b.fat) {
       const g = b.object.geometry as LineSegmentsGeometry;
-      g.instanceCount = b.links.length;
+      g.instanceCount = pieces;
       (g.attributes.instanceStart as unknown as InterleavedBufferAttribute).data.needsUpdate = true;
     } else {
       const g = b.object.geometry as BufferGeometry;
-      g.setDrawRange(0, b.links.length * 2);
+      g.setDrawRange(0, pieces * 2);
       g.attributes.position.needsUpdate = true;
       if (b.dotted) (b.object as LineSegments).computeLineDistances();
     }
   };
 
-  const ink = batch(dottedMaterial(palette.text), -4);
-  const awardsThin = batch(thinMaterial(palette.accent), -4); // stands in for the strokes below while the camera rushes
-  const awards = AWARD_WIDTHS.map((w) => batch(fatMaterial(palette.accent, w), -4));
-  const inkLit = batch(dottedMaterial(palette.text), -3);
-  const awardsLit = AWARD_WIDTHS.map((w) => batch(fatMaterial(palette.accent, w + 0.4), -3));
-  const batches = [ink, awardsThin, ...awards, inkLit, ...awardsLit];
+  const quiet = batch(dottedMaterial(palette.text), -4);
+  const awardsThin = batch(thinMaterial(palette.accent), -4); // stands in for the bands below while the camera rushes
+  const awards = Array.from({ length: BANDS }, () => batch(fatMaterial(palette.accent, 1), -4));
+  const quietLit = batch(dottedMaterial(palette.text), -3);
+  const awardsLit = Array.from({ length: BANDS }, () => batch(fatMaterial(palette.accent, 1), -3));
+  const batches = [quiet, awardsThin, ...awards, quietLit, ...awardsLit];
+  /** each money band's opacity at rest: the average of its edges' */
+  const bandAlpha = new Array<number>(BANDS).fill(EDGE_ALPHA_MIN);
   let edgeCount = 0;
+  let lineScale = 0; // screen pixels per world pixel the edge widths were last set for
   group.add(nodesGroup);
 
-  // The thin ring around the selected node, and around the hovered one.
-  // A circle of line segments turned to face the camera, so its stroke keeps
-  // the same width on screen at any distance.
+  // The thin ring around the selected node, and a fainter one around the
+  // hovered one. A circle of line segments turned to face the camera, so its
+  // stroke keeps the same width on screen at any distance.
   const circle = new Float32Array(72 * 6);
   for (let i = 0; i < 72; i++) {
     const a = (i / 72) * Math.PI * 2;
@@ -369,9 +551,13 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
     circle.set([Math.cos(a), Math.sin(a), 0, Math.cos(b), Math.sin(b), 0], i * 6);
   }
   const ringGeometry = new LineSegmentsGeometry().setPositions(circle);
-  const ringMaterial = fatMaterial(palette.text, 1.25, false);
-  const rings = [0, 1].map(() => {
-    const ring = new LineSegments2(ringGeometry, ringMaterial);
+  const ringMaterials = [0.7, 0.35].map((opacity) => {
+    const m = fatMaterial(palette.text, 1, false);
+    m.opacity = opacity;
+    return m;
+  });
+  const rings = ringMaterials.map((m) => {
+    const ring = new LineSegments2(ringGeometry, m);
     ring.frustumCulled = false;
     ring.renderOrder = 2;
     ring.visible = false;
@@ -386,34 +572,39 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
   let focusKey = ""; // what `litIds` was built for
   let litIds = new Set<string>();
 
-  /** Set every opacity from the fade and how crowded the edges are. */
+  /** Set every opacity from the fade. */
   const tone = () => {
     const faded = 1 - (1 - FADED) * dim;
-    for (let m = 0; m < rest.length; m++) {
-      for (let k = 0; k < KIND_ALPHA.length; k++) {
-        rest[m][k].opacity = KIND_ALPHA[k] * faded;
-        lit[m][k].opacity = KIND_ALPHA[k];
-        // the cut follows the opacity, so a faded mark keeps its shape
-        rest[m][k].alphaTest = rest[m][k].opacity * 0.5;
-        lit[m][k].alphaTest = lit[m][k].opacity * 0.5;
-      }
+    for (const { mark, rest, lit } of looks.values()) {
+      rest.opacity = faded;
+      lit.opacity = 1;
+      // the cut follows the opacity, so a faded mark keeps its shape
+      rest.alphaTest = mark.alpha * faded * 0.5;
+      lit.alphaTest = mark.alpha * 0.5;
       // once faded, a mark no longer hides the lit ones behind it
-      rest[m][0].depthWrite = rest[m][1].depthWrite = dim < 0.5;
+      rest.depthWrite = mark.solid && dim < 0.5;
     }
-    // a great many edges are drawn fainter, so they read as a haze, not a tangle
-    const crowd = Math.min(1, Math.sqrt(900 / Math.max(edgeCount, 1)));
-    (ink.object.material as LineDashedMaterial).opacity = OTHER_EDGE_ALPHA * crowd * faded;
-    (awardsThin.object.material as LineBasicMaterial).opacity = AWARD_EDGE_ALPHA * crowd * faded;
-    for (const b of awards) (b.object.material as LineMaterial).opacity = AWARD_EDGE_ALPHA * crowd * faded;
-    (inkLit.object.material as LineDashedMaterial).opacity = OTHER_LIT_ALPHA * dim;
-    for (const b of awardsLit) (b.object.material as LineMaterial).opacity = AWARD_LIT_ALPHA * dim;
+    const toward = (rest: number) => rest + (EDGE_FADED - rest) * dim;
+    (quiet.object.material as LineDashedMaterial).opacity = toward(QUIET_ALPHA);
+    (awardsThin.object.material as LineBasicMaterial).opacity = toward(THIN_ALPHA);
+    awards.forEach((b, i) => ((b.object.material as LineMaterial).opacity = toward(bandAlpha[i])));
+    (quietLit.object.material as LineDashedMaterial).opacity = QUIET_ALPHA * dim;
+    for (const b of awardsLit) (b.object.material as LineMaterial).opacity = LIT_AWARD_ALPHA * dim;
+  };
+
+  /** Edge widths follow the zoom, as they do on the flat map. */
+  const widen = (scale: number) => {
+    if (Math.abs(scale - lineScale) < lineScale * 0.02) return;
+    lineScale = scale;
+    const px = (w: number) => Math.max(MIN_LINE_PX, Math.min(MAX_LINE_PX, w * scale));
+    for (const b of awards) (b.object.material as LineMaterial).linewidth = px(b.width);
+    for (const b of awardsLit) (b.object.material as LineMaterial).linewidth = px(b.width) * LIT_WIDTH;
   };
 
   const dress = (id: string, on: boolean) => {
     const i = slot.get(id);
-    if (i === undefined || !data) return;
-    const n = data.nodes[i];
-    sprites[i].material = (on ? lit : rest)[shapeOf(n)][kindOf(n)];
+    if (i === undefined) return;
+    sprites[i].material = on ? lookOf[i].lit : lookOf[i].rest;
   };
 
   const shown = (l: L) => !hidden.has(l.source.id) && !hidden.has(l.target.id);
@@ -423,7 +614,7 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
   const relight = (force = false) => {
     if (!data) return;
     const fid = hover ?? selected;
-    const key = fid ? `n:${fid}` : matches ? `q:${query}` : "";
+    const key = fid ? `n:${fid}:${!!selected}` : matches ? `q:${query}` : "";
     if (key === focusKey && !force) return;
     focusKey = key;
     dirty = true;
@@ -438,10 +629,11 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
     const edges = fid
       ? (data.linksOf.get(fid) ?? []).filter(shown)
       : data.links.filter((l) => shown(l) && (matches!.has(l.source.id) || matches!.has(l.target.id)));
-    load(inkLit, edges.filter((l) => l.kind !== "award"));
+    load(quietLit, edges.filter((l) => l.kind !== "award"));
     const won = edges.filter((l) => l.kind === "award");
-    awardsLit.forEach((b, w) => load(b, won.filter((l) => widthOf(l) === w)));
-    dimGoal = 1;
+    awardsLit.forEach((b, i) => load(b, won.filter((l) => bandOf(l) === i)));
+    // a hover with nothing selected is a preview: the same fade, not as deep
+    dimGoal = fid && fid === hover && !selected ? HOVER_DIM : 1;
   };
 
   /** Drop the focus at once, without the fade. */
@@ -458,18 +650,22 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
   const refilter = () => {
     if (!data) return;
     liveTags = new Set();
+    named7 = new Set();
     data.nodes.forEach((n, i) => {
       const on = !hidden.has(n.id);
       sprites[i].visible = on;
-      if (on && !n.org && n.tag) liveTags.add(n.tag);
+      if (!on) return;
+      if (n.kind === "company" && n.tag) liveTags.add(n.tag);
+      // nodes are in order of dollars
+      if (n.kind === "company" && named7.size < TOP_COMPANIES) named7.add(n.id);
     });
     const edges = data.links.filter(shown);
     edgeCount = edges.length;
-    load(ink, edges.filter((l) => l.kind !== "award"));
+    load(quiet, edges.filter((l) => l.kind !== "award"));
     // largest first: when detail is dropped, the edges that go are the small ones
     const won = edges.filter((l) => l.kind === "award").sort((a, b) => b.amount - a.amount);
     load(awardsThin, won);
-    awards.forEach((b, w) => load(b, won.filter((l) => widthOf(l) === w)));
+    awards.forEach((b, i) => load(b, won.filter((l) => bandOf(l) === i)));
     matches = query ? new Set(data.nodes.filter((n) => !hidden.has(n.id) && n.nameLower.includes(query)).map((n) => n.id)) : null;
     if (hover && hidden.has(hover)) hover = null;
     if (!focusKey && litIds.size) unlight(); // a fade that was still finishing
@@ -529,44 +725,79 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
 
   // ---- Labels: HTML over the canvas ----
   //
-  // Names are set in the display serif, only for the largest nodes and for the
-  // node in focus and its neighbors. Each frame they are placed greedily by
-  // importance, and a name is shown only where it overlaps nothing already
-  // placed, the same rule as the flat view. The elements are pooled.
+  // Every agency and office is named, and the largest few companies; any
+  // other node is named while hovered or selected, as on the flat map. Each
+  // frame the names are placed in order of importance. A name tries eight
+  // spots around its mark (right, left, above, below, then the four
+  // diagonals; an agency tries below first, then right, left and above, the
+  // same order as the flat map's) and takes the first that overlaps no other
+  // mark, name or caption. A name with no free spot is not shown. The
+  // elements are pooled.
 
   const pool: Tag[] = Array.from({ length: MAX_LABELS }, () => {
     const el = document.createElement("div");
-    el.className = NAME_CLASS;
+    el.className = COMPANY_CLASS;
+    // the halo: a stroke of page color painted under the letters
+    el.style.setProperty("-webkit-text-stroke", "5px var(--bg)");
+    el.style.setProperty("paint-order", "stroke fill");
     layer.appendChild(el);
     return { el, key: "", x: NaN, y: NaN, alpha: 0, kind: 0, freeAt: 0, seen: -1 };
   });
   const named = new Map<string, Tag>();
   let stamp = 0;
   const meter = document.createElement("canvas").getContext("2d")!;
-  let fonts = { name: "500 17px Georgia", org: "12.5px sans-serif", region: "11px sans-serif" };
+  let fonts = { company: "400 16px Georgia", agency: "400 11.5px sans-serif", caption: "italic 400 13.5px Georgia" };
   let obstacles: number[] = [];
+  /** the chrome over the canvas (graphRoom.ts), and the rooms it leaves with
+   *  and without the side card, to tell when it has changed */
+  let chrome: Chrome[] = [];
+  let roomKey = "";
+  /** the camera is where the last fit put it: the reader has not moved it */
+  let fitted = false;
+  /** the camera is where the last focusOn put it, for this node */
+  let focusedOn: string | null = null;
+  /** The selection was made without moving the camera, because the node and
+   *  its neighbors were already in view clear of the card: the picture keeps
+   *  the room it had without the card, so the map does not slide. */
+  let steady = false;
   const placed: number[] = [];
+  // node rectangles on screen, bucketed in a grid of CELL pixels; the cells
+  // are kept and emptied each time, so placing names allocates almost nothing
+  const grid = new Map<number, number[]>();
 
   const readFonts = () => {
     const s = getComputedStyle(document.documentElement);
-    const sans = `${s.getPropertyValue("--font-inter").trim() || "system-ui"}, system-ui, sans-serif`;
+    const family = (v: string, fallback: string) => `${s.getPropertyValue(v).trim() || fallback}, ${fallback}`;
     fonts = {
-      name: `500 17px ${s.getPropertyValue("--font-cormorant").trim() || "Georgia"}, Georgia, serif`,
-      org: `12.5px ${sans}`,
-      region: `11px ${sans}`,
+      company: `400 16px ${family("--font-cormorant", "Georgia")}`,
+      agency: `400 11.5px ${family("--font-inter", "system-ui")}`,
+      caption: `italic 400 13.5px ${family("--font-garamond", "Georgia")}`,
     };
     for (const n of data?.nodes ?? []) n.labelWidth = 0;
     dirty = true;
   };
 
-  /** Rail and panel rectangles, so labels are never drawn underneath them. */
+  /** The chrome over the canvas (the rail, the side card, the takeaway line,
+   *  the controls, the legend, the top bar), so names are never written under
+   *  it and the fit keeps the map clear of it. When the room it leaves
+   *  changes: a focus is checked against the card as it really is, or, with
+   *  nothing selected and the camera where the last fit put it, the graph is
+   *  fitted again. A selection made in place leaves the map where it is. */
   const measure = () => {
     if (!alive) return;
+    chrome = readChrome(root, canvas);
     obstacles = [];
-    const base = canvas.getBoundingClientRect();
-    for (const el of root.querySelectorAll<HTMLElement>("[data-obstacle]")) {
-      const r = el.getBoundingClientRect();
-      obstacles.push(r.left - base.left - 6, r.top - base.top - 6, r.right - base.left + 6, r.bottom - base.top + 6);
+    for (const c of chrome) obstacles.push(c.x0 - 6, c.y0 - 6, c.x1 + 6, c.y1 + 6);
+    const key = JSON.stringify([roomFor(chrome, W, H, false), roomFor(chrome, W, H, true)]);
+    if (key !== roomKey) {
+      roomKey = key;
+      if (focusedOn && selected === focusedOn) {
+        // checked once the camera has arrived, against where it ends up
+        if (flight) {
+          roomKey = "";
+          window.setTimeout(measure, 200);
+        } else focusOn(focusedOn);
+      } else if (fitted && !selected) fit(false);
     }
     dirty = true;
     wake();
@@ -578,20 +809,60 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
     measureTimers = [window.setTimeout(measure, 60), window.setTimeout(measure, 520)];
   };
 
-  const place = (x0: number, y0: number, x1: number, y1: number) => {
+  /** Index every mark on screen by the grid cells its square touches. */
+  const gridMarks = () => {
+    for (const cell of grid.values()) cell.length = 0;
+    for (let i = 0; i < pw.length; i++) {
+      if (!pw[i]) continue;
+      const r = Math.max(pr[i], 1.5);
+      // only the cells on screen: a mark right in front of the camera may be huge
+      const gx0 = Math.max(-1, Math.floor((px[i] - r) / CELL));
+      const gx1 = Math.min(Math.ceil(W / CELL), Math.floor((px[i] + r) / CELL));
+      const gy0 = Math.max(-1, Math.floor((py[i] - r) / CELL));
+      const gy1 = Math.min(Math.ceil(H / CELL), Math.floor((py[i] + r) / CELL));
+      for (let gx = gx0; gx <= gx1; gx++) {
+        for (let gy = gy0; gy <= gy1; gy++) {
+          const k = gx * 65536 + gy;
+          const cell = grid.get(k);
+          if (cell) cell.push(i);
+          else grid.set(k, [i]);
+        }
+      }
+    }
+  };
+
+  /** Whether a rectangle on screen touches any mark but `self`'s. With
+   *  `litOnly`, the faded marks of a selection's background do not count. */
+  const onMark = (x0: number, y0: number, x1: number, y1: number, self: number, litOnly: boolean) => {
+    for (let gx = Math.floor(x0 / CELL); gx <= Math.floor(x1 / CELL); gx++) {
+      for (let gy = Math.floor(y0 / CELL); gy <= Math.floor(y1 / CELL); gy++) {
+        for (const i of grid.get(gx * 65536 + gy) ?? []) {
+          if (i === self || (litOnly && !litIds.has(data!.nodes[i].id))) continue;
+          // the nearest point of the rectangle to the mark's center
+          const nx = Math.max(x0, Math.min(px[i], x1));
+          const ny = Math.max(y0, Math.min(py[i], y1));
+          const r = Math.max(pr[i], 1.5);
+          if ((nx - px[i]) ** 2 + (ny - py[i]) ** 2 < r * r) return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  /** Whether a rectangle is clear of the edge of the view, the chrome and
+   *  every name placed so far. */
+  const free = (x0: number, y0: number, x1: number, y1: number) => {
     // labels keep a margin from the edge of the view
-    const edge = 16;
+    const edge = 8;
     if (x0 < edge || y0 < edge || x1 > W - edge || y1 > H - edge) return false;
     for (let i = 0; i < obstacles.length; i += 4)
       if (x0 < obstacles[i + 2] && x1 > obstacles[i] && y0 < obstacles[i + 3] && y1 > obstacles[i + 1]) return false;
     for (let i = 0; i < placed.length; i += 4)
       if (x0 < placed[i + 2] && x1 > placed[i] && y0 < placed[i + 3] && y1 > placed[i + 1]) return false;
-    placed.push(x0, y0, x1, y1);
     return true;
   };
 
-  /** Show a label this frame at (x, y), its top-left corner. kind: 0 company,
-   *  1 the node in focus, 2 category, 3 agency or office. */
+  /** Show a label this frame with its top-left corner at (x, y). */
   const show = (key: string, text: string, x: number, y: number, alpha: number, kind: number, now: number) => {
     let t = named.get(key);
     if (!t) {
@@ -606,7 +877,7 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
     }
     if (t.kind !== kind) {
       t.kind = kind;
-      t.el.className = kind === 2 ? REGION_CLASS : kind === 3 ? ORG_CLASS : kind === 4 ? ORG_LIT_CLASS : NAME_CLASS;
+      t.el.className = kind === 2 ? CAPTION_CLASS : kind === 1 ? AGENCY_CLASS : COMPANY_CLASS;
     }
     x = Math.round(x * 2) / 2;
     y = Math.round(y * 2) / 2;
@@ -632,69 +903,94 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
       const around = fid ? data.near.get(fid) : null;
       const focused = !!fid || !!matches;
       const isLit = (n: N) => (fid ? n.id === fid || !!around?.has(n.id) : matches ? matches.has(n.id) : true);
-      const faded = 1 - (1 - FADED) * dim;
+      const faded = (lit: number, low: number) => lit + (low - lit) * dim;
       // distant names fade with their nodes, though never as far
-      const haze = (w: number) => 1 - 0.55 * (1 - Math.exp(-((fog.density * w) ** 2)));
+      const haze = (w: number) => 1 - 0.55 * Math.max(0, Math.min(1, (w - fog.near) / Math.max(fog.far - fog.near, 1)));
+      gridMarks();
 
-      // The hovered and the selected node are always named, wherever there is
-      // room beside them: they are placed before anything else can be in the way.
       let budget = MAX_LABELS - 14;
+      /** Name node i if one of its spots is free (or, when `forced`, at the
+       *  first spot regardless). */
       const name = (i: number, forced: boolean, alpha: number) => {
         if (budget <= 0) return;
         const n = nodes[i];
-        // a company in the display serif, anything else in the interface face
-        const plain = n.org || n.kind === "opportunity";
-        meter.font = plain ? fonts.org : fonts.name;
-        const tall = plain ? 15 : 18;
-        const text = truncate(n.name, forced ? 60 : 34);
-        if (!n.labelWidth) n.labelWidth = meter.measureText(truncate(n.name, 34)).width;
+        const company = n.kind === "company";
+        meter.font = company ? fonts.company : fonts.agency;
+        const h = company ? LABEL_SIZE.company : LABEL_SIZE.agency;
+        const text = truncate(n.display, forced ? 60 : 34);
+        if (!n.labelWidth) n.labelWidth = meter.measureText(truncate(n.display, 34)).width;
         const w = forced ? meter.measureText(text).width : n.labelWidth;
-        const r = Math.max(2.5, pr[i]);
-        // A company's name sits beside its dot (right, left, below, above); an
-        // agency's sits under its ring (below, above, right, left). The first
-        // spot that is free.
-        const side = (dir: number): [number, number] => [px[i] + dir * (r + 9 + w / 2), py[i] - tall / 2];
-        const spots: [number, number][] = n.org
-          ? [[px[i], py[i] + r + 6], [px[i], py[i] - r - tall - 5], side(1), side(-1)]
-          : [side(1), side(-1), [px[i], py[i] + r + 6], [px[i], py[i] - r - tall - 5]];
-        const spot = spots.find(([x, y]) => place(x - w / 2 - 4, y - 1, x + w / 2 + 4, y + tall));
+        const r = Math.max(2, pr[i]);
+        const x = px[i];
+        const y = py[i];
+        // the selected node's ring sits five pixels out: its name clears it
+        const g = LABEL_GAP + (n.id === selected ? 5 : 0);
+        const litOnly = dim > 0.5 && litIds.has(n.id);
+        const d = (r + g) * 0.72; // the diagonals sit off the mark's corner
+        const right: [number, number] = [x + r + g, y - h / 2];
+        const left: [number, number] = [x - r - g - w, y - h / 2];
+        const above: [number, number] = [x - w / 2, y - r - g / 2 - h];
+        const below: [number, number] = [x - w / 2, y + r + g / 2];
+        const corners: [number, number][] = [
+          [x + d, y - d - h],
+          [x - d - w, y - d - h],
+          [x + d, y + d],
+          [x - d - w, y + d],
+        ];
+        const spots = n.org ? [below, right, left, above, ...corners] : [right, left, above, below, ...corners];
+        let spot = spots.find(([sx, sy]) => free(sx - 2, sy - 1, sx + w + 2, sy + h + 1) && !onMark(sx - 2, sy, sx + w + 2, sy + h, i, litOnly));
+        if (!spot && forced) spot = spots[0];
         if (!spot) return;
+        placed.push(spot[0] - 2, spot[1] - 1, spot[0] + w + 2, spot[1] + h + 1);
         budget--;
-        const kind = plain ? (forced || alpha >= 1 ? 4 : 3) : forced ? 1 : 0;
-        show(`${forced ? "f" : "n"}:${n.id}`, text, spot[0] - w / 2, spot[1], alpha, kind, now);
+        show(`${forced ? "f" : "n"}:${n.id}`, text, spot[0], spot[1], alpha, company ? 0 : 1, now);
       };
+
+      // The hovered and the selected node are always named: they are placed
+      // before anything else can be in the way.
       for (const id of hover === selected ? [selected] : [hover, selected]) {
         const i = id ? slot.get(id) : undefined;
         if (i !== undefined && pw[i]) name(i, true, 1);
       }
 
-      // marks are obstacles too: no other name sits on top of a node
-      for (let i = 0; i < nodes.length; i++) {
-        if (!pw[i] || pr[i] < 3.5) continue;
-        placed.push(px[i] - pr[i], py[i] - pr[i], px[i] + pr[i], py[i] + pr[i]);
-      }
-
-      // category names next, above their constellations
-      meter.font = fonts.region;
+      // Captions next, over the top of their clusters.
+      meter.font = fonts.caption;
       const e = pv.elements;
+      const captionAlpha = faded(CAPTION_ALPHA, CAPTION_FADED);
       for (const g of data.regions) {
-        if (g.n < 2 || (tags.size && !tags.has(g.tag)) || !liveTags.has(g.tag)) continue;
-        const w = e[3] * g.x + e[7] * g.y + e[11] * g.z + e[15];
+        if ((tags.size && !tags.has(g.tag)) || !liveTags.has(g.tag)) continue;
+        const w = e[3] * g.x + e[7] * g.top + e[11] * g.z + e[15];
         if (w < camera.near) continue;
-        const x = (((e[0] * g.x + e[4] * g.y + e[8] * g.z + e[12]) / w) * 0.5 + 0.5) * W;
-        const y = (0.5 - ((e[1] * g.x + e[5] * g.y + e[9] * g.z + e[13]) / w) * 0.5) * H - (g.radius * perUnit) / w - 22;
-        const text = tagLabel(g.tag);
-        const width = meter.measureText(text).width;
-        if (!place(x - width / 2 - 6, y - 3, x + width / 2 + 6, y + 15)) continue;
-        show(`g:${g.tag}`, text, x - width / 2, y, (0.8 - 0.45 * dim) * haze(w), 2, now);
+        const x = (((e[0] * g.x + e[4] * g.top + e[8] * g.z + e[12]) / w) * 0.5 + 0.5) * W;
+        const base = (0.5 - ((e[1] * g.x + e[5] * g.top + e[9] * g.z + e[13]) / w) * 0.5) * H - (CAPTION_RISE * perUnit) / w;
+        const width = meter.measureText(g.label).width;
+        // over the cluster, else a line or two higher, as on the flat map
+        const line = LABEL_SIZE.caption + 2;
+        const top = base - LABEL_SIZE.caption * BASELINE;
+        const y = [top, top - line, top - 2 * line].find((y) =>
+          free(x - width / 2 - 2, y - 1, x + width / 2 + 2, y + LABEL_SIZE.caption + 1),
+        );
+        if (y === undefined) continue;
+        placed.push(x - width / 2 - 2, y - 1, x + width / 2 + 2, y + LABEL_SIZE.caption + 1);
+        show(`g:${g.tag}`, g.label, x - width / 2, y, captionAlpha * haze(w), 2, now);
       }
 
-      // nodes are in order of dollars, so the largest claim their space first
-      for (let i = 0; i < nodes.length; i++) {
-        const n = nodes[i];
-        if (!pw[i] || n.id === hover || n.id === selected || n.kind === "opportunity") continue;
-        if (focused && isLit(n)) name(i, false, 1);
-        else if (n.rank < 12 || pr[i] >= 10) name(i, false, (focused ? Math.max(faded, 0.45) : 0.98) * haze(pw[i]));
+      // Then the names shown at rest: the lit ones first while something is
+      // in focus, then the faded rest. Nodes are in order of dollars, so the
+      // largest claim their space first.
+      const always = (n: N) => n.org || named7.has(n.id);
+      const passes: ((n: N) => boolean)[] = focused
+        ? [(n) => always(n) && isLit(n), (n) => always(n) && !isLit(n)]
+        : [always];
+      for (const pass of passes) {
+        for (let i = 0; i < nodes.length; i++) {
+          const n = nodes[i];
+          if (!pw[i] || n.id === hover || n.id === selected || !pass(n)) continue;
+          const lit = !focused || isLit(n);
+          const rest = n.kind === "company" ? 1 : AGENCY_ALPHA;
+          const alpha = lit ? rest : faded(rest, n.kind === "company" ? NAME_FADED : FADED);
+          name(i, false, alpha * haze(pw[i]));
+        }
       }
     }
     for (const [key, t] of named) {
@@ -709,19 +1005,25 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
 
   // ---- Camera moves ----
 
-  const wide = () => W > 900;
-  /** The part of the canvas not covered by the rail, nav or panel. */
-  const room = (panel = !!selected) =>
-    wide()
-      ? { l: 304, t: 76, r: panel ? 356 : 48, b: 64 }
-      : { l: 24, t: 170, r: 24, b: panel ? Math.min(H * 0.5, 380) : 30 };
+  /** The side card stands at the right (from 768px), not across the bottom. */
+  const wide = () => W >= 768;
+  /** The card's room counts while something is selected, unless it was
+   *  selected in place (`steady`). */
+  const panelOpen = () => !!selected && !steady;
+  /** The part of the canvas the map is fitted into (graphRoom.ts, shared with
+   *  the flat view): clear of the rail, the top bar, the takeaway line, the
+   *  controls and the legend, and of the side card with `panel`, by 48px. */
+  const room = (panel = panelOpen()) => roomFor(chrome, W, H, panel);
 
   // The picture is shifted so the middle of the scene sits in the middle of
   // that room, not under the rail. The shift eases when the panel opens.
   const shift = { x: 0, y: 0 };
   let shifted = false; // the shift has been applied to the camera at this size
+  /** whether the picture is shifted for the card's room, as last drawn */
+  let shownPanel = false;
   const shiftGoal = () => {
-    const p = room();
+    shownPanel = panelOpen();
+    const p = room(shownPanel);
     return { x: p.l + (W - p.l - p.r) / 2 - W / 2, y: p.t + (H - p.t - p.b) / 2 - H / 2 };
   };
 
@@ -734,10 +1036,95 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
   };
 
   /** How far back the camera must be for a sphere of this radius to fit the room. */
-  const distanceFor = (radius: number, panel = !!selected) => {
+  const distanceFor = (radius: number, panel = panelOpen()) => {
     const p = room(panel);
     const half = Math.tan((FOV * Math.PI) / 360) * Math.max(0.25, Math.min(W - p.l - p.r, H - p.t - p.b) / Math.max(H, 1));
     return radius / Math.sin(Math.atan(half));
+  };
+
+  const center = () => (data ? new Vector3(data.center.x, data.center.y, data.center.z) : new Vector3());
+
+  /** How far back along `dir` (from the center toward the camera) the camera
+   *  must be for every shown mark and caption to fit the room. The map is
+   *  much wider than it is deep, so this fits it far more snugly than the
+   *  sphere around it would. */
+  const fitDistance = (dir: Vector3, panel = panelOpen()) => {
+    if (!data || !W || !H) return 1000;
+    const p = room(panel);
+    const perPx = Math.tan((FOV * Math.PI) / 360) / (H / 2); // tangent of the view angle per pixel
+    const hw = Math.max(40, (W - p.l - p.r) / 2);
+    const hh = Math.max(40, (H - p.t - p.b) / 2);
+    const back = dir.clone().normalize();
+    const right = new Vector3(0, 1, 0).cross(back).normalize();
+    const up = new Vector3().crossVectors(back, right);
+    const c = center();
+    const rel = new Vector3();
+    let d = 0;
+    /** A point that must fit, reaching `ax` and `ay` world units to either
+     *  side of it and a further fixed number of pixels left, right, up and
+     *  down (names and captions keep their size at any distance). A side
+     *  `lat` world units out fits at distance d when lat / (d - toward) is
+     *  within the room's half less those pixels. */
+    const need = (x: number, y: number, z: number, ax: number, ay: number, el: number, er: number, eu: number, ed: number) => {
+      rel.set(x - c.x, y - c.y, z - c.z);
+      const t = rel.dot(back);
+      const lx = rel.dot(right);
+      const ly = rel.dot(up);
+      const side = (lat: number, e: number, half: number) => {
+        d = Math.max(d, t + lat / (Math.max(10, half - e) * perPx));
+      };
+      side(lx + ax, er, hw);
+      side(ax - lx, el, hw);
+      side(ly + ay, eu, hh);
+      side(ay - ly, ed, hh);
+    };
+    for (const n of data.nodes) {
+      if (hidden.has(n.id)) continue;
+      need(n.x, n.y, n.z, n.r, n.r, 0, 0, 0, 0);
+      if (!n.org && !named7.has(n.id)) continue;
+      // a name written at rest, in the first spot it tries (label())
+      const company = n.kind === "company";
+      meter.font = company ? fonts.company : fonts.agency;
+      if (!n.labelWidth) n.labelWidth = meter.measureText(truncate(n.display, 34)).width;
+      const w = n.labelWidth;
+      const h = company ? LABEL_SIZE.company : LABEL_SIZE.agency;
+      if (company) need(n.x, n.y, n.z, n.r, 0, 0, LABEL_GAP + w + 2, h / 2, h / 2);
+      else need(n.x, n.y, n.z, 0, n.r, w / 2 + 2, w / 2 + 2, 0, LABEL_GAP / 2 + h + 1);
+    }
+    meter.font = fonts.caption;
+    for (const g of data.regions) {
+      if (!liveTags.has(g.tag) || (tags.size && !tags.has(g.tag))) continue;
+      const half = meter.measureText(g.label).width / 2 + 2;
+      need(g.x, g.top + CAPTION_RISE, g.z, 0, 0, half, half, LABEL_SIZE.caption + 1, 0);
+    }
+    return Math.max(d, 200);
+  };
+
+  /** How far, in screen pixels, the picture must pan for a node and its
+   *  shown neighbors to sit inside the room with the side card (allowed half
+   *  its padding, except along the card), as the camera sees them now: {0, 0}
+   *  when they already do, null when they are not all on screen or would not
+   *  fit at this distance, and the camera must fly. */
+  const panFor = (id: string): { dx: number; dy: number } | null => {
+    const i = slot.get(id);
+    if (!data || i === undefined || !pw[i] || flight) return null;
+    const p = room(true);
+    const open = room(false);
+    const slack = fitPad(W) / 2;
+    for (const side of ["l", "r", "t", "b"] as const) if (p[side] <= open[side]) p[side] -= slack;
+    let x0 = px[i] - pr[i], x1 = px[i] + pr[i], y0 = py[i] - pr[i], y1 = py[i] + pr[i];
+    for (const o of data.near.get(id) ?? []) {
+      if (hidden.has(o)) continue;
+      const j = slot.get(o);
+      if (j === undefined || !pw[j]) return null;
+      x0 = Math.min(x0, px[j] - pr[j]);
+      x1 = Math.max(x1, px[j] + pr[j]);
+      y0 = Math.min(y0, py[j] - pr[j]);
+      y1 = Math.max(y1, py[j] + pr[j]);
+    }
+    if (x1 - x0 > W - p.l - p.r || y1 - y0 > H - p.t - p.b) return null;
+    const shove = (lo: number, hi: number, from: number, to: number) => (lo < from ? from - lo : hi > to ? to - hi : 0);
+    return { dx: shove(x0, x1, p.l, W - p.r), dy: shove(y0, y1, p.t, H - p.b) };
   };
 
   let flight: Flight | null = null;
@@ -769,13 +1156,14 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
 
   const fit = (animate: boolean) => {
     if (!data || !W) return;
-    // the first view of a graph is from a little above and to one side; after
-    // that, fitting keeps the direction the reader has chosen
-    if (homed) v2.subVectors(camera.position, controls.target);
-    else v2.set(0.42, 0.3, 1);
+    // the first view of a graph is from the front, a little above and to one
+    // side; after that, fitting keeps the direction the reader has chosen
+    const dir = homed ? new Vector3().subVectors(camera.position, controls.target) : HOME.clone();
     homed = true;
-    // a little inside the sphere that holds every node: only its outermost node touches the edge of the room
-    flyTo(new Vector3(0, 0, 0), v2, distanceFor(data.radius) * 0.94, animate);
+    steady = false;
+    flyTo(center(), dir, fitDistance(dir), animate);
+    fitted = true;
+    focusedOn = null;
   };
 
   /** Fly to a node, ending far enough back that its neighbors are in view. */
@@ -784,18 +1172,41 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
     if (!data || !n || !W) return;
     selected = id; // the room is narrower with the panel open
     relight();
-    // Mostly from where the camera already is, leaning toward the outside of
-    // the graph, so the node is in front and what it connects to lies behind it.
+    focusedOn = id;
+    // Already in view, clear of the card: only the focus changes. Nearly so:
+    // the camera pans sideways by as little as brings it clear, at the
+    // distance it has. Either way the picture keeps the room it is drawn
+    // for, so nothing else slides.
+    const pan = panFor(id);
+    if (pan) {
+      steady = !shownPanel;
+      dirty = true;
+      if (Math.abs(pan.dx) >= 1 || Math.abs(pan.dy) >= 1) {
+        fitted = false;
+        const offset = v2.subVectors(camera.position, controls.target);
+        const back = offset.clone().normalize();
+        const right = new Vector3(0, 1, 0).cross(back).normalize();
+        const up = new Vector3().crossVectors(back, right);
+        // world units per pixel at the node's depth: the camera moves the
+        // other way from the way the picture must go
+        const i = slot.get(id)!;
+        const unit = pw[i] * (Math.tan((FOV * Math.PI) / 360) / (H / 2));
+        const target = controls.target.clone().addScaledVector(right, -pan.dx * unit).addScaledVector(up, pan.dy * unit);
+        flyTo(target, offset, offset.length(), true);
+      }
+      wake();
+      return;
+    }
+    steady = false;
+    fitted = false;
+    // From where the camera already is: the map stays the right way round.
     const direction = new Vector3().subVectors(camera.position, controls.target).normalize();
-    const out = Math.hypot(n.x, n.y, n.z);
-    const lean = Math.min(1, out / (data.radius * 0.5)) * 1.2;
-    if (out > 1) direction.addScaledVector(v2.set(n.x, n.y, n.z).divideScalar(out), lean).normalize();
     // Close enough to read the node, and never closer than its neighbors
     // allow: one far to the side needs distance, one straight behind needs none.
     // camera distance needed per unit of sideways reach (on a phone the panel
     // leaves too little room to promise the neighbors a place beside it)
     const spread = distanceFor(1, wide());
-    let distance = Math.max(220, Math.min(600, n.r * 22));
+    let distance = Math.max(260, Math.min(700, n.r * 24));
     for (const o of data.near.get(id) ?? []) {
       const q = data.byId.get(o);
       if (!q || hidden.has(o)) continue;
@@ -805,17 +1216,21 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
       distance = Math.max(distance, (aside + q.r + 24) * spread + toward);
     }
     // a hub with neighbors on every side is seen from no farther than the whole graph
-    distance = Math.min(distance, distanceFor(data.radius, wide()) * 1.03);
+    distance = Math.min(distance, fitDistance(direction, wide()) * 1.03);
     flyTo(new Vector3(n.x, n.y, n.z), direction, distance, true);
   };
 
   const zoom = (factor: number) => {
+    fitted = false;
+    focusedOn = null;
     const offset = v2.subVectors(camera.position, controls.target);
     flyTo(controls.target.clone(), offset, offset.length() / factor, true, 260);
   };
 
   /** Orbit by a step, for the arrow keys. */
   const turnBy = (theta: number, phi: number) => {
+    fitted = false;
+    focusedOn = null;
     sph.setFromVector3(v1.subVectors(camera.position, controls.target));
     sph.theta += theta;
     sph.phi += phi;
@@ -857,7 +1272,7 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
       tip.textContent =
         n.kind === "opportunity"
           ? `${n.open ? "Open" : "Closed"} solicitation · posted ${day(n.posted, true)}`
-          : `${money(n.total)} · ${plural(n.awards, "award")}`;
+          : `${money(n.org ? n.paid : n.total)} · ${plural(n.awards, "award")}`;
       tip.style.transform = `translate(${Math.min(at.x + 16, W - 240)}px, ${Math.max(8, at.y - 34)}px)`;
     }
     tip.style.opacity = n ? "1" : "0";
@@ -973,6 +1388,8 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
   };
   const onWheel = () => {
     flight = null;
+    fitted = false;
+    focusedOn = null;
     wake();
   };
   const onKey = (e: KeyboardEvent) => {
@@ -995,6 +1412,8 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
   /** The reader took hold of the camera: a flight in progress gives way. */
   const onGrab = () => {
     flight = null;
+    fitted = false;
+    focusedOn = null;
     wake();
   };
 
@@ -1098,12 +1517,15 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
       dirty = true;
     }
     if (!dim && !focusKey && litIds.size) unlight();
-    inkLit.object.visible = dim > 0.01 && inkLit.links.length > 0;
+    quietLit.object.visible = dim > 0.01 && quietLit.links.length > 0;
     for (const b of awardsLit) b.object.visible = dim > 0.01 && b.links.length > 0;
 
-    // 4. Atmosphere: the far side of the graph is always a little lost in the page.
-    const away = camera.position.length();
-    fog.density = 0.6 / (away + data.radius);
+    // 4. Atmosphere: fog from just in front of the graph's middle to well
+    //    behind its far side. Seen from the front the map is all about as far
+    //    away and barely touched; turned, its far side fades into the page.
+    const away = camera.position.distanceTo(v1.set(data.center.x, data.center.y, data.center.z));
+    fog.near = Math.max(1, away - data.radius * 0.35);
+    fog.far = away + data.radius * 2;
 
     // 5. Has the view changed? Screen positions and labels follow it.
     pv.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
@@ -1114,11 +1536,13 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
     }
     perUnit = 0.5 * H * camera.projectionMatrix.elements[5];
     if (turned) busy = true;
+    // edge widths follow the zoom at the point the camera looks at
+    const reachOut = Math.max(camera.position.distanceTo(controls.target), 1);
+    widen(perUnit / reachOut);
 
     // 6. Level of detail. While the camera rushes, or from far out, a crowded
     //    graph draws its award edges as plain lines and drops the other edges;
     //    all of it returns once the view settles.
-    const reachOut = Math.max(camera.position.distanceTo(controls.target), 1);
     const speed = was.distanceTo(camera.position) / reachOut / dt; // about radians a second
     was.copy(camera.position);
     const far = away > distanceFor(data.radius) * 1.3;
@@ -1126,10 +1550,10 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
     const rushing = now < calmAt;
     if (rushing) busy = true; // keep drawing until the detail is back
     light = edgeCount > HEAVY_EDGES && (far || rushing);
-    ink.object.visible = !light && ink.links.length > 0;
+    quiet.object.visible = !light && quiet.links.length > 0;
     for (const b of awards) b.object.visible = !light && b.links.length > 0;
     awardsThin.object.visible = light && awardsThin.links.length > 0;
-    (awardsThin.object.geometry as BufferGeometry).setDrawRange(0, Math.min(awardsThin.links.length, LIGHT_EDGES) * 2);
+    (awardsThin.object.geometry as BufferGeometry).setDrawRange(0, Math.min(awardsThin.links.length, LIGHT_EDGES) * seg * 2);
 
     // 7. Screen positions, the hover under a still pointer, labels and rings.
     if (turned || moved || dirty) {
@@ -1190,6 +1614,7 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
   const clearScene = () => {
     for (const s of sprites) nodesGroup.remove(s);
     sprites = [];
+    lookOf = [];
     slot = new Map();
     for (const b of batches) {
       b.links = [];
@@ -1210,8 +1635,9 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
       clearScene();
       data = next;
       if (!next) return;
+      lookOf = next.nodes.map((n) => lookFor(markOf(n)));
       next.nodes.forEach((n, i) => {
-        const s = new Sprite(rest[shapeOf(n)][kindOf(n)]);
+        const s = new Sprite(lookOf[i].rest);
         s.scale.set(n.r * 2, n.r * 2, 1);
         s.position.set(n.x, n.y, n.z);
         s.matrixAutoUpdate = false; // it only moves when dragged
@@ -1219,11 +1645,25 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
         sprites.push(s);
         slot.set(n.id, i);
       });
-      // Added grouped by material (solicitations last), so a frame changes
-      // material a handful of times, not once per node.
-      const order = next.nodes.map((n, i) => ({ i, key: kindOf(n) * SHAPES.length + shapeOf(n) }));
-      order.sort((a, b) => a.key - b.key);
-      for (const o of order) nodesGroup.add(sprites[o.i]);
+      // Added grouped by mark, solid ones first and open outlines last, so a
+      // frame changes material a handful of times, not once per node.
+      const order = next.nodes.map((_, i) => i);
+      const rank = (i: number) => `${lookOf[i].mark.solid ? 0 : 1}:${lookOf[i].mark.key}`;
+      order.sort((a, b) => (rank(a) < rank(b) ? -1 : rank(a) > rank(b) ? 1 : 0));
+      for (const i of order) nodesGroup.add(sprites[i]);
+
+      // Each money band's width and opacity: the average of the edges in it.
+      const won = next.links.filter((l) => l.kind === "award");
+      seg = next.links.length > 2500 ? SEGMENTS_MANY : next.links.length > 800 ? SEGMENTS_SOME : SEGMENTS;
+      for (let i = 0; i < BANDS; i++) {
+        const mine = won.filter((l) => bandOf(l) === i);
+        const mid = EDGE_ALPHA_MIN + ((i + 0.5) / BANDS) * (EDGE_ALPHA_MAX - EDGE_ALPHA_MIN);
+        bandAlpha[i] = mine.length ? mine.reduce((s, l) => s + l.alpha, 0) / mine.length : mid;
+        const width = mine.length ? mine.reduce((s, l) => s + l.width, 0) / mine.length : 1;
+        awards[i].width = awardsLit[i].width = width;
+      }
+      lineScale = 0;
+
       px = new Float32Array(next.nodes.length);
       py = new Float32Array(next.nodes.length);
       pr = new Float32Array(next.nodes.length);
@@ -1266,20 +1706,20 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
     retheme() {
       palette = readPalette();
       fog.color.set(palette.bg);
-      for (const b of [ink, inkLit]) (b.object.material as LineDashedMaterial).color.set(palette.text);
+      for (const b of [quiet, quietLit]) (b.object.material as LineDashedMaterial).color.set(palette.text);
       (awardsThin.object.material as LineBasicMaterial).color.set(palette.accent);
       for (const b of [...awards, ...awardsLit]) (b.object.material as LineMaterial).color.set(palette.accent);
-      ringMaterial.color.set(palette.text);
-      // The marks are drawn in the palette's colors: draw them again.
-      const old = textures;
-      textures = drawMarks();
-      textures.forEach((t, m) => {
-        for (const mat of [...rest[m], ...lit[m]]) {
-          mat.map = t;
-          mat.needsUpdate = true;
+      for (const m of ringMaterials) m.color.set(palette.text);
+      // The marks are painted in the palette's colors: paint them again.
+      for (const look of looks.values()) {
+        const old = look.texture;
+        look.texture = paintTexture(look.mark);
+        for (const m of [look.rest, look.lit]) {
+          m.map = look.texture;
+          m.needsUpdate = true;
         }
-      });
-      for (const t of old) t.dispose();
+        old.dispose();
+      }
       tone();
       wake();
     },
@@ -1321,9 +1761,13 @@ export function createStage({ host, wrap, labels: layer, tip, onSelect }: StageO
         (b.object.material as LineBasicMaterial | LineMaterial).dispose();
       }
       ringGeometry.dispose();
-      ringMaterial.dispose();
-      for (const m of [...rest.flat(), ...lit.flat()]) m.dispose();
-      for (const t of textures) t.dispose();
+      for (const m of ringMaterials) m.dispose();
+      for (const look of looks.values()) {
+        look.rest.dispose();
+        look.lit.dispose();
+        look.texture.dispose();
+      }
+      looks.clear();
       layer.replaceChildren();
       tip.style.opacity = "0";
     },

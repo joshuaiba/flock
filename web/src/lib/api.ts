@@ -32,7 +32,12 @@ export type NodeKind = OrgKind | "opportunity";
 export type GraphNode = {
   id: string; // "org:12" | "opp:5"
   kind: NodeKind;
+  /** the full legal name for an organization; the title for a solicitation */
   name: string;
+  /** a short label for the graph ("AeroVironment", "Army"), set on companies,
+   * agencies and offices; absent from solicitations and from older APIs, so
+   * fall back to `name` */
+  display_name?: string | null;
   total: number;
   awards: number;
   tags: string[];
@@ -60,6 +65,8 @@ export type Graph = {
   /** the day of the newest award on record, and how many days ago that was */
   latest?: string | null;
   age?: number | null;
+  /** the database holds the synthetic seed data; absent from older APIs */
+  sample?: boolean;
   nodes: GraphNode[];
   edges: GraphEdge[];
 };

@@ -3,25 +3,33 @@
 import { useEffect, useRef } from "react";
 import type { Graph } from "@/lib/api";
 import { day, money, plural, truncate } from "@/lib/format";
-import { layoutGraph, type N, type Scene } from "@/lib/graphLayout";
+import { BEND, CAPTION_RISE, EDGE_ALPHA_MIN, layoutGraph, type N, type Scene } from "@/lib/graphLayout";
 import { readPalette } from "@/lib/paint";
 import { useStore } from "@/lib/store";
-import { tagLabel } from "@/lib/tags";
 import { NO_API, type GraphViewProps } from "./GraphView";
+import { drawMark, haloText, mix, type MarkLook } from "./graphFlatDraw";
+import { fitPad, readChrome, roomFor, type Chrome } from "./graphRoom";
 
-// The flat view of the graph. Nodes are plain marks in the text color, drawn
-// on one canvas: a filled dot sized on a sqrt scale of dollars for a company,
-// a ring for an agency or office, a small diamond for a solicitation. Award
-// edges are lines in the accent (the one color, and it means dollars awarded),
-// weight by amount; every other edge is a faint dotted line in the text color.
-// The ground is the plain page.
+// The flat view of the graph, drawn on one canvas. Companies gather in
+// category clusters, sized by the dollars they were awarded; agencies and
+// offices are rings among them, sized by the dollars they paid out; every
+// award between one agency and one company is one curved edge in the accent
+// (the one color, and it means dollars awarded), its weight and strength
+// following the money. The edges that carry no money are faint dotted curves
+// in the text color. How each kind of node looks is decided in
+// graphFlatDraw.ts, one function per kind; this file decides where things go.
 //
 // The layout is computed once (lib/graphLayout.ts) and never moves on its own.
 // Nothing here animates by itself: the canvas redraws only while the reader
-// pans, zooms or drags, or while a short camera move answers a click. The
-// camera is smooth: inertial panning, zoom toward the cursor, eased moves when
-// focusing. Rendering culls to the viewport and draws each kind of mark as one
-// path, so large graphs stay fluid.
+// pans, zooms or drags, or while a short camera move or fade answers a click.
+// The camera is smooth: inertial panning, zoom toward the cursor, eased moves
+// when focusing. Rendering culls to the viewport and strokes edges in a few
+// batches by strength and width, so large graphs stay fluid.
+//
+// Few names are written: the seven companies with the most money and every
+// agency. Each name tries eight places around its mark and takes the first
+// that overlaps no other mark, name or caption; a name with no room, and every
+// other node's, appears on hover.
 //
 // What is shown is decided outside (GraphExplorer.tsx): this view is handed the
 // graph, the ids the filters hide, the selection and the search text, and
@@ -34,23 +42,38 @@ const MAX_K = 3.5;
 const MIN_R = 2; // the smallest a mark is drawn, in CSS pixels
 const MOVE_S = 0.4; // seconds a camera move takes
 
-// Mark opacity. Marks are opaque, so no edge shows through a dot; closed
-// solicitations are fainter than open ones.
-const MARK_ALPHA = 1;
-const CLOSED_ALPHA = 0.5;
-const FADED = 0.3; // what non-neighbors dim to while a node is hovered or selected
+// The room the map is fitted into (48px from the canvas edges and from every
+// piece of chrome, 24px on a phone) is worked out in graphRoom.ts, shared with
+// the 3D view.
 
-// Edge opacity at rest, before the crowding and hover adjustments.
-const OTHER_EDGE_ALPHA = 0.38;
-const AWARD_EDGE_ALPHA = 0.55;
-const OTHER_EDGE_WIDTH = 1;
-const DOTS = [1, 4]; // the dotted line of an edge that is not an award
+// Focus. A selected node lights itself and its neighbors and dims the rest of
+// the map fully; hovering previews the same, about halfway; a search dims what
+// does not match.
+const HOVER_DIM = 0.55;
+const SEARCH_DIM = 0.85;
 
-// Name labels: companies in the display serif, agencies and offices in the
-// interface face, categories smaller and quieter.
-const NAME_PX = 17;
-const ORG_PX = 12.5;
-const REGION_PX = 11;
+// Edges. At rest an award edge has its own strength and width (the layout's
+// `alpha` and `width`); the money edges of the node in focus rise to 85% at
+// 1.25x width, its dotted edges keep their 14% (as in the 3D view), and every
+// other edge drops to 3%.
+const FOCUS_EDGE_ALPHA = 0.85;
+const FOCUS_EDGE_WIDTH = 1.25;
+const FADED_EDGE_ALPHA = 0.03;
+const DOTS = [1.5, 3]; // the dotted line of an edge that is not an award
+/** Edges are batched by strength and width in steps this fine. */
+const ALPHA_STEP = 0.01;
+const WIDTH_STEP = 0.2;
+
+// Names: companies in the display serif, agencies and offices in the
+// interface face, category captions in the reading serif's italic, quieter.
+const NAME_PX = 16;
+const ORG_PX = 11.5;
+const CAPTION_PX = 13.5;
+const NAMED_COMPANIES = 7;
+/** a name's opacity at rest and fully dimmed */
+const NAME_ALPHA = [1, 0.22];
+const ORG_NAME_ALPHA = [0.85, 0.17];
+const CAPTION_ALPHA = [0.55, 0.25];
 
 const EMPTY: Scene = {
   nodes: [],
@@ -64,6 +87,32 @@ const EMPTY: Scene = {
 /** Layouts already computed, so switching between the two views is instant. */
 const laidOut = new WeakMap<Graph, Scene>();
 
+/** The eight places a name can go around its mark, in the order they are
+ *  tried: right, left, above, below, then the diagonals. An agency's name
+ *  tries under its ring first, where every hub's name sits in the mockups,
+ *  then right, left and above: a deliberate change to the spec's order,
+ *  shared with the 3D view (Graph3DStage.ts). Each is the
+ *  text's anchor, its alignment and its baseline. `r` is the mark's drawn
+ *  radius, `org` picks the agency metrics (the interface face is smaller). */
+function spots(x: number, y: number, r: number, org: boolean): [number, number, CanvasTextAlign][] {
+  const g = org ? 6 : 7; // the gap between a mark and a name beside it
+  const mid = org ? 4 : 5; // baseline offset that centers a name on the mark
+  const up = org ? 6 : 7;
+  const down = org ? 14 : 16;
+  const d = r * 0.7;
+  const right: [number, number, CanvasTextAlign] = [x + r + g, y + mid, "left"];
+  const left: [number, number, CanvasTextAlign] = [x - r - g, y + mid, "right"];
+  const above: [number, number, CanvasTextAlign] = [x, y - r - up, "center"];
+  const below: [number, number, CanvasTextAlign] = [x, y + r + down, "center"];
+  const diagonals: [number, number, CanvasTextAlign][] = [
+    [x + d + g - 2, y - d - 4, "left"],
+    [x - d - g + 2, y - d - 4, "right"],
+    [x + d + g - 2, y + d + down - 2, "left"],
+    [x - d - g + 2, y + d + down - 2, "right"],
+  ];
+  return org ? [below, right, left, above, ...diagonals] : [right, left, above, below, ...diagonals];
+}
+
 export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, onSelect, onReady }: GraphViewProps) {
   const { motion } = useStore();
 
@@ -76,6 +125,7 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
     invalidate: () => {},
     fit: (_animate: boolean) => {},
     refilter: () => {},
+    settle: () => {},
   });
   const out = useRef({ onSelect, onReady });
 
@@ -95,7 +145,15 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
     // the rail and the panel live in the explorer around this view
     const host = wrap.closest<HTMLElement>("[data-graph-root]") ?? wrap;
     let palette = readPalette();
-    let fonts = { name: `500 ${NAME_PX}px serif`, org: `${ORG_PX}px sans-serif`, region: `${REGION_PX}px sans-serif` };
+    let fonts = {
+      name: `400 ${NAME_PX}px serif`,
+      org: `400 ${ORG_PX}px sans-serif`,
+      caption: `italic 400 ${CAPTION_PX}px serif`,
+    };
+    /** measured name widths by node id, and caption widths by category, in
+     *  the current fonts */
+    const widths = new Map<string, number>();
+    const captionWidths = new Map<string, number>();
     let W = 0;
     let H = 0;
     let dpr = 1;
@@ -109,13 +167,23 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
     let tween: { from: View; to: View; t: number } | null = null;
     let fitK = 1;
     const vel = { x: 0, y: 0 };
+    /** false until the reader moves the camera: until then the graph refits
+     *  itself when the chrome around it or the window changes */
+    let touched = false;
+    /** the node the last focus was for, until the reader moves the camera:
+     *  once the side card has landed and been measured, the focus is checked
+     *  again against where it really is */
+    let focused: string | null = null;
 
     let hidden: ReadonlySet<string> = ui.current.hidden;
     let live = new Set<string>(); // categories that still have a member on the map
+    let named = new Set<string>(); // the companies whose names are always written
     let matches: Set<string> | null = null;
-    let dim = 0; // 0..1: how far non-neighbors have faded
+    let dim = 0; // 0..1: how far the nodes out of focus have faded
+    let fading: string | null = null; // the last node in focus, kept while its fade runs out
     let springs: Spring[] = [];
     let obstacles: number[] = [];
+    let chrome: Chrome[] = [];
     let pointer: null | {
       node: N | null;
       sx: number;
@@ -128,12 +196,17 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
       moved: boolean;
     } = null;
 
-    const wide = () => W > 900;
-    /** The part of the canvas not covered by the rail, nav or panel. */
-    const room = () =>
-      wide()
-        ? { l: 304, t: 76, r: ui.current.selected ? 356 : 48, b: 64 }
-        : { l: 24, t: 170, r: 24, b: 30 };
+    /** Rail, panel, takeaway, controls and top bar, in canvas pixels: names
+     *  are never written under them, and the fit keeps the graph clear of them. */
+    const measure = () => {
+      chrome = readChrome(host, canvas);
+      obstacles = [];
+      for (const c of chrome) obstacles.push(c.x0 - 6, c.y0 - 6, c.x1 + 6, c.y1 + 6);
+    };
+
+    /** The part of the canvas the graph is fitted into (graphRoom.ts). The
+     *  side card counts while something is selected. */
+    const room = (card = !!ui.current.selected) => roomFor(chrome, W, H, card);
 
     const clamp = (v: View): View => {
       const b = scene.current.bounds;
@@ -149,20 +222,11 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
     const sx = (n: { x: number }) => n.x * view.k + view.tx;
     const sy = (n: { y: number }) => n.y * view.k + view.ty;
     /** Marks grow with zoom, but more slowly than the space between them. */
-    const zs = () => Math.min(Math.pow(view.k, 0.7), view.k * 1.45);
+    const zsAt = (k: number) => Math.min(Math.pow(k, 0.7), k * 1.45);
+    const zs = () => zsAt(view.k);
 
     /** A node's drawn radius in CSS pixels. */
     const rad = (n: N, z: number) => Math.max(MIN_R, n.r * z);
-
-    /** Rail and panel rectangles, so labels are never drawn underneath them. */
-    const measure = () => {
-      obstacles = [];
-      const base = canvas.getBoundingClientRect();
-      for (const el of host.querySelectorAll<HTMLElement>("[data-obstacle]")) {
-        const r = el.getBoundingClientRect();
-        obstacles.push(r.left - base.left - 6, r.top - base.top - 6, r.right - base.left + 6, r.bottom - base.top + 6);
-      }
-    };
 
     const resize = () => {
       dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -183,17 +247,91 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
       measure();
     };
 
+    /** A name's width in its font, as label() writes it at rest. */
+    const nameWidth = (n: N) => {
+      let w = widths.get(n.id);
+      if (w === undefined) {
+        ctx.font = n.kind !== "company" ? fonts.org : fonts.name;
+        w = ctx.measureText(truncate(n.display, 34)).width;
+        widths.set(n.id, w);
+      }
+      return w;
+    };
+    const captionWidth = (tag: string, label: string) => {
+      let w = captionWidths.get(tag);
+      if (w === undefined) {
+        ctx.font = fonts.caption;
+        w = ctx.measureText(label).width;
+        captionWidths.set(tag, w);
+      }
+      return w;
+    };
+    const captioned = (tag: string) => live.has(tag) && (!ui.current.tags.size || ui.current.tags.has(tag));
+
+    /** The screen box, relative to the camera's offset, of everything the fit
+     *  must keep in the room at scale k: every shown mark at the size it is
+     *  drawn, every caption, and every name written at rest in the place it
+     *  tries first. Names and captions keep their size at any zoom and marks
+     *  shrink more slowly than the map, so this is worked out per scale. */
+    const span = (k: number) => {
+      const { nodes, regions } = scene.current;
+      const z = zsAt(k);
+      const box = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+      const add = (x0: number, y0: number, x1: number, y1: number) => {
+        if (x0 < box.x0) box.x0 = x0;
+        if (y0 < box.y0) box.y0 = y0;
+        if (x1 > box.x1) box.x1 = x1;
+        if (y1 > box.y1) box.y1 = y1;
+      };
+      const all = nodes.every((n) => hidden.has(n.id));
+      for (const n of nodes) {
+        if (!all && hidden.has(n.id)) continue;
+        const x = n.x * k, y = n.y * k, r = rad(n, z);
+        add(x - r, y - r, x + r, y + r);
+        if (!n.org && !named.has(n.id)) continue;
+        // the boxes label() measures for the first spot of spots()
+        const w = nameWidth(n);
+        if (n.org) add(x - w / 2 - 2, y + r + 14 - 9, x + w / 2 + 2, y + r + 14 + 3);
+        else add(x + r + 7, y + 5 - 12, x + r + 7 + w + 2, y + 5 + 4);
+      }
+      for (const g of regions) {
+        if (!captioned(g.tag)) continue;
+        const half = captionWidth(g.tag, g.label) / 2 + 2;
+        let top = Infinity;
+        for (const n of g.core) if (!hidden.has(n.id)) top = Math.min(top, n.y * k - rad(n, z));
+        if (top === Infinity) continue;
+        add(g.x * k - half, top - CAPTION_RISE - 11, g.x * k + half, top);
+      }
+      return box;
+    };
+
+    /** Where the camera goes to fit the map: the largest scale (up to 1.5) at
+     *  which span() fits the room, found by halving, and the offset that
+     *  centers it there. */
     const fitTarget = (): View => {
-      const b = scene.current.bounds;
       const p = room();
-      const bw = Math.max(b.x1 - b.x0, 200);
-      const bh = Math.max(b.y1 - b.y0, 200);
-      // One scale for both axes: the graph keeps its natural proportions.
-      const k = Math.min(1.5, ((W - p.l - p.r) / bw) * 0.94, ((H - p.t - p.b) / bh) * 0.94);
+      const aw = Math.max(40, W - p.l - p.r);
+      const ah = Math.max(40, H - p.t - p.b);
+      const fits = (k: number) => {
+        const b = span(k);
+        return b.x1 - b.x0 <= aw && b.y1 - b.y0 <= ah;
+      };
+      let k = 1.5;
+      if (!fits(k)) {
+        let lo = 0.01;
+        let hi = 1.5;
+        for (let i = 0; i < 26; i++) {
+          const mid = (lo + hi) / 2;
+          if (fits(mid)) lo = mid;
+          else hi = mid;
+        }
+        k = lo;
+      }
+      const b = span(k);
       return {
         k,
-        tx: p.l + (W - p.l - p.r) / 2 - ((b.x0 + b.x1) / 2) * k,
-        ty: p.t + (H - p.t - p.b) / 2 - ((b.y0 + b.y1) / 2) * k,
+        tx: p.l + aw / 2 - (b.x0 + b.x1) / 2,
+        ty: p.t + ah / 2 - (b.y0 + b.y1) / 2,
       };
     };
 
@@ -211,35 +349,112 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
 
     const fit = (animate: boolean) => {
       if (!scene.current.nodes.length || !W) return;
+      measure();
       const t = fitTarget();
       fitK = t.k;
+      touched = false;
+      focused = null;
       moveTo(t, animate);
     };
 
-    /** Center a node with its neighborhood in view, not zoomed in until it feels cramped. */
-    const focusOn = (id: string, fly: boolean) => {
+    /** Where the camera must go so that a node and its shown neighbors sit in
+     *  the room (allowed half of its padding, as the mockup's selection sits
+     *  close to the card), moving as little as it can: at the scale it has
+     *  (never zooming in), panned only as far as needed; zoomed out only if
+     *  the neighborhood does not fit at that scale, and then centered. Null
+     *  when everything is already in place. */
+    const focusTarget = (id: string): View | null => {
       const n = scene.current.byId.get(id);
-      if (!n) return;
-      const p = { ...room(), r: wide() ? 356 : 24 };
-      let hx = 140;
-      let hy = 110;
+      if (!n) return null;
+      const p = room(true);
+      const open = room(false);
+      // half the padding may go, except along the card
+      const slack = fitPad(W) / 2;
+      for (const side of ["l", "r", "t", "b"] as const) if (p[side] <= open[side]) p[side] -= slack;
+      const aw = Math.max(40, W - p.l - p.r);
+      const ah = Math.max(40, H - p.t - p.b);
+      // the neighborhood in world pixels, and how far its marks reach beyond
+      // it on screen (at the largest scale used); the node's name finds its
+      // own place around it
+      let x0 = n.x, x1 = n.x, y0 = n.y, y1 = n.y;
+      let reachOut = 0;
+      const z = zsAt(Math.max(goal.k, fitK));
       for (const o of scene.current.near.get(id) ?? []) {
         const q = scene.current.byId.get(o);
         if (!q || hidden.has(o)) continue;
-        hx = Math.max(hx, Math.abs(q.x - n.x) + 70);
-        hy = Math.max(hy, Math.abs(q.y - n.y) + 70);
+        x0 = Math.min(x0, q.x);
+        x1 = Math.max(x1, q.x);
+        y0 = Math.min(y0, q.y);
+        y1 = Math.max(y1, q.y);
+        reachOut = Math.max(reachOut, rad(q, z));
       }
-      const aw = (W - p.l - p.r) / 2;
-      const ah = (H - p.t - p.b) / 2;
-      const k = Math.max(Math.max(fitK, 0.4), Math.min(1.35, aw / hx, ah / hy));
-      // An arrival from a link (`fly`) is the same short move as a click.
-      void fly;
-      moveTo({ k, tx: p.l + aw - n.x * k, ty: p.t + ah - n.y * k }, true);
+      const m = Math.max(reachOut, rad(n, z)) + 8;
+      const fitsAt = (k: number) => (x1 - x0) * k + 2 * m <= aw && (y1 - y0) * k + 2 * m <= ah;
+      let k = Math.max(goal.k, fitK * 0.5);
+      if (!fitsAt(k)) {
+        let lo = fitK * 0.5;
+        let hi = k;
+        for (let i = 0; i < 20; i++) {
+          const mid = (lo + hi) / 2;
+          if (fitsAt(mid)) lo = mid;
+          else hi = mid;
+        }
+        k = lo;
+        if (!fitsAt(k)) {
+          // too wide to see whole: the node itself in the middle of the room
+          return { k, tx: p.l + aw / 2 - n.x * k, ty: p.t + ah / 2 - n.y * k };
+        }
+      }
+      // the neighborhood's screen box at this scale, about the current offset
+      const tx = k === goal.k ? goal.tx : goal.tx + (W / 2 - goal.tx) * (1 - k / goal.k);
+      const ty = k === goal.k ? goal.ty : goal.ty + (H / 2 - goal.ty) * (1 - k / goal.k);
+      const bx0 = x0 * k + tx - m, bx1 = x1 * k + tx + m;
+      const by0 = y0 * k + ty - m, by1 = y1 * k + ty + m;
+      // the least pan that brings it inside the room
+      const shove = (lo: number, hi: number, from: number, to: number) =>
+        lo < from ? from - lo : hi > to ? Math.max(to - hi, from - lo) : 0;
+      const dx = shove(bx0, bx1, p.l, W - p.r);
+      const dy = shove(by0, by1, p.t, H - p.b);
+      if (k === goal.k && Math.abs(dx) < 1 && Math.abs(dy) < 1) return null;
+      return { k, tx: tx + dx, ty: ty + dy };
+    };
+
+    /** Bring a node and its neighborhood into view, clear of the side card,
+     *  with the least camera move (focusTarget). */
+    const focusOn = (id: string) => {
+      if (!scene.current.byId.has(id) || !W) return;
+      measure();
+      focused = id;
+      const to = focusTarget(id);
+      if (!to) return invalidate();
+      touched = true;
+      tip.style.opacity = "0"; // the camera is about to move out from under it
+      moveTo(to, true);
+    };
+
+    /** For when the chrome around the map has settled or changed: measure it
+     *  again, then check the last focus against the side card as it really
+     *  is, or fit again if the reader has not moved the camera since the last
+     *  fit. A selection made without moving the camera leaves the fit as it
+     *  is: the card was already allowed for when the node was picked, and
+     *  refitting around it would shift the map under the reader. */
+    const settle = () => {
+      measure();
+      if (!scene.current.nodes.length || !W) return invalidate();
+      const selected = ui.current.selected;
+      if (focused && focused === selected) return focusOn(focused);
+      if (touched || selected) return invalidate();
+      const t = fitTarget();
+      if (Math.abs(t.k - goal.k) < 0.002 * goal.k && Math.abs(t.tx - goal.tx) < 1 && Math.abs(t.ty - goal.ty) < 1)
+        return invalidate();
+      fit(true);
     };
 
     const zoomAt = (f: number, px = W / 2, py = H / 2) => {
       tween = null;
       vel.x = vel.y = 0;
+      touched = true;
+      focused = null;
       const k = Math.max(fitK * 0.5, Math.min(MAX_K, goal.k * f));
       goal = clamp({ k, tx: px - ((px - goal.tx) / goal.k) * k, ty: py - ((py - goal.ty) / goal.k) * k });
       invalidate();
@@ -249,10 +464,20 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
       const { nodes } = scene.current;
       hidden = ui.current.hidden;
       live = new Set();
-      for (const n of nodes) if (!n.org && n.tag && !hidden.has(n.id)) live.add(n.tag);
+      named = new Set();
+      // nodes are sorted by money, so the first companies shown are the biggest
+      for (const n of nodes) {
+        if (n.org || hidden.has(n.id)) continue;
+        if (n.tag) live.add(n.tag);
+        if (n.kind === "company" && named.size < NAMED_COMPANIES) named.add(n.id);
+      }
       const q = ui.current.query;
       matches = q ? new Set(nodes.filter((n) => n.nameLower.includes(q)).map((n) => n.id)) : null;
+      // the side card comes or goes with the selection: measure once it has
+      // mounted, and settle once it has landed (or a closing card has faded
+      // out), which checks a focus against the card's real size
       setTimeout(measure, 60);
+      setTimeout(() => alive && settle(), 260);
       invalidate();
     };
 
@@ -276,6 +501,11 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
       }
       return best;
     };
+
+    /** How strongly the map is focused right now, before easing: a selection
+     *  fully, a hover partway, a search mostly. */
+    const focusWant = () =>
+      ui.current.selected ? 1 : ui.current.hover ? HOVER_DIM : matches ? SEARCH_DIM : 0;
 
     /** Advance camera, springs and fades. Returns true while anything is still moving. */
     const update = (dt: number): boolean => {
@@ -333,7 +563,7 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
         moving = true;
       }
 
-      const want = ui.current.hover || ui.current.selected || matches ? 1 : 0;
+      const want = focusWant();
       if (Math.abs(want - dim) > 0.004) {
         dim += (want - dim) * (1 - Math.exp(-dt * 11));
         moving = true;
@@ -341,234 +571,273 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
       return moving;
     };
 
-    // Reused per frame, so drawing thousands of edges and nodes allocates nothing.
-    const eb: number[][] = Array.from({ length: 8 }, () => []);
-    // marks by shape, lit and faded: dots, rings, open diamonds, closed diamonds
-    const nb: N[][] = Array.from({ length: 8 }, () => []);
+    // Reused per frame, so drawing thousands of edges and nodes allocates
+    // almost nothing. Edges are batched by key: lit or not, strength, width.
+    const batches = new Map<number, number[]>();
+    const keys: number[] = [];
+    // marks in drawing order: faded before lit, companies under solicitations
+    // under agencies, and within a kind the least money first, as the mockups
+    // draw them (the hairline around each dot keeps a small one visible on a
+    // big one)
+    const marks: N[][] = Array.from({ length: 6 }, () => []);
     const vis: N[] = [];
+    // A coarse grid over the screen holding the marks in view, so a name can
+    // ask which marks are near it without looking at all of them.
+    const CELL = 64;
+    const grid = new Map<number, N[]>();
+    let reach = 0; // the largest drawn radius in view, plus clearance
     const placed: number[] = [];
+    const look: MarkLook = { palette, fade: 0, selected: false, hover: false };
 
-    const place = (x0: number, y0: number, x1: number, y1: number) => {
-      // labels keep a margin from the edge of the view
-      if (x0 < 16 || y0 < 16 || x1 > W - 16 || y1 > H - 16) return false;
+    /** True if the box is on screen, clear of the chrome and of every name
+     *  and caption placed so far. */
+    const clear = (x0: number, y0: number, x1: number, y1: number) => {
+      // names keep a margin from the edge of the view
+      if (x0 < 8 || y0 < 8 || x1 > W - 8 || y1 > H - 8) return false;
       for (let i = 0; i < obstacles.length; i += 4)
         if (x0 < obstacles[i + 2] && x1 > obstacles[i] && y0 < obstacles[i + 3] && y1 > obstacles[i + 1]) return false;
       for (let i = 0; i < placed.length; i += 4)
         if (x0 < placed[i + 2] && x1 > placed[i] && y0 < placed[i + 3] && y1 > placed[i + 1]) return false;
-      placed.push(x0, y0, x1, y1);
+      return true;
+    };
+    /** As clear(), and clear of every mark in view but `self`'s. */
+    const free = (x0: number, y0: number, x1: number, y1: number, self: N, z: number) => {
+      if (!clear(x0, y0, x1, y1)) return false;
+      // a mark is filed under the cell of its center: look as far out as the biggest one reaches
+      const c0 = Math.floor((x0 - reach) / CELL), c1 = Math.floor((x1 + reach) / CELL);
+      const r0 = Math.floor((y0 - reach) / CELL), r1 = Math.floor((y1 + reach) / CELL);
+      for (let cx = c0; cx <= c1; cx++)
+        for (let cy = r0; cy <= r1; cy++) {
+          const cell = grid.get(cx * 4096 + cy);
+          if (!cell) continue;
+          for (const n of cell) {
+            if (n === self) continue;
+            // the box against the mark's circle, with a hair of clearance
+            const x = sx(n), y = sy(n), r = rad(n, z) + 1.5;
+            const dx = x - Math.max(x0, Math.min(x, x1));
+            const dy = y - Math.max(y0, Math.min(y, y1));
+            if (dx * dx + dy * dy < r * r) return false;
+          }
+        }
       return true;
     };
 
     const draw = () => {
-      const { nodes, links, near } = scene.current;
-      const k = view.k;
+      const { nodes, links, near, byId, regions } = scene.current;
       const z = zs();
       const { selected, hover } = ui.current;
-      const fid = hover ?? selected; // the node whose neighborhood is lit
+      // The node whose neighborhood is lit: the selection, else the hover,
+      // else the last one, while its fade runs out.
+      let fid = selected ?? hover;
+      if (fid) fading = fid;
+      else if (dim > 0.01 && !matches) fid = fading;
       const around = fid ? near.get(fid) : null;
       const lit = (n: N) => (fid ? n.id === fid || !!around?.has(n.id) : matches ? matches.has(n.id) : true);
-      const faded = 1 - (1 - FADED) * dim; // non-neighbors dim to about 30%
+      look.palette = palette;
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, W, H);
 
-      // 1. Edges. Buckets 0-2: awards lit, by weight; 3-5: awards faded;
-      //    6: other lit; 7: other faded.
-      for (const b of eb) b.length = 0;
+      // 1. Edges, as quadratic curves bowed 12% of their length, culled to the
+      //    view and batched by strength and width.
+      for (const list of batches.values()) list.length = 0;
       let onScreen = 0;
       for (let i = 0; i < links.length; i++) {
         const l = links[i];
         if (hidden.has(l.source.id) || hidden.has(l.target.id)) continue;
         const x1 = sx(l.source), y1 = sy(l.source), x2 = sx(l.target), y2 = sy(l.target);
-        if ((x1 < 0 && x2 < 0) || (x1 > W && x2 > W) || (y1 < 0 && y2 < 0) || (y1 > H && y2 > H)) continue;
+        // the curve stays within its chord's box widened by the bow
+        const m = (Math.abs(x2 - x1) + Math.abs(y2 - y1)) * 0.07;
+        if (Math.max(x1, x2) + m < 0 || Math.min(x1, x2) - m > W || Math.max(y1, y2) + m < 0 || Math.min(y1, y2) - m > H)
+          continue;
+        onScreen++;
+      }
+      // A great many edges in view are drawn fainter, so they read as a haze, not a tangle.
+      const crowd = fid ? 1 : Math.min(1, Math.sqrt(1500 / Math.max(onScreen, 1)));
+      for (let i = 0; i < links.length; i++) {
+        const l = links[i];
+        if (hidden.has(l.source.id) || hidden.has(l.target.id)) continue;
+        const x1 = sx(l.source), y1 = sy(l.source), x2 = sx(l.target), y2 = sy(l.target);
+        const m = (Math.abs(x2 - x1) + Math.abs(y2 - y1)) * 0.07;
+        if (Math.max(x1, x2) + m < 0 || Math.min(x1, x2) - m > W || Math.max(y1, y2) + m < 0 || Math.min(y1, y2) - m > H)
+          continue;
         const on = fid
           ? l.source.id === fid || l.target.id === fid
           : matches
             ? matches.has(l.source.id) || matches.has(l.target.id)
             : true;
-        onScreen++;
-        if (l.kind === "award") eb[(on ? 0 : 3) + (l.w < 1.4 ? 0 : l.w < 2.7 ? 1 : 2)].push(i);
-        else eb[on ? 6 : 7].push(i);
+        const award = l.kind === "award";
+        // the crowd fades an award edge no further than the faintest the
+        // money scale draws (0.07)
+        const rest = award ? Math.max(EDGE_ALPHA_MIN, l.alpha * crowd) : l.alpha * crowd;
+        let alpha: number;
+        let width = award ? l.width * z : 0.7;
+        if (fid && on) {
+          // the focused node's money edges rise; its dotted ones stay as they are
+          alpha = award ? mix(rest, FOCUS_EDGE_ALPHA, dim) : rest;
+          if (award) width *= mix(1, FOCUS_EDGE_WIDTH, dim);
+        } else alpha = on ? rest : mix(rest, FADED_EDGE_ALPHA, dim);
+        if (alpha < 0.004) continue;
+        // key: lit edges after faded ones, then quiet before award, then strength and width
+        const key =
+          (on ? 1 << 22 : 0) +
+          (award ? 1 << 21 : 0) +
+          (Math.round(alpha / ALPHA_STEP) << 10) +
+          Math.min(1023, Math.round(Math.max(0.5, width) / WIDTH_STEP));
+        let list = batches.get(key);
+        if (!list) batches.set(key, (list = []));
+        list.push(i);
       }
       // With a great many edges in view, the dotted ones are drawn solid: a
-      // dash pattern on thousands of short lines costs more than it shows.
+      // dash pattern on thousands of short curves costs more than it shows.
       const plain = onScreen > 1400;
+      // keys come and go with every zoom step and fade, so an empty batch is
+      // dropped rather than kept for a key that may never come back
+      keys.length = 0;
+      for (const [key, list] of batches) {
+        if (list.length) keys.push(key);
+        else batches.delete(key);
+      }
+      keys.sort((a, b) => a - b);
       ctx.lineCap = "round";
-      // a great many edges in view are drawn fainter, so they read as a haze, not a tangle
-      const crowd = fid ? 1 : Math.min(1, Math.sqrt(900 / Math.max(onScreen, 1)));
-      for (let b = 0; b < 8; b++) {
-        const list = eb[b];
-        if (!list.length) continue;
-        const award = b < 6;
-        const on = award ? b < 3 : b === 6;
-        const rest = award ? AWARD_EDGE_ALPHA : OTHER_EDGE_ALPHA;
-        // the edges of the node in focus brighten; the others fade with the rest of the map
-        ctx.globalAlpha = on ? rest * crowd + (fid ? (award ? 0.4 : 0.3) * dim : 0) : rest * faded * crowd;
-        ctx.beginPath();
-        for (const i of list) {
-          const l = links[i];
-          ctx.moveTo(sx(l.source), sy(l.source));
-          ctx.lineTo(sx(l.target), sy(l.target));
-        }
+      for (const key of keys) {
+        const award = (key & (1 << 21)) !== 0;
+        ctx.globalAlpha = ((key >> 10) & 2047) * ALPHA_STEP;
+        ctx.lineWidth = (key & 1023) * WIDTH_STEP;
         ctx.strokeStyle = award ? palette.accent : palette.text;
-        ctx.lineWidth = award ? Math.max(0.75, (0.7 + (b % 3) * 0.9) * z) : OTHER_EDGE_WIDTH;
         ctx.setLineDash(award || plain ? [] : DOTS);
+        ctx.beginPath();
+        for (const i of batches.get(key)!) {
+          // curveEnds() and bendPoint() of graphLayout.ts, inlined so the
+          // loop allocates nothing: an award runs from the company to the
+          // agency, and bows BEND of its length to the left
+          const l = links[i];
+          const a = l.kind === "award" ? l.target : l.source;
+          const b = l.kind === "award" ? l.source : l.target;
+          const x0 = sx(a), y0 = sy(a), x1 = sx(b), y1 = sy(b);
+          ctx.moveTo(x0, y0);
+          ctx.quadraticCurveTo((x0 + x1) / 2 - (y1 - y0) * BEND, (y0 + y1) / 2 + (x1 - x0) * BEND, x1, y1);
+        }
         ctx.stroke();
       }
       ctx.setLineDash([]);
 
-      // 2. Marks. Nodes in view are sorted into buckets by shape (faded ones
-      //    first, then lit), so each bucket is one path.
-      for (const list of nb) list.length = 0;
+      // 2. Marks, each through its kind's function (graphFlatDraw.ts).
+      for (const list of marks) list.length = 0;
       vis.length = 0;
-      for (const n of nodes) {
+      reach = 0;
+      for (const cell of grid.values()) cell.length = 0;
+      for (let i = nodes.length - 1; i >= 0; i--) {
+        const n = nodes[i];
         if (hidden.has(n.id)) continue;
         const x = sx(n), y = sy(n), m = rad(n, z) + 6;
         if (x + m < 0 || x - m > W || y + m < 0 || y - m > H) continue;
         vis.push(n);
-        const shape = n.kind === "company" ? 0 : n.kind === "opportunity" ? (n.open ? 2 : 3) : 1;
-        nb[(lit(n) ? 4 : 0) + shape].push(n);
+        reach = Math.max(reach, m);
+        const key = Math.floor(x / CELL) * 4096 + Math.floor(y / CELL);
+        let cell = grid.get(key);
+        if (!cell) grid.set(key, (cell = []));
+        cell.push(n);
+        if (n.id === selected || n.id === hover) continue; // drawn last, on top
+        const kind = n.kind === "company" ? 0 : n.kind === "opportunity" ? 1 : 2;
+        marks[(lit(n) ? 3 : 0) + kind].push(n);
       }
-      ctx.lineJoin = "miter";
-      for (let b = 0; b < nb.length; b++) {
-        const list = nb[b];
-        if (!list.length) continue;
-        const shape = b % 4;
-        const alpha = (b < 4 ? faded : 1) * (shape === 3 ? CLOSED_ALPHA : MARK_ALPHA);
-        if (shape === 0) {
-          // a company: a filled dot
-          ctx.globalAlpha = alpha;
-          ctx.fillStyle = palette.text;
-          ctx.beginPath();
-          for (const n of list) {
-            const x = sx(n), y = sy(n), r = rad(n, z);
-            ctx.moveTo(x + r, y);
-            ctx.arc(x, y, r, 0, Math.PI * 2);
-          }
-          ctx.fill();
-          continue;
-        }
-        // A ring or a diamond is an outline: the page color inside it first,
-        // so no edge shows through, then the stroke.
-        const trace = () => {
-          ctx.beginPath();
-          for (const n of list) {
-            const x = sx(n), y = sy(n), r = rad(n, z);
-            if (shape === 1) {
-              ctx.moveTo(x + r, y);
-              ctx.arc(x, y, r, 0, Math.PI * 2);
-            } else {
-              ctx.moveTo(x, y - r);
-              ctx.lineTo(x + r, y);
-              ctx.lineTo(x, y + r);
-              ctx.lineTo(x - r, y);
-              ctx.closePath();
-            }
-          }
-        };
-        trace();
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = palette.bg;
-        ctx.fill();
-        ctx.globalAlpha = alpha;
-        ctx.strokeStyle = palette.text;
-        ctx.lineWidth = shape === 1 ? 1.5 : 1.25;
-        ctx.stroke();
-        if (shape === 1) {
-          // an agency's ring carries a second, finer ring inside it
-          ctx.beginPath();
-          for (const n of list) {
-            const x = sx(n), y = sy(n), r = rad(n, z) * 0.52;
-            if (r < 2.5) continue;
-            ctx.moveTo(x + r, y);
-            ctx.arc(x, y, r, 0, Math.PI * 2);
-          }
-          ctx.lineWidth = 1;
-          ctx.stroke();
-        }
+      for (let g = 0; g < marks.length; g++) {
+        look.fade = g < 3 ? dim : 0;
+        look.selected = look.hover = false;
+        for (const n of marks[g]) drawMark(ctx, n, sx(n), sy(n), rad(n, z), look);
       }
-      // the selected and hovered nodes get a thin ring, a little clear of the mark
-      for (const id of hover === selected ? [selected] : [selected, hover]) {
-        const n = id && scene.current.byId.get(id);
+      for (const id of hover === selected ? [selected] : [hover, selected]) {
+        const n = id ? byId.get(id) : null;
         if (!n || hidden.has(n.id)) continue;
-        ctx.globalAlpha = id === selected ? 1 : 0.6;
-        ctx.strokeStyle = palette.text;
-        ctx.lineWidth = 1.25;
-        ctx.beginPath();
-        ctx.arc(sx(n), sy(n), rad(n, z) + 5, 0, Math.PI * 2);
-        ctx.stroke();
+        look.fade = lit(n) ? 0 : dim;
+        look.selected = id === selected;
+        look.hover = id === hover && !look.selected;
+        drawMark(ctx, n, sx(n), sy(n), rad(n, z), look);
       }
       ctx.globalAlpha = 1;
 
-      // 3. Labels. Category names first, then entity names by importance; a label
-      //    is only drawn where it overlaps nothing already placed.
+      // 3. Captions: every category with a member on the map, centered over
+      //    the top of its cluster as its marks are drawn (below zoom 1 a mark
+      //    is drawn larger than the map's scale). They go first, and names
+      //    keep clear of them. Over a mark is fine (the halo parts them); over
+      //    another caption or the chrome is not, so a caption with no room
+      //    there tries a line higher, then under its cluster, then two lines
+      //    higher, before it is left out.
       placed.length = 0;
-      // marks are obstacles too: a name never sits on top of another node
-      for (const n of vis) {
-        const r = n.r * z;
-        if (r < 3.5) continue;
-        placed.push(sx(n) - r, sy(n) - r, sx(n) + r, sy(n) + r);
-      }
-      ctx.textBaseline = "top";
+      ctx.textBaseline = "alphabetic";
       ctx.textAlign = "center";
-      ctx.lineJoin = "round";
-      ctx.font = fonts.region;
-      ctx.fillStyle = palette.muted;
-      for (const g of scene.current.regions) {
-        if (g.n < 2 || (ui.current.tags.size && !ui.current.tags.has(g.tag)) || !live.has(g.tag)) continue;
-        const text = tagLabel(g.tag);
-        const w = ctx.measureText(text).width;
-        const x = sx(g), y = g.top * k + view.ty - 28;
-        if (!place(x - w / 2 - 6, y - 3, x + w / 2 + 6, y + 15)) continue;
-        ctx.globalAlpha = 0.8 - 0.45 * dim;
-        ctx.fillText(text, x, y);
+      ctx.font = fonts.caption;
+      const capAlpha = mix(CAPTION_ALPHA[0], CAPTION_ALPHA[1], fid || matches ? dim : 0);
+      for (const g of regions) {
+        if (!captioned(g.tag)) continue;
+        let top = Infinity;
+        let bottom = -Infinity;
+        for (const n of g.core) {
+          if (hidden.has(n.id)) continue;
+          const y = sy(n), r = rad(n, z);
+          if (y - r < top) top = y - r;
+          if (y + r > bottom) bottom = y + r;
+        }
+        if (top === Infinity) continue;
+        const w = captionWidth(g.tag, g.label);
+        const x = sx(g);
+        const line = CAPTION_PX + 2;
+        const base = top - CAPTION_RISE;
+        const y = [base, base - line, bottom + CAPTION_RISE + 11, base - 2 * line].find((y) =>
+          clear(x - w / 2 - 2, y - 11, x + w / 2 + 2, y + 4),
+        );
+        if (y === undefined) continue;
+        placed.push(x - w / 2 - 2, y - 11, x + w / 2 + 2, y + 4);
+        haloText(ctx, g.label, x, y, palette.text, capAlpha, palette);
       }
-      // Density follows zoom: only the largest nodes are named from afar.
-      const minR = k < 0.4 ? 13 : k < 0.6 ? 9.5 : k < 0.95 ? 6.5 : 0;
-      let budget = 90;
-      const label = (n: N, forced: boolean, alpha: number) => {
-        if (budget <= 0) return;
-        // a company in the display serif, an agency or office in the interface face
-        ctx.font = n.org || n.kind === "opportunity" ? fonts.org : fonts.name;
-        const tall = n.org || n.kind === "opportunity" ? ORG_PX + 3 : NAME_PX + 1;
-        const text = truncate(n.name, forced ? 60 : 34);
-        if (!n.labelWidth) n.labelWidth = ctx.measureText(truncate(n.name, 34)).width;
-        const w = forced ? ctx.measureText(text).width : n.labelWidth;
-        const r = rad(n, z);
-        // A company's name sits beside its dot (right, left, below, above); an
-        // agency's sits under its ring (below, above, right, left). The first
-        // spot that is free.
-        const side = (dir: number): [number, number] => [sx(n) + dir * (r + 9 + w / 2), sy(n) - tall / 2];
-        const spots: [number, number][] = n.org
-          ? [[sx(n), sy(n) + r + 6], [sx(n), sy(n) - r - tall - 5], side(1), side(-1)]
-          : [side(1), side(-1), [sx(n), sy(n) + r + 6], [sx(n), sy(n) - r - tall - 5]];
-        const spot = spots.find(([x, y]) => place(x - w / 2 - 4, y - 1, x + w / 2 + 4, y + tall));
-        if (!spot) return;
-        const [x, y] = spot;
-        budget--;
-        ctx.globalAlpha = 0.9 * alpha;
-        ctx.strokeStyle = palette.bg;
-        ctx.lineWidth = 3.5;
-        ctx.strokeText(text, x, y);
-        ctx.fillStyle = n.org || n.kind === "opportunity" ? palette.muted : palette.text;
-        if (forced) ctx.fillStyle = palette.text;
-        ctx.globalAlpha = alpha;
-        ctx.fillText(text, x, y);
+
+      // 4. Names: the hovered and selected nodes first (written even with no
+      //    free place), then every agency and the seven biggest companies by
+      //    money, each at the first of its eight places that is free. A name
+      //    stays inside the fitted room, give or take half its padding, so
+      //    none runs up against the rail or the edge of the window.
+      const lim = room(false);
+      const slack = fitPad(W) / 2;
+      const lx0 = lim.l - slack, lx1 = W - lim.r + slack;
+      const ly0 = lim.t - slack, ly1 = H - lim.b + slack;
+      const label = (n: N, forced: boolean) => {
+        const org = n.kind !== "company";
+        const text = truncate(n.display, forced ? 60 : 34);
+        let w = nameWidth(n);
+        ctx.font = org ? fonts.org : fonts.name;
+        if (forced) w = ctx.measureText(text).width;
+        const x = sx(n), y = sy(n), r = rad(n, z);
+        // the box around a name's ink, from its baseline
+        const asc = org ? 9 : 12;
+        const desc = org ? 3 : 4;
+        const options = spots(x, y, r, org);
+        let spot = options.find(([ax, ay, align]) => {
+          const x0 = align === "left" ? ax : align === "right" ? ax - w : ax - w / 2;
+          if (x0 < lx0 || x0 + w > lx1 || ay - asc < ly0 || ay + desc > ly1) return false;
+          return free(x0 - 2, ay - asc, x0 + w + 2, ay + desc, n, z);
+        });
+        if (!spot) {
+          if (!forced) return;
+          spot = options[0];
+        }
+        const [ax, ay, align] = spot;
+        const x0 = align === "left" ? ax : align === "right" ? ax - w : ax - w / 2;
+        placed.push(x0 - 2, ay - asc, x0 + w + 2, ay + desc);
+        const [rest, faded] = org ? ORG_NAME_ALPHA : NAME_ALPHA;
+        const alpha = forced ? 1 : lit(n) ? rest : mix(rest, faded, dim);
+        ctx.textAlign = align;
+        haloText(ctx, text, ax, ay, palette.text, alpha, palette);
       };
       for (const id of hover === selected ? [selected] : [hover, selected]) {
-        const n = id && scene.current.byId.get(id);
-        if (n && !hidden.has(n.id)) label(n, true, 1);
+        const n = id ? byId.get(id) : null;
+        if (n && !hidden.has(n.id)) label(n, true);
       }
-      const focused = !!fid || !!matches;
-      // the node in focus and its neighbors are named first, then the rest, dimmed
-      for (const n of vis) {
-        if (n.id === hover || n.id === selected || !focused || !lit(n) || n.kind === "opportunity") continue;
-        label(n, false, 1);
-      }
-      for (const n of vis) {
-        if (n.id === hover || n.id === selected || (focused && lit(n))) continue;
-        if (n.kind === "opportunity" || (n.r * z < minR && n.rank > 11)) continue;
-        label(n, false, focused ? Math.max(faded, 0.45) : 1);
+      // vis runs from the least money to the most; names go the other way
+      for (let i = vis.length - 1; i >= 0; i--) {
+        const n = vis[i];
+        if (n.id === hover || n.id === selected) continue;
+        if (n.org || named.has(n.id)) label(n, false);
       }
       ctx.globalAlpha = 1;
     };
@@ -664,6 +933,8 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
         const dtm = Math.max(1, now - pointer.lt) / 1000;
         vel.x = vel.x * 0.5 + ((p.x - pointer.lx) / dtm) * 0.5;
         vel.y = vel.y * 0.5 + ((p.y - pointer.ly) / dtm) * 0.5;
+        touched = true;
+        focused = null;
         view = clamp({ k: view.k, tx: pointer.ox + (p.x - pointer.sx), ty: pointer.oy + (p.y - pointer.sy) });
         goal = { ...view };
       }
@@ -681,8 +952,9 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
       if (n && !p.moved) {
         const next = ui.current.selected === n.id ? null : n.id;
         select(next);
-        if (next) focusOn(next, false);
-        tip.style.opacity = "0"; // the camera is about to move out from under it
+        // the camera moves only if the node or its neighbors would be out of
+        // view or under the side card, and then as little as it can
+        if (next) focusOn(next);
       } else if (!n && !p.moved) select(null);
       else if (!n && performance.now() - p.lt > 90) vel.x = vel.y = 0; // held still before letting go
       invalidate();
@@ -695,6 +967,8 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
     const onKey = (e: KeyboardEvent) => {
       const pan = (dx: number, dy: number) => {
         tween = null;
+        touched = true;
+        focused = null;
         goal = clamp({ k: goal.k, tx: goal.tx + dx, ty: goal.ty + dy });
         invalidate();
       };
@@ -717,26 +991,35 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
     const readFonts = () => {
       const s = getComputedStyle(document.documentElement);
       const display = `${s.getPropertyValue("--font-cormorant").trim() || "Georgia"}, Georgia, serif`;
+      const reading = `${s.getPropertyValue("--font-garamond").trim() || "Georgia"}, Georgia, serif`;
       const sans = `${s.getPropertyValue("--font-inter").trim() || "system-ui"}, system-ui, sans-serif`;
-      fonts = { name: `500 ${NAME_PX}px ${display}`, org: `${ORG_PX}px ${sans}`, region: `${REGION_PX}px ${sans}` };
-      for (const n of scene.current.nodes) n.labelWidth = 0;
+      fonts = {
+        name: `400 ${NAME_PX}px ${display}`,
+        org: `400 ${ORG_PX}px ${sans}`,
+        caption: `italic 400 ${CAPTION_PX}px ${reading}`,
+      };
+      widths.clear();
+      captionWidths.clear();
     };
 
     resize();
     readFonts();
-    inner.current = { invalidate, fit, refilter };
+    inner.current = { invalidate, fit, refilter, settle };
     const mine = {
       fit,
-      focusOn: (id: string, fly: boolean) => {
+      // an arrival from a link (`fly`) is the same short move as a click
+      focusOn: (id: string, _fly: boolean) => {
         ui.current.selected = id;
-        focusOn(id, fly);
+        focusOn(id);
       },
       zoom: (f: number) => zoomAt(f),
     };
     api.current = mine;
     document.fonts?.ready.then(() => {
+      if (!alive) return;
       readFonts();
-      invalidate();
+      // the names and captions the fit measures have their real widths now
+      settle();
     });
     canvas.addEventListener("pointerdown", onDown);
     canvas.addEventListener("pointermove", onMove);
@@ -746,16 +1029,25 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
     canvas.addEventListener("wheel", onWheel, { passive: false });
     canvas.addEventListener("keydown", onKey);
     window.addEventListener("flock:theme", onTheme);
-    // The rail folded or the legend opened (GraphExplorer.tsx): measure again.
+    // The rail folded or the legend opened (GraphExplorer.tsx): measure again,
+    // and refit if the reader has not moved the camera, once the rail's
+    // transition has run.
     const onChrome = () => {
-      setTimeout(measure, 60);
-      setTimeout(invalidate, 80);
+      setTimeout(() => {
+        measure();
+        invalidate();
+      }, 60);
+      setTimeout(() => alive && settle(), 320);
     };
     window.addEventListener("graph:chrome", onChrome);
     // The canvas always matches its container times devicePixelRatio.
+    // A new size refits an untouched map even while something is selected
+    // (the card is allowed for then), and checks a focus.
     const ro = new ResizeObserver(() => {
       resize();
-      invalidate();
+      if (focused && focused === ui.current.selected) settle();
+      else if (touched || !scene.current.nodes.length) invalidate();
+      else fit(false);
     });
     ro.observe(wrap);
     const onVisible = () => !document.hidden && invalidate();
@@ -792,6 +1084,9 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
       inner.current.refilter();
       inner.current.fit(false);
       out.current.onReady(true);
+      // the takeaway line over the map is written once the graph is in: fit
+      // around it when it has landed
+      setTimeout(() => alive && inner.current.settle(), 250);
     };
     const cached = laidOut.get(graph);
     if (cached) show(cached);

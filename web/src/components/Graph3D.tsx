@@ -9,21 +9,23 @@ import { layoutGraph3D, type Scene3 } from "./Graph3DLayout";
 import { createStage, type Stage } from "./Graph3DStage";
 import { NO_API, type GraphViewProps } from "./GraphView";
 
-// The 3D view of the graph: the same filtered graph as the flat view, laid out
-// as constellations by category and turned with orbit controls. It turns only
-// when the reader turns it.
+// The 3D view of the graph: the same filtered graph as the flat view, in the
+// same category clusters with a little depth, turned with orbit controls. It
+// turns only when the reader turns it.
 //
 // react-force-graph-3d hosts the WebGL scene: renderer, camera, controls and
-// render loop. It is given no graph data of its own. The layout is computed
-// once and frozen (Graph3DLayout.ts), and the node marks, edges and labels are
-// drawn in batches by Graph3DStage.ts, because the library draws one object
-// per edge and that does not hold frame rate at thousands of edges.
+// render loop. It is given no graph data of its own. The layout is the flat
+// one, computed once and frozen (Graph3DLayout.ts), and the node marks, edges
+// and labels are drawn in batches by Graph3DStage.ts, because the library
+// draws one object per edge and that does not hold frame rate at thousands of
+// edges.
 //
 // This file is loaded only in the browser, and only when the 3D view is shown
 // (GraphExplorer.tsx imports it lazily): three.js needs `window`.
 
 const NOTHING = { nodes: [], links: [] };
-const RENDERER = { antialias: true, alpha: false, powerPreference: "high-performance" as const };
+// a stencil buffer, so a translucent curve is blended once per pixel (Graph3DStage.ts)
+const RENDERER = { antialias: true, alpha: false, stencil: true, powerPreference: "high-performance" as const };
 
 /** Layouts already computed, so switching between the two views is instant. */
 const laidOut = new WeakMap<Graph, Scene3>();

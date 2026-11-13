@@ -10,9 +10,12 @@
    surface.
 
    Geometry the two renderers rely on (see room() in GraphFlat.tsx and
-   Graph3DStage.ts): on a wide screen the rail ends 280px from the left edge
-   and the side card within 356px of the right; on a narrow one the search and
-   the row under it end within 170px of the top. */
+   Graph3DStage.ts): on a wide screen the rail ends 280px from the left edge,
+   the side card (252px wide) within 300px of the right, and the takeaway
+   line, two lines at most, starts 84px from the top and ends by about 135px;
+   on a narrow one the search and the row under it end within 170px of the
+   top, and the takeaway under them by about 200px. Every one of these is
+   marked data-obstacle, so the views can measure them instead. */
 
 [data-graph-root] {
   --graph-rail-w: 17.5rem;
@@ -428,6 +431,13 @@
 .graph-record-note > :last-child {
   color: var(--muted);
 }
+/* a stale record: one phrase, "Data through Aug 11", in the quiet color */
+.graph-record-note.graph-record-stale {
+  justify-content: flex-start;
+}
+.graph-record-note.graph-record-stale:last-child {
+  color: var(--faint);
+}
 
 /* ---- Checklists: the shared .check rows, with two more states ---- */
 
@@ -523,8 +533,49 @@
   color: var(--bg);
 }
 
-/* ---- Around the map: view and zoom (bottom left of the canvas), legend
-   (bottom right), side card (top right) ---- */
+/* ---- Around the map: the takeaway (top left of the canvas), view and zoom
+   (bottom left), legend (bottom right), side card (top right) ---- */
+
+/* The takeaway: one or two lines in the reading serif, italic, in the quiet
+   text color, saying what the map in view shows. It does not take the
+   pointer, so the map pans under it, but it is an obstacle to the names on
+   the map (data-obstacle). On a phone it sits under the search and the
+   window; with room, just right of the rail, level with the side card. */
+.graph-takeaway {
+  position: absolute;
+  left: 0.75rem;
+  right: 0.75rem;
+  top: 9.25rem;
+  font-family: var(--font-serif);
+  font-size: 0.9375rem;
+  font-style: italic;
+  line-height: 1.4;
+  color: var(--muted);
+  text-wrap: pretty;
+  /* a halo of page color where an edge runs under a word */
+  text-shadow:
+    0 0 2px var(--bg),
+    0 0 6px var(--bg);
+  pointer-events: none;
+}
+@media (min-width: 768px) {
+  .graph-takeaway {
+    left: var(--graph-canvas-left);
+    right: auto;
+    top: 5.25rem;
+    /* never under the side card: it ends 22rem from the right edge */
+    max-width: min(32.5rem, calc(100vw - var(--graph-canvas-left) - 22rem));
+    font-size: 1.0625rem;
+    line-height: 1.45;
+    transition: left 0.18s var(--ease-out);
+  }
+}
+/* no keyboard to press it on */
+@media (hover: none) {
+  .graph-takeaway-esc {
+    display: none;
+  }
+}
 
 /* The shared controls are outlines; over the map they need the page under them. */
 .graph-float {
@@ -628,7 +679,10 @@
   }
 }
 
-/* The side card: the one card on the screen, because it floats over the map. */
+/* The side card: the one card on the screen, because it floats over the map.
+   The kind, then the short name in the display serif with the legal name in
+   small capitals under it; figures as label-and-value rows with no rules;
+   one hairline before each list; the two buttons share the last row. */
 .graph-detail {
   position: absolute;
   left: 0.75rem;
@@ -638,7 +692,7 @@
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--line2) transparent;
-  padding: 1.1rem 1.25rem 1.25rem;
+  padding: 1rem 1rem 0.875rem;
   font-size: 0.8125rem;
   line-height: 1.45;
 }
@@ -648,22 +702,39 @@
     right: 1.5rem;
     top: 5.25rem;
     bottom: auto;
-    width: 19rem;
+    width: 15.75rem;
     max-height: calc(100vh - 11rem);
   }
 }
 .graph-kicker {
+  font-size: 0.75rem;
   color: var(--muted);
 }
 .graph-detail h2 {
-  margin-top: 0.15rem;
-  font-size: 1.6875rem;
+  margin-top: 0.125rem;
+  font-family: var(--font-display);
+  font-size: 1.625rem;
   font-weight: 400;
   line-height: 1.12;
+  overflow-wrap: anywhere;
 }
-/* label on the left, value on the right, a hairline over each row */
+/* a solicitation's name is its title: a sentence, not a name */
+.graph-detail[data-kind="opportunity"] h2 {
+  font-size: 1.25rem;
+  line-height: 1.2;
+}
+.graph-legal {
+  margin-top: 0.25rem;
+  font-size: 0.6875rem;
+  line-height: 1.3;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+  overflow-wrap: anywhere;
+}
+/* label on the left, value on the right */
 .graph-facts {
-  margin-top: 0.9rem;
+  margin-top: 0.5rem;
   font-variant-numeric: tabular-nums;
 }
 .graph-facts > div {
@@ -671,8 +742,7 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.6rem 0;
-  border-top: 1px solid var(--line);
+  padding: 0.25rem 0;
 }
 .graph-facts dt {
   color: var(--muted);
@@ -680,40 +750,70 @@
 .graph-facts dd {
   text-align: right;
 }
-.graph-around li {
-  display: flex;
-  align-items: baseline;
-  gap: 0.75rem;
-  padding: 0.35rem 0;
+.graph-detail-note {
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.graph-card-list {
+  margin-top: 0.75rem;
+  padding-top: 0.625rem;
   border-top: 1px solid var(--line);
 }
-.graph-around button {
+.graph-card-list > h3 {
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  letter-spacing: 0;
+  font-weight: 400;
+  color: var(--muted);
+}
+.graph-card-list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.25rem 0;
+  font-variant-numeric: tabular-nums;
+}
+.graph-card-list .money {
+  flex: none;
+}
+.graph-card-name {
   min-width: 0;
-  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: left;
-  font-family: var(--font-display);
-  font-size: 1.0625rem;
-  font-weight: 500;
-  line-height: 1.3;
-  font-feature-settings: normal;
+  color: var(--muted);
+}
+button.graph-card-name {
   cursor: pointer;
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-decoration-color: transparent;
   text-underline-offset: 0.2em;
-  transition: text-decoration-color 0.15s;
+  transition:
+    color 0.15s,
+    text-decoration-color 0.15s;
 }
-.graph-around button:hover {
+button.graph-card-name:hover {
+  color: var(--text);
   text-decoration-color: var(--line2);
 }
-.graph-around span {
-  flex: none;
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
+.graph-card-more {
+  color: var(--faint);
 }
-.graph-around span.money {
-  color: var(--accent);
+.graph-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.graph-card-actions > .btn {
+  flex: 1;
+}
+.graph-card-actions > .graph-detail-note {
+  flex-basis: 100%;
+  margin-top: 0;
 }

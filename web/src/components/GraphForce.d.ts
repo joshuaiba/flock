@@ -1,5 +1,5 @@
-// d3-force-3d ships no types. This declares the small part of it the 3D graph
-// layout uses (components/Graph3DLayout.ts).
+// d3-force-3d ships no types. This declares the small part of it the graph
+// layout uses (lib/graphLayout.ts, which both the flat and the 3D view share).
 
 declare module "d3-force-3d" {
   export type SimNode = {

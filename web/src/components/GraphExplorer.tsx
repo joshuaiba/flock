@@ -5,28 +5,40 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { clientGet, type Graph, type GraphNode, type NodeKind } from "@/lib/api";
-import { day, money, plural } from "@/lib/format";
+import { clientGet, type Graph, type GraphEdge, type GraphNode, type NodeKind, type Org } from "@/lib/api";
+import { andList, day, moneyRound, spell, truncate } from "@/lib/format";
 import { ALL_KINDS, hiddenNodes, stressGraph } from "@/lib/graphLayout";
-import { useStore } from "@/lib/store";
+import { MAX_PINS, useStore, type Pin } from "@/lib/store";
 import { tagLabel, TAGS } from "@/lib/tags";
 import { Empty } from "./Empty";
-import { CloseIcon, DEFAULT_WINDOW, GraphFilters, windowOf, windowPhrase, WINDOWS, type WindowKey } from "./GraphFilters";
+import {
+  CloseIcon,
+  DEFAULT_WINDOW,
+  GraphFilters,
+  shortName,
+  STALE_DAYS,
+  windowOf,
+  windowPhrase,
+  WINDOWS,
+  type Window,
+  type WindowKey,
+} from "./GraphFilters";
 import { GraphFlat } from "./GraphFlat";
 import { NO_API, type GraphViewApi } from "./GraphView";
-import { PinButton } from "./PinButton";
 
 // The graph explorer: the whole /graph screen. It fetches the graph, holds the
 // filters, the search text and the selection, and shows them through one of
-// two renderers: the 3D scene (the default) or the flat canvas (?view=flat).
+// two renderers: the flat canvas (the default) or the 3D scene (?view=3d).
 // The two are views of the same filtered graph, so everything chosen here
-// carries across the switch. The rail is GraphFilters.tsx, the renderers are
-// Graph3D.tsx and GraphFlat.tsx, and the filter itself is one function
-// (lib/graphLayout.ts hiddenNodes) used for both. The view and zoom controls
-// sit in the map's own bottom-left corner, just right of the rail, and follow
-// it when the rail folds; the legend sits bottom-right, and the selected
-// entity's card top-right. Nothing here is decorated: no art sits behind the
-// map, and the only color is the accent on dollars awarded. Looks:
+// carries across the switch, and the reader's last choice is remembered for
+// the next visit. The rail is GraphFilters.tsx, the renderers are Graph3D.tsx
+// and GraphFlat.tsx, and the filter itself is one function (lib/graphLayout.ts
+// hiddenNodes) used for both. Over the map, top left, one line in the reading
+// serif says what the map in view shows (the takeaway); the view and zoom
+// controls sit in the map's own bottom-left corner, just right of the rail,
+// and follow it when the rail folds; the legend sits bottom-right, and the
+// selected entity's card top-right. Nothing here is decorated: no art sits
+// behind the map, and the only color is the accent on dollars awarded. Looks:
 // graph-rail.css.
 
 // three.js is large and needs a browser: it loads only when the 3D view is shown.
@@ -46,20 +58,41 @@ const KIND_NAME: Record<NodeKind, string> = {
 };
 
 /** A small preference of this screen, kept in localStorage. */
-function recall(key: string): boolean | null {
+function recallText(key: string): string | null {
   try {
-    const raw = localStorage.getItem(key);
-    return raw === null ? null : raw === "true";
+    return localStorage.getItem(key);
   } catch {
     return null; // a private window: the preference just does not persist
   }
 }
-function remember(key: string, value: boolean): void {
+function remember(key: string, value: boolean | string): void {
   try {
     localStorage.setItem(key, String(value));
   } catch {
     /* as above */
   }
+}
+function recall(key: string): boolean | null {
+  const raw = recallText(key);
+  return raw === null ? null : raw === "true";
+}
+
+/** The reader's last choice of view. A link that names one (?view=3d or
+ *  ?view=flat) wins over it; without either, the map opens flat. */
+const VIEW_KEY = "flock.graph.view";
+function recallView(): ViewName | null {
+  const raw = recallText(VIEW_KEY);
+  return raw === "3d" || raw === "flat" ? raw : null;
+}
+/** Put the view in the address, so a copied link opens the same one. Flat is
+ *  the default and needs no parameter. */
+function writeView(view: ViewName): void {
+  const q = new URLSearchParams(window.location.search);
+  if (view === "3d") q.set("view", "3d");
+  else q.delete("view");
+  const s = q.toString();
+  // Next folds this into its router, so useSearchParams follows it.
+  window.history.replaceState(null, "", s ? `?${s}` : window.location.pathname);
 }
 
 /** Tell the mounted view that the rail or the legend changed shape, so names
@@ -70,15 +103,19 @@ function chromeMoved(): void {
 
 /** The four marks of the map, drawn as the canvases draw them. */
 function Mark({ kind }: { kind: "company" | "org" | "opportunity" | "award" }) {
-  if (kind === "award") return <span className="block h-[2px] w-[18px] rounded-full bg-accent" />;
+  if (kind === "award") return <span className="block h-[2px] w-[16px] rounded-full bg-accent" />;
   return (
     <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
       {kind === "company" ? (
         <circle cx="7" cy="7" r="4.5" fill="currentColor" stroke="none" />
       ) : kind === "org" ? (
-        <circle cx="7" cy="7" r="5" />
+        // the double ring: an outer ring, and an inner one at 45%
+        <>
+          <circle cx="7" cy="7" r="5.25" strokeWidth="1.3" />
+          <circle cx="7" cy="7" r="2.35" strokeWidth="1.1" />
+        </>
       ) : (
-        <path d="M7 1.6 12.4 7 7 12.4 1.6 7Z" strokeWidth="1.25" />
+        <path d="M7 2.4 11.6 7 7 11.6 2.4 7Z" strokeWidth="1.1" />
       )}
     </svg>
   );
@@ -122,7 +159,7 @@ function Legend({ open, onOpen }: { open: boolean; onOpen: (open: boolean) => vo
             <span className="graph-legend-key text-ink">
               <Mark kind="org" />
             </span>
-            Agency or office
+            Agency, sized by dollars
           </li>
           <li>
             <span className="graph-legend-key text-ink">
@@ -145,15 +182,210 @@ function Legend({ open, onOpen }: { open: boolean; onOpen: (open: boolean) => vo
   );
 }
 
+// ---- The takeaway: one line over the map that says what it shows ----
+
+const isOrg = (n: GraphNode) => n.kind === "agency" || n.kind === "office";
+
+/** The agency an office answers to, at the top of its part_of chain, if the
+ *  graph has it and the filters show it: the takeaway names agencies, so an
+ *  office's dollars count for the department it is part of. */
+function topAgencies(graph: Graph, hidden: ReadonlySet<string>): Map<string, string> {
+  const parent = new Map<string, string>();
+  for (const e of graph.edges) if (e.kind === "part_of") parent.set(e.source, e.target);
+  const top = new Map<string, string>();
+  for (const id of parent.keys()) {
+    let at = id;
+    // a cycle in the data cannot hang the walk
+    for (let step = 0; step < 8 && parent.has(at) && !hidden.has(parent.get(at)!); step++) at = parent.get(at)!;
+    if (at !== id) top.set(id, at);
+  }
+  return top;
+}
+
+/** The window as the end of a sentence about the whole map: "in the last 90
+ *  days", "in the last year", "on record". Recent ends on the newest award,
+ *  so once that is stale it says where it ends instead of "last". */
+function lastPhrase(w: Window, latest: string | null, age: number | null): string {
+  if (!w.days) return "on record";
+  if (w.recent && latest && age != null && age > STALE_DAYS) {
+    const thisYear = Number(latest.slice(0, 4)) === new Date().getFullYear();
+    return `in the ${w.days} days to ${day(latest, thisYear)}`;
+  }
+  return w.days === 365 ? "in the last year" : `in the last ${w.days} days`;
+}
+
+/** The window after one entity's figure: "in 90 days", "in the last year". */
+function inPhrase(w: Window): string {
+  if (!w.days) return "on record";
+  return w.days === 365 ? "in the last year" : `in ${w.days} days`;
+}
+
+/** What the map in view says, in a sentence or two: which agencies paid most
+ *  of the dollars on it (an office's awards count for its department) and
+ *  which companies lead. Only award edges with both ends
+ *  shown count, so the line follows every filter. Null when there are no
+ *  dollars in view to speak of. */
+function summary(graph: Graph, hidden: ReadonlySet<string>, w: Window, latest: string | null, age: number | null): string | null {
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  const up = topAgencies(graph, hidden);
+  const paid = new Map<GraphNode, number>(); // agency (offices folded in): dollars paid
+  const got = new Map<GraphNode, number>(); // company: dollars received
+  let all = 0;
+  for (const e of graph.edges) {
+    if (e.kind !== "award" || !(e.amount > 0) || hidden.has(e.source) || hidden.has(e.target)) continue;
+    const a = byId.get(e.source);
+    const b = byId.get(e.target);
+    if (!a || !b) continue;
+    const [office, payee] = isOrg(a) ? [a, b] : [b, a];
+    const payer = byId.get(up.get(office.id) ?? office.id) ?? office;
+    paid.set(payer, (paid.get(payer) ?? 0) + e.amount);
+    got.set(payee, (got.get(payee) ?? 0) + e.amount);
+    all += e.amount;
+  }
+  if (!all) return null;
+  const rank = (m: Map<GraphNode, number>) => [...m].sort((x, y) => y[1] - x[1]);
+  const payers = rank(paid);
+  const companies = rank(got);
+  const when = lastPhrase(w, latest, age);
+
+  let first: string;
+  if (payers.length === 1) {
+    // one buyer on the map: its sum says more than "all of it"
+    first = `${shortName(payers[0][0])} paid ${moneyRound(all)} ${when}.`;
+  } else if (payers.length <= 3) {
+    // every buyer on the map is named, so the share would always be 100%
+    first = `${andList(payers.map(([n]) => shortName(n)))} paid all ${moneyRound(all)} ${when}.`;
+  } else {
+    const top = payers.slice(0, 3);
+    const share = top.reduce((sum, [, v]) => sum + v, 0) / all;
+    // never "100%" while others paid something
+    const pct = Math.min(99, Math.round(share * 100));
+    first = `${andList(top.map(([n]) => shortName(n)))} paid ${pct}% of autonomy dollars ${when}.`;
+  }
+  const leaders = companies.slice(0, 2).map(([n]) => shortName(n));
+  const second = leaders.length === 2 ? ` ${andList(leaders)} lead.` : leaders.length === 1 ? ` ${leaders[0]} leads.` : "";
+  return first + second;
+}
+
+/** The takeaway for one selected entity: its figure for the window and who
+ *  is on the other end of it. Counted over the whole graph, as the side card
+ *  is: these are facts about the entity, not about the filters. */
+function selectionLine(graph: Graph, id: string, w: Window): string | null {
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  const node = byId.get(id);
+  if (!node) return null;
+  const name = shortName(node);
+  const others = new Set<string>();
+  let sum = 0;
+  if (node.kind === "opportunity") {
+    let issuer: GraphNode | undefined;
+    for (const e of graph.edges) {
+      if (e.kind === "issued" && e.target === id) issuer = byId.get(e.source);
+      else if (e.kind === "answered" && e.source === id) others.add(e.target);
+    }
+    const from = issuer ? `, from ${shortName(issuer)}` : "";
+    const n = others.size;
+    const answered = n ? `: answered by ${spell(n)} ${n === 1 ? "company" : "companies"}` : "";
+    return `${truncate(name, 72)}${from}${answered}.`;
+  }
+  for (const e of graph.edges) {
+    if (e.kind !== "award") continue;
+    const other = e.source === id ? e.target : e.target === id ? e.source : null;
+    if (!other) continue;
+    others.add(other);
+    sum += e.amount;
+  }
+  const n = others.size;
+  const amount = node.total || sum;
+  if (!n && !amount) return `${name}: no awards ${inPhrase(w)}.`;
+  if (node.kind === "company") return `${name}: ${moneyRound(amount)} from ${spell(n)} ${n === 1 ? "buyer" : "buyers"} ${inPhrase(w)}.`;
+  return `${name}: ${moneyRound(amount)} paid to ${spell(n)} ${n === 1 ? "company" : "companies"} ${inPhrase(w)}.`;
+}
+
+/** A name in one of the side card's lists: a link to that entity on the
+ *  map, or plain text when the filters hide it. */
+function CardName({ node, hidden, onSelect }: { node: GraphNode; hidden: boolean; onSelect: (id: string) => void }) {
+  const name = shortName(node);
+  const title = name !== node.name ? node.name : undefined;
+  if (hidden)
+    return (
+      <span className="graph-card-name" title={title}>
+        {name}
+      </span>
+    );
+  return (
+    <button type="button" className="graph-card-name" title={title} onClick={() => onSelect(node.id)}>
+      {name}
+    </button>
+  );
+}
+
+/** The side card's watch button: the watchlist (lib/store.tsx), as the
+ *  entity page's "Add to watchlist", in the card's short words. */
+function WatchButton({ entity }: { entity: Pin }) {
+  const { pin, unpin, isPinned, pins } = useStore();
+  const [full, setFull] = useState(false);
+  const on = isPinned(entity.id);
+  return (
+    <>
+      <button
+        type="button"
+        className="btn btn-sm"
+        aria-pressed={on}
+        title={on ? "Remove from your watchlist" : "Add to your watchlist"}
+        onClick={() => {
+          if (on) return unpin(entity.id);
+          setFull(pin(entity) === "full");
+        }}
+      >
+        {on ? "Watching" : "Watch"}
+      </button>
+      {full && !on && pins.length >= MAX_PINS && (
+        <p role="status" className="graph-detail-note">
+          The watchlist holds {MAX_PINS}. Remove one first.
+        </p>
+      )}
+    </>
+  );
+}
+
+/** How the card heads each kind of non-money link, by the edge's kind and
+ *  which end the selected entity is on. */
+const LINK_HEAD: Record<`${Exclude<GraphEdge["kind"], "award">}:${"from" | "to"}`, string> = {
+  "part_of:from": "Part of",
+  "part_of:to": "Offices",
+  "issued:from": "Solicitations issued",
+  "issued:to": "Issued by",
+  "answered:from": "Answered by",
+  "answered:to": "Solicitations answered",
+};
+const LINK_ORDER = Object.keys(LINK_HEAD) as (keyof typeof LINK_HEAD)[];
+/** Rows a list on the card shows before "and N more". */
+const CARD_ROWS = 5;
+
 export function GraphExplorer() {
   const params = useSearchParams();
   const focus = params.get("focus");
   const stress = process.env.NODE_ENV !== "production" ? Number(params.get("stress")) || 0 : 0;
   const { motion, pins } = useStore();
 
-  // The choice of view lives in the URL, so a link opens the same one.
+  // The view: flat unless the link asks for 3D (?view=3d) or the reader chose
+  // 3D last time. A link that names a view always gets it, so a shared link
+  // opens what its sender saw; the remembered choice fills in when it names
+  // none. Until localStorage has been read (just after the first render) no
+  // view is mounted, so a 3D reader never sees the flat map flash first.
   const [no3d, setNo3d] = useState(false); // this browser cannot draw the 3D view
-  const view: ViewName = no3d || params.get("view") === "flat" ? "flat" : "3d";
+  const asked = params.get("view");
+  const linked: ViewName | null = asked === "3d" || asked === "flat" ? asked : null;
+  const [saved, setSaved] = useState<ViewName | null | undefined>(undefined); // undefined: not read yet
+  useEffect(() => {
+    const was = recallView();
+    setSaved(was);
+    // the address says what is shown, so copying it keeps the view
+    if (was === "3d" && !new URLSearchParams(window.location.search).has("view")) writeView("3d");
+  }, []);
+  const view: ViewName = no3d ? "flat" : (linked ?? saved ?? "flat");
+  const viewKnown = no3d || linked !== null || saved !== undefined;
 
   // The window opens on "Recent": the newest stretch of the record, which has
   // something in it however long ago the data was last loaded.
@@ -288,16 +520,30 @@ export function GraphExplorer() {
     setSelected(id);
     api.current.focusOn(id, false);
   }, []);
+  const clearSelection = useCallback(() => setSelected(null), []);
 
   const setView = (next: ViewName) => {
     if (next === view) return;
-    const q = new URLSearchParams(window.location.search);
-    if (next === "flat") q.set("view", "flat");
-    else q.delete("view");
-    const s = q.toString();
-    // Next folds this into its router, so useSearchParams above follows it.
-    window.history.replaceState(null, "", s ? `?${s}` : window.location.pathname);
+    remember(VIEW_KEY, next);
+    setSaved(next);
+    writeView(next);
   };
+
+  // Escape clears the selection from anywhere on the screen (the views also
+  // take it while they hold the keyboard). Not from a field, where it clears
+  // the text, nor from the top bar's menu, which it closes.
+  useEffect(() => {
+    if (!selected) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      const t = e.target;
+      if (t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      if (t instanceof Element && t.closest("nav, header, [role=menu], [role=dialog]")) return;
+      setSelected(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selected]);
 
   // Derived UI
   const present = useMemo(() => {
@@ -323,40 +569,71 @@ export function GraphExplorer() {
   const hits = useMemo(() => {
     if (!needle || !graph) return [];
     return graph.nodes
-      .filter((n) => !hidden.has(n.id) && n.name.toLowerCase().includes(needle))
+      .filter(
+        (n) => !hidden.has(n.id) && (n.name.toLowerCase().includes(needle) || !!n.display_name?.toLowerCase().includes(needle)),
+      )
       .sort((a, b) => b.total - a.total)
       .slice(0, 7);
   }, [graph, hidden, needle]);
 
+  // The side card's figures. The money on it is the entity's own in the
+  // window, so it is counted over the whole graph, not only what the filters
+  // leave: "Paid by" adds up to "Awarded". A name the filters hide is listed
+  // but not a link, since selecting it would select nothing on the map.
   const detail = useMemo(() => {
     if (!graph || !selected) return null;
     const byId = new Map(graph.nodes.map((n) => [n.id, n]));
     const node = byId.get(selected);
     if (!node) return null;
-    const around = new Map<string, { node: GraphNode; amount: number; kind: string }>();
+    const paid = new Map<string, number>();
+    const links = new Map<keyof typeof LINK_HEAD, Map<string, GraphNode>>();
     for (const e of graph.edges) {
-      const other = e.source === selected ? e.target : e.target === selected ? e.source : null;
-      const o = other && byId.get(other);
-      if (!o || hidden.has(o.id)) continue;
-      const cur = around.get(o.id) ?? { node: o, amount: 0, kind: e.kind };
-      cur.amount += e.amount;
-      if (e.kind === "award") cur.kind = "award";
-      around.set(o.id, cur);
+      const from = e.source === selected;
+      const otherId = from ? e.target : e.target === selected ? e.source : null;
+      const o = otherId ? byId.get(otherId) : undefined;
+      if (!o) continue;
+      if (e.kind === "award") {
+        paid.set(o.id, (paid.get(o.id) ?? 0) + e.amount);
+        continue;
+      }
+      const head = `${e.kind}:${from ? "from" : "to"}` as const;
+      const group = links.get(head) ?? new Map<string, GraphNode>();
+      group.set(o.id, o);
+      links.set(head, group);
     }
-    const all = [...around.values()].sort((a, b) => b.amount - a.amount);
-    // Who is on the other end of this node's award edges: the offices that pay
-    // a company, or the companies an agency or office pays.
-    const others = all.filter((a) => a.kind === "award" && (a.node.kind === "company") !== (node.kind === "company"));
-    const partners =
-      node.kind === "company"
-        ? others.every((a) => a.node.kind === "office")
-          ? plural(others.length, "office")
-          : others.every((a) => a.node.kind === "agency")
-            ? plural(others.length, "agency", "agencies")
-            : plural(others.length, "agency or office", "agencies and offices")
-        : plural(others.length, "company", "companies");
-    return { node, partners: others.length ? partners : null, around: all.slice(0, 5) };
-  }, [graph, selected, hidden]);
+    // Who is on the other end of the money: the buyers that pay a company,
+    // or the companies an agency or office pays. Largest first.
+    const partners = [...paid]
+      .map(([id, amount]) => ({ node: byId.get(id)!, amount }))
+      .sort((a, b) => b.amount - a.amount);
+    const amount = node.total || partners.reduce((sum, p) => sum + p.amount, 0);
+    const groups = LINK_ORDER.filter((h) => links.has(h)).map((h) => ({
+      head: LINK_HEAD[h],
+      nodes: [...links.get(h)!.values()].sort((a, b) => b.total - a.total),
+    }));
+    return { node, partners, amount, groups };
+  }, [graph, selected]);
+
+  // How far the selected company has come (Phase I, Phase II, production):
+  // read from its entity record, which the graph does not carry. The row
+  // waits for it and stays away when the record has none.
+  const [stage, setStage] = useState<{ id: string; label: string } | null>(null);
+  const stageFor = detail?.node.kind === "company" && !stress ? detail.node.id : null;
+  useEffect(() => {
+    if (!stageFor) return;
+    const ac = new AbortController();
+    clientGet<Org>(`orgs/${stageFor.split(":")[1]}`, ac.signal)
+      .then((org) => {
+        const reached = (org.path ?? []).filter((p) => p.reached);
+        const last = reached[reached.length - 1];
+        if (last) setStage({ id: stageFor, label: last.label });
+      })
+      .catch(() => {
+        /* no stage row: the card is complete without it */
+      });
+    return () => ac.abort();
+  }, [stageFor]);
+  const stageLabel = stage && stage.id === detail?.node.id ? stage.label : null;
 
   const toggleTag = (t: string) =>
     setTags((was) => {
@@ -385,13 +662,34 @@ export function GraphExplorer() {
   const filteredOut = ready && graph && graph.nodes.length > 0 && shown === 0;
   const shared = { graph, hidden, tags, selected, query: needle, ready, api, onSelect: setSelected };
 
+  // The takeaway line: the selected entity's figure while one is selected,
+  // otherwise what the map in view says.
+  const said = useMemo(() => {
+    if (!graph || !ready || filteredOut || empty) return null;
+    if (selected) return selectionLine(graph, selected, chosen);
+    return summary(graph, hidden, chosen, latest, age);
+  }, [graph, ready, filteredOut, empty, selected, hidden, chosen, latest, age]);
+  // The line is an obstacle to the views' names: they measure it again when
+  // it changes shape. So is the side card, which grows a row when the stage
+  // reached comes in.
+  useEffect(chromeMoved, [said, stageLabel]);
+
   return (
     <div data-graph-root data-rail={railFolded ? "closed" : "open"} className="fixed inset-0 z-20 overflow-hidden bg-bg">
       {/* The plain page: no frame, no art, nothing behind the map. */}
-      {view === "flat" ? (
+      {!viewKnown ? null : view === "flat" ? (
         <GraphFlat {...shared} onReady={readyFlat} />
       ) : (
         <Graph3D {...shared} onReady={ready3d} onUnsupported={noWebGL} />
+      )}
+
+      {/* The takeaway, top left of the map. Before the rail in the page, so
+          the phone's filter sheet covers it. */}
+      {said && (
+        <p className="graph-takeaway" data-obstacle>
+          {said}
+          {selected && <span className="graph-takeaway-esc"> Press Esc to clear.</span>}
+        </p>
       )}
 
       {!ready && !failed && (
@@ -438,10 +736,13 @@ export function GraphExplorer() {
         onQuery={setQuery}
         hits={hits}
         onPick={select}
+        selected={!!selected}
+        onClear={clearSelection}
         win={win}
         onWin={setWin}
         latest={latest}
         age={age}
+        sample={graph?.sample ?? false}
         present={present}
         tagCounts={tagCounts}
         tags={tags}
@@ -502,13 +803,16 @@ export function GraphExplorer() {
         </div>
       </div>
 
-      {/* The side card: the selected entity. Its name in the display serif,
-          the rest in the interface face, dollars awarded in the accent. */}
+      {/* The side card: the selected entity. Its short name in the display
+          serif with the legal name in small capitals under it, then its
+          figures, who is on the other end of its money, and the way to its
+          page. Dollars are in the accent. */}
       <AnimatePresence>
         {detail && (
           <m.aside
             key={detail.node.id}
             data-obstacle
+            data-kind={detail.node.kind}
             aria-label={detail.node.name}
             initial={motion ? { opacity: 0, y: 4 } : false}
             animate={{ opacity: 1, y: 0 }}
@@ -522,7 +826,10 @@ export function GraphExplorer() {
                   {KIND_NAME[detail.node.kind]}
                   {detail.node.tag && <> · {tagLabel(detail.node.tag)}</>}
                 </p>
-                <h2>{detail.node.name}</h2>
+                <h2>{shortName(detail.node)}</h2>
+                {detail.node.kind !== "opportunity" && shortName(detail.node) !== detail.node.name && (
+                  <p className="graph-legal">{detail.node.name}</p>
+                )}
               </div>
               <button type="button" onClick={() => setSelected(null)} aria-label="Close" className="graph-icon-btn -mr-1.5 -mt-1">
                 <CloseIcon size={14} />
@@ -547,17 +854,19 @@ export function GraphExplorer() {
             ) : (
               <dl className="graph-facts">
                 <div>
-                  <dt>{chosen.days ? `Awarded, ${span}` : "Awarded, on record"}</dt>
-                  <dd className="money">{money(detail.node.total)}</dd>
+                  <dt>
+                    {detail.node.kind === "company" ? "Awarded" : "Paid"}, {chosen.days ? (chosen.recent ? `${chosen.days} days` : span) : "on record"}
+                  </dt>
+                  <dd className="money">{moneyRound(detail.amount)}</dd>
                 </div>
                 <div>
                   <dt>Awards</dt>
                   <dd>{detail.node.awards.toLocaleString("en-US")}</dd>
                 </div>
-                {detail.partners && (
+                {stageLabel && (
                   <div>
-                    <dt>{detail.node.kind === "company" ? "Paid by" : "Pays"}</dt>
-                    <dd>{detail.partners}</dd>
+                    <dt>Stage reached</dt>
+                    <dd>{stageLabel}</dd>
                   </div>
                 )}
                 {detail.node.uei && (
@@ -570,40 +879,55 @@ export function GraphExplorer() {
             )}
 
             {detail.node.tags.length > 1 && (
-              <p className="mt-3 text-muted">Also tagged {detail.node.tags.filter((t) => t !== detail.node.tag).map(tagLabel).join(", ")}.</p>
+              <p className="graph-detail-note">
+                Also tagged {detail.node.tags.filter((t) => t !== detail.node.tag).map(tagLabel).join(", ")}.
+              </p>
             )}
 
-            {detail.around.length > 0 && (
-              <>
-                <p className="label mt-4">Connected to</p>
-                <ul className="graph-around mt-1">
-                  {detail.around.map((a) => (
-                    <li key={a.node.id}>
-                      <button type="button" onClick={() => select(a.node.id)}>
-                        {a.node.name}
-                      </button>
-                      <span className={a.kind === "award" ? "money" : undefined}>
-                        {a.kind === "award" ? money(a.amount) : a.kind.replace("_", " ")}
-                      </span>
+            {detail.partners.length > 0 && (
+              <section className="graph-card-list" aria-label={detail.node.kind === "company" ? "Paid by" : "Paid to"}>
+                <h3>{detail.node.kind === "company" ? "Paid by" : "Paid to"}</h3>
+                <ul>
+                  {detail.partners.slice(0, CARD_ROWS).map((p) => (
+                    <li key={p.node.id}>
+                      <CardName node={p.node} hidden={hidden.has(p.node.id)} onSelect={select} />
+                      <span className="money">{moneyRound(p.amount)}</span>
                     </li>
                   ))}
+                  {detail.partners.length > CARD_ROWS && (
+                    <li className="graph-card-more">and {detail.partners.length - CARD_ROWS} more</li>
+                  )}
                 </ul>
-              </>
+              </section>
             )}
 
-            <div className="mt-5 flex flex-wrap items-center gap-2">
+            {detail.groups.map((g) => (
+              <section key={g.head} className="graph-card-list" aria-label={g.head}>
+                <h3>{g.head}</h3>
+                <ul>
+                  {g.nodes.slice(0, CARD_ROWS).map((n) => (
+                    <li key={n.id}>
+                      <CardName node={n} hidden={hidden.has(n.id)} onSelect={select} />
+                    </li>
+                  ))}
+                  {g.nodes.length > CARD_ROWS && <li className="graph-card-more">and {g.nodes.length - CARD_ROWS} more</li>}
+                </ul>
+              </section>
+            ))}
+
+            <div className="graph-card-actions">
               {detail.node.kind === "opportunity" ? (
                 detail.node.url && (
-                  <a className="btn btn-primary" href={detail.node.url} target="_blank" rel="noreferrer">
+                  <a className="btn btn-sm btn-primary" href={detail.node.url} target="_blank" rel="noreferrer">
                     Read the notice<span className="sr-only"> (opens in a new tab)</span>
                   </a>
                 )
               ) : (
                 <>
-                  <Link className="btn btn-primary" href={`/entity/${detail.node.id.split(":")[1]}`}>
-                    Open page
+                  <Link className="btn btn-sm btn-primary" href={`/entity/${detail.node.id.split(":")[1]}`}>
+                    Open profile
                   </Link>
-                  <PinButton
+                  <WatchButton
                     entity={{
                       id: Number(detail.node.id.split(":")[1]),
                       name: detail.node.name,

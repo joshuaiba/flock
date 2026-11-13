@@ -12,6 +12,32 @@ export function money(n: number | null | undefined): string {
   return `$${Math.round(n)}`;
 }
 
+/** $212M, $64M, $8.4M, $1.2B. Compact and rounded for reading: whole units
+ *  from ten up, one decimal below that (and none when it is zero). For a
+ *  sentence or a short breakdown, where "$212.0M" would be noise. */
+export function moneyRound(n: number | null | undefined): string {
+  if (n == null) return "—";
+  const a = Math.abs(n);
+  // Each step starts where the one below would round up to 1,000.
+  const [unit, sign] = a >= 999.5e6 ? [1e9, "B"] : a >= 999.5e3 ? [1e6, "M"] : a >= 999.5 ? [1e3, "K"] : [1, ""];
+  const v = n / unit;
+  const s = Math.abs(v) >= 9.95 || unit === 1 ? String(Math.round(v)) : v.toFixed(1).replace(/\.0$/, "");
+  return `$${s}${sign}`;
+}
+
+const SMALL = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
+
+/** A count as prose sets it: spelled out up to ten ("three"), figures above. */
+export function spell(n: number): string {
+  return Number.isInteger(n) && n >= 0 && n <= 10 ? SMALL[n] : n.toLocaleString("en-US");
+}
+
+/** "Army", "Army and Navy", "Army, Air Force and Navy": no serial comma. */
+export function andList(items: readonly string[]): string {
+  if (items.length < 2) return items[0] ?? "";
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
 /** $1,507,737. Exact, for tables. */
 export function dollars(n: number | null | undefined): string {
   if (n == null) return "—";

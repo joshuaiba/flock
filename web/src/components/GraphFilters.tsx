@@ -15,7 +15,8 @@ import "./graph-rail.css";
 // as removable chips, then the groups, each under a hairline with its name on
 // the left and what it is set to on the right. Exclusive choices are segmented
 // controls; everything else is a checklist. The window opens on "Recent" (see
-// WINDOWS) and says how fresh the record is. The foot says how much of the map
+// WINDOWS) and says how fresh the record is: how long ago the newest award
+// landed, or, once that is more than two weeks back, the day the data ends. The foot says how much of the map
 // is shown. It folds to a strip of three icon buttons. On a phone the search
 // and the window float over the map and the groups fold behind a "Filters"
 // button, so the map stays visible. Layout and looks are in graph-rail.css.
@@ -35,6 +36,10 @@ export const WINDOWS = [
 export type WindowKey = (typeof WINDOWS)[number]["key"];
 export type Window = (typeof WINDOWS)[number];
 export const DEFAULT_WINDOW: WindowKey = "recent";
+
+/** Days after which the record counts as stale: past this, the rail stops
+ *  saying how long ago the newest award was and says when the data ends. */
+export const STALE_DAYS = 14;
 
 export function windowOf(key: WindowKey): Window {
   return WINDOWS.find((w) => w.key === key) ?? WINDOWS[0];
@@ -59,6 +64,12 @@ function awardless(w: Window, age: number | null): boolean {
 }
 
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** An entity's short name, as the map labels it: "AeroVironment", "Army".
+ *  Solicitations and older APIs have none, so the full name stands in. */
+export function shortName(n: GraphNode): string {
+  return n.display_name || n.name;
+}
 
 /** Minimum-dollar steps: companies awarded less in the window are hidden. */
 export const AMOUNTS = [
@@ -136,8 +147,20 @@ const SlidersIcon = () => (
  *  chosen window as a bar on it and the newest award as a ring. When the
  *  record is fresh the ring sits at the right end; when it is not, the gap
  *  between ring and end is how stale it is, and a bar that misses the ring is
- *  a window with no awards in it. Under it, the same in words. */
-function WindowRecord({ w, latest, age }: { w: Window; latest: string | null; age: number | null }) {
+ *  a window with no awards in it. Under it, the same in words: while the
+ *  record is fresh, how long ago its newest award landed; once it is stale,
+ *  the day it ends ("Sample data ends Aug 11" for the synthetic seed). */
+function WindowRecord({
+  w,
+  latest,
+  age,
+  sample,
+}: {
+  w: Window;
+  latest: string | null;
+  age: number | null;
+  sample: boolean;
+}) {
   if (latest == null || age == null) return null;
   const recent = WINDOWS[0];
   // The line reaches a year back, or far enough to hold the Recent window.
@@ -151,11 +174,17 @@ function WindowRecord({ w, latest, age }: { w: Window; latest: string | null; ag
         <span className="graph-record-span" style={{ right: pct(to), width: pct(len) }} />
         <span className="graph-record-newest" style={{ right: pct(age) }} />
       </div>
-      {/* within the year a short date and how long ago; past that, the full date */}
-      <p className="graph-record-note">
-        <span>Newest award</span>
-        <span>{age < 300 ? `${day(latest, true)} · ${ago(age)}` : day(latest)}</span>
-      </p>
+      {age > STALE_DAYS ? (
+        // the year only when it is not this one
+        <p className="graph-record-note graph-record-stale">
+          {sample ? "Sample data ends" : "Data through"} {day(latest, Number(latest.slice(0, 4)) === new Date().getFullYear())}
+        </p>
+      ) : (
+        <p className="graph-record-note">
+          <span>Newest award</span>
+          <span>{`${day(latest, true)} · ${ago(age)}`}</span>
+        </p>
+      )}
     </div>
   );
 }
@@ -214,10 +243,13 @@ export function GraphFilters({
   onQuery,
   hits,
   onPick,
+  selected,
+  onClear,
   win,
   onWin,
   latest,
   age,
+  sample,
   present,
   tagCounts,
   tags,
@@ -244,11 +276,17 @@ export function GraphFilters({
   /** entities on the map whose name matches the search */
   hits: GraphNode[];
   onPick: (id: string) => void;
+  /** something is selected on the map */
+  selected?: boolean;
+  /** clear the selection */
+  onClear?: () => void;
   win: WindowKey;
   onWin: (win: WindowKey) => void;
   /** the day of the newest award on record, and how many days ago that was */
   latest: string | null;
   age: number | null;
+  /** the record is the synthetic seed data (the graph API's `sample`) */
+  sample: boolean;
   /** categories present in this window */
   present: string[];
   /** companies and solicitations in each category, under the other filters */
@@ -291,10 +329,12 @@ export function GraphFilters({
   const focusNext = useRef<"search" | "show" | "hide" | null>(null);
   const listId = useId();
 
-  const byName = (a: GraphNode, b: GraphNode) => a.name.localeCompare(b.name);
+  // Agencies go by their short names ("Army", "DIU"), as on the map.
+  const byName = (a: GraphNode, b: GraphNode) => shortName(a).localeCompare(shortName(b));
   const top = agencies.filter((a) => a.kind === "agency").sort(byName);
   const offices = agencies.filter((a) => a.kind === "office").sort(byName);
-  const agencyName = agency ? (agencies.find((a) => a.id === agency)?.name ?? "One agency") : null;
+  const picked = agency ? agencies.find((a) => a.id === agency) : undefined;
+  const agencyName = agency ? (picked ? shortName(picked) : "One agency") : null;
   // A row of the Show group is ticked while every kind behind it is shown.
   const rows = SHOWN.map((row) => ({ ...row, on: row.kinds.every((k) => kinds.has(k)) }));
   const hiddenRows = rows.filter((row) => !row.on);
@@ -351,9 +391,16 @@ export function GraphFilters({
     } else if (e.key === "Enter") {
       if (showHits && at >= 0) pick(hits[at].id);
     } else if (e.key === "Escape") {
-      // first the list, then the text, then the field
+      // First the list. Then, with something picked on the map, one press
+      // does what the takeaway's "Press Esc to clear" promises: the
+      // selection goes, and the text that found it with it. Otherwise the
+      // text, then the field.
       if (showHits) setListed(false);
-      else if (query) onQuery("");
+      else if (selected && onClear) {
+        onClear();
+        onQuery("");
+        input.current?.blur();
+      } else if (query) onQuery("");
       else input.current?.blur();
     }
   };
@@ -501,7 +548,9 @@ export function GraphFilters({
                         onPointerEnter={() => setCursor(i)}
                         onClick={() => pick(h.id)}
                       >
-                        <span className="graph-name">{h.name}</span>
+                        <span className="graph-name" title={h.name !== shortName(h) ? h.name : undefined}>
+                          {shortName(h)}
+                        </span>
                         {/* the field asks for companies; anything else says what it is */}
                         {h.kind !== "company" && <span className="graph-hit-kind">{KIND_ONE[h.kind]}</span>}
                       </button>
@@ -555,7 +604,7 @@ export function GraphFilters({
 
           <Group title="Window" value={capital(windowPhrase(chosen, latest))} className="graph-only-wide">
             {windowSeg}
-            <WindowRecord w={chosen} latest={latest} age={age} />
+            <WindowRecord w={chosen} latest={latest} age={age} sample={sample} />
           </Group>
 
           <Group title="Categories" value={tags.size ? `${tags.size} of ${present.length}` : "All"}>
@@ -585,7 +634,7 @@ export function GraphFilters({
                 <optgroup label="Agencies">
                   {top.map((a) => (
                     <option key={a.id} value={a.id}>
-                      {a.name}
+                      {shortName(a)}
                     </option>
                   ))}
                 </optgroup>
@@ -594,7 +643,7 @@ export function GraphFilters({
                 <optgroup label="Offices">
                   {offices.map((a) => (
                     <option key={a.id} value={a.id}>
-                      {a.name}
+                      {shortName(a)}
                     </option>
                   ))}
                 </optgroup>
