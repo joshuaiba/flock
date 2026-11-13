@@ -30,7 +30,8 @@
 
 /* With the terrace: the engraving is a full-width background anchored to the
    bottom of the page. It is taller than the footer, so it rises behind the
-   foot of the section above, where its own top edge has already faded out.
+   foot of the section above, where its top edge has already faded out (the
+   mask below: the drawing has no fade of its own).
    --h is its height at the page's width (its shape is 3:1). */
 .site-footer-terrace {
   --h: clamp(220px, 33.34vw, 724px);
@@ -48,6 +49,10 @@
   right: 0;
   bottom: var(--line-h);
   height: var(--h);
+  /* The fade toward the top: half strength where the drawing begins, a quarter
+     of the way down, and whole from 42%. */
+  -webkit-mask-image: linear-gradient(to bottom, transparent 7%, #000 42%);
+  mask-image: linear-gradient(to bottom, transparent 7%, #000 42%);
 }
 /* On a phone the line wraps to three or four: keep all of it clear. */
 @media (max-width: 639.98px) {
@@ -57,7 +62,7 @@
 }
 
 /* Classic: the painted terrace, in full color. The painting is opaque, so its
-   top edge is faded here, over the stretch where the engraving fades itself
+   top edge is faded harder than the engraving's, over the same stretch
    (clear down to a fifth of its height, whole from about half). Its foot is
    faded a little as well, or the paving would end in a hard line above the
    footer's text. */
