@@ -4,10 +4,11 @@ import { useEffect, useRef } from "react";
 import type { Graph } from "@/lib/api";
 import { day, money, plural, truncate } from "@/lib/format";
 import { BEND, CAPTION_RISE, EDGE_ALPHA_MIN, layoutGraph, type N, type Scene } from "@/lib/graphLayout";
+import { artTone, coinTone, currentTheme, onSpritesReady, preloadSprites } from "@/lib/nodeSprites";
 import { readPalette } from "@/lib/paint";
 import { useStore } from "@/lib/store";
 import { NO_API, type GraphViewProps } from "./GraphView";
-import { drawMark, haloText, mix, type MarkLook } from "./graphFlatDraw";
+import { crownRadius, drawMark, haloText, markRadius, mix, type MarkLook } from "./graphFlatDraw";
 import { fitPad, readChrome, roomFor, type Chrome } from "./graphRoom";
 
 // The flat view of the graph, drawn on one canvas. Companies gather in
@@ -225,8 +226,12 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
     const zsAt = (k: number) => Math.min(Math.pow(k, 0.7), k * 1.45);
     const zs = () => zsAt(view.k);
 
-    /** A node's drawn radius in CSS pixels. */
+    /** A node's drawn radius in CSS pixels, as the layout sizes it: what the
+     *  draw functions are handed, and what hit-testing measures. */
     const rad = (n: N, z: number) => Math.max(MIN_R, n.r * z);
+    /** How far a node's mark reaches as drawn (a coin's rim, a wreath, a
+     *  tablet: graphFlatDraw.ts). Names, the fit and culling keep to this. */
+    const reachOf = (n: N, z: number) => markRadius(n, rad(n, z));
 
     const resize = () => {
       dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -286,7 +291,7 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
       const all = nodes.every((n) => hidden.has(n.id));
       for (const n of nodes) {
         if (!all && hidden.has(n.id)) continue;
-        const x = n.x * k, y = n.y * k, r = rad(n, z);
+        const x = n.x * k, y = n.y * k, r = reachOf(n, z);
         add(x - r, y - r, x + r, y + r);
         if (!n.org && !named.has(n.id)) continue;
         // the boxes label() measures for the first spot of spots()
@@ -386,9 +391,9 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
         x1 = Math.max(x1, q.x);
         y0 = Math.min(y0, q.y);
         y1 = Math.max(y1, q.y);
-        reachOut = Math.max(reachOut, rad(q, z));
+        reachOut = Math.max(reachOut, reachOf(q, z));
       }
-      const m = Math.max(reachOut, rad(n, z)) + 8;
+      const m = Math.max(reachOut, crownRadius(n, rad(n, z))) + 8;
       const fitsAt = (k: number) => (x1 - x0) * k + 2 * m <= aw && (y1 - y0) * k + 2 * m <= ah;
       let k = Math.max(goal.k, fitK * 0.5);
       if (!fitsAt(k)) {
@@ -493,7 +498,9 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
       let bd = Infinity;
       for (const n of scene.current.nodes) {
         if (hidden.has(n.id)) continue;
-        const d = Math.hypot(sx(n) - px, sy(n) - py) - Math.max(3, n.r * z);
+        // an agency answers anywhere on its wreath, which is drawn wider
+        // than its ring; every other node on its layout radius
+        const d = Math.hypot(sx(n) - px, sy(n) - py) - Math.max(3, n.org ? reachOf(n, z) : n.r * z);
         if (d < 6 && d < bd) {
           bd = d;
           best = n;
@@ -587,7 +594,21 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
     const grid = new Map<number, N[]>();
     let reach = 0; // the largest drawn radius in view, plus clearance
     const placed: number[] = [];
-    const look: MarkLook = { palette, fade: 0, selected: false, hover: false };
+    // The sprites' tones follow the mode: wreaths, tablets and the crown in
+    // its own, coins in the opposite (lib/nodeSprites.ts). Both are loaded
+    // up front; until a sprite arrives its node is drawn as the plain mark.
+    let theme = currentTheme();
+    const look: MarkLook = {
+      palette,
+      fade: 0,
+      selected: false,
+      hover: false,
+      dpr,
+      tone: artTone(theme),
+      coinTone: coinTone(theme),
+    };
+    preloadSprites(look.tone);
+    preloadSprites(look.coinTone);
 
     /** True if the box is on screen, clear of the chrome and of every name
      *  and caption placed so far. */
@@ -613,7 +634,7 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
           for (const n of cell) {
             if (n === self) continue;
             // the box against the mark's circle, with a hair of clearance
-            const x = sx(n), y = sy(n), r = rad(n, z) + 1.5;
+            const x = sx(n), y = sy(n), r = reachOf(n, z) + 1.5;
             const dx = x - Math.max(x0, Math.min(x, x1));
             const dy = y - Math.max(y0, Math.min(y, y1));
             if (dx * dx + dy * dy < r * r) return false;
@@ -634,6 +655,7 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
       const around = fid ? near.get(fid) : null;
       const lit = (n: N) => (fid ? n.id === fid || !!around?.has(n.id) : matches ? matches.has(n.id) : true);
       look.palette = palette;
+      look.dpr = dpr;
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, W, H);
@@ -730,7 +752,7 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
       for (let i = nodes.length - 1; i >= 0; i--) {
         const n = nodes[i];
         if (hidden.has(n.id)) continue;
-        const x = sx(n), y = sy(n), m = rad(n, z) + 6;
+        const x = sx(n), y = sy(n), m = (n.id === selected ? crownRadius(n, rad(n, z)) : reachOf(n, z)) + 6;
         if (x + m < 0 || x - m > W || y + m < 0 || y - m > H) continue;
         vis.push(n);
         reach = Math.max(reach, m);
@@ -807,7 +829,8 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
         let w = nameWidth(n);
         ctx.font = org ? fonts.org : fonts.name;
         if (forced) w = ctx.measureText(text).width;
-        const x = sx(n), y = sy(n), r = rad(n, z);
+        // a name clears the mark as drawn, and the selected one its crown
+        const x = sx(n), y = sy(n), r = n.id === ui.current.selected ? crownRadius(n, rad(n, z)) : reachOf(n, z);
         // the box around a name's ink, from its baseline
         const asc = org ? 9 : 12;
         const desc = org ? 3 : 4;
@@ -986,8 +1009,15 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
     const onLeave = () => !pointer && setHover(null);
     const onTheme = () => {
       palette = readPalette();
+      theme = currentTheme();
+      look.tone = artTone(theme);
+      look.coinTone = coinTone(theme);
+      preloadSprites(look.tone);
+      preloadSprites(look.coinTone);
       invalidate();
     };
+    // a sprite that has just loaded replaces its plain mark
+    const offSprites = onSpritesReady(invalidate);
     const readFonts = () => {
       const s = getComputedStyle(document.documentElement);
       const display = `${s.getPropertyValue("--font-cormorant").trim() || "Georgia"}, Georgia, serif`;
@@ -1067,6 +1097,7 @@ export function GraphFlat({ graph, hidden, tags, selected, query, ready, api, on
       canvas.removeEventListener("wheel", onWheel);
       canvas.removeEventListener("keydown", onKey);
       window.removeEventListener("flock:theme", onTheme);
+      offSprites();
       window.removeEventListener("graph:chrome", onChrome);
       document.removeEventListener("visibilitychange", onVisible);
     };

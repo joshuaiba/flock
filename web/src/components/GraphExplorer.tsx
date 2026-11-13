@@ -7,7 +7,9 @@ import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clientGet, type Graph, type GraphEdge, type GraphNode, type NodeKind, type Org } from "@/lib/api";
 import { andList, day, moneyRound, spell, truncate } from "@/lib/format";
+import { TONES } from "@/lib/art";
 import { ALL_KINDS, hiddenNodes, stressGraph } from "@/lib/graphLayout";
+import { nodeSpriteSrcSet, nodeSpriteUrl, type NodeSprite } from "@/lib/nodeSprites";
 import { MAX_PINS, useStore, type Pin } from "@/lib/store";
 import { tagLabel, TAGS } from "@/lib/tags";
 import { Empty } from "./Empty";
@@ -102,22 +104,48 @@ function chromeMoved(): void {
 }
 
 /** The four marks of the map, drawn as the canvases draw them. */
+/** One node sprite as a legend icon. Both tones are in the markup and the
+ *  mode shows one (see .graph-legend-sprite in graph-rail.css), the way
+ *  components/Art.tsx does it, so a theme change never flashes; the hidden
+ *  tone is never fetched, because both load lazily. */
+function LegendSprite({ name }: { name: NodeSprite }) {
+  return (
+    <>
+      {TONES.map((tone) => (
+        <img
+          key={tone}
+          src={nodeSpriteUrl(name, tone, 64)}
+          srcSet={nodeSpriteSrcSet(name, tone)}
+          sizes="18px"
+          width={18}
+          height={18}
+          alt=""
+          className={`art-${tone}`}
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+        />
+      ))}
+    </>
+  );
+}
+
+/** The legend's picture of each kind of mark, drawn the way the map draws it:
+ *  a silver coin for a company (a text-colored disc with the coin's lines in
+ *  the opposite tone on top), the laurel wreath for an agency, the open tablet
+ *  for a solicitation, and the accent line for dollars awarded. */
 function Mark({ kind }: { kind: "company" | "org" | "opportunity" | "award" }) {
   if (kind === "award") return <span className="block h-[2px] w-[16px] rounded-full bg-accent" />;
+  if (kind === "company")
+    return (
+      <span className="graph-legend-coin graph-legend-sprite">
+        <LegendSprite name="coin-aerial" />
+      </span>
+    );
   return (
-    <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
-      {kind === "company" ? (
-        <circle cx="7" cy="7" r="4.5" fill="currentColor" stroke="none" />
-      ) : kind === "org" ? (
-        // the double ring: an outer ring, and an inner one at 45%
-        <>
-          <circle cx="7" cy="7" r="5.25" strokeWidth="1.3" />
-          <circle cx="7" cy="7" r="2.35" strokeWidth="1.1" />
-        </>
-      ) : (
-        <path d="M7 2.4 11.6 7 7 11.6 2.4 7Z" strokeWidth="1.1" />
-      )}
-    </svg>
+    <span className="graph-legend-sprite">
+      <LegendSprite name={kind === "org" ? "wreath-laurel" : "tablet-open"} />
+    </span>
   );
 }
 
@@ -150,19 +178,19 @@ function Legend({ open, onOpen }: { open: boolean; onOpen: (open: boolean) => vo
         <span className="graph-legend-head">Legend</span>
         <ul>
           <li>
-            <span className="graph-legend-key text-ink">
+            <span className="graph-legend-key">
               <Mark kind="company" />
             </span>
             Company, sized by dollars
           </li>
           <li>
-            <span className="graph-legend-key text-ink">
+            <span className="graph-legend-key">
               <Mark kind="org" />
             </span>
             Agency, sized by dollars
           </li>
           <li>
-            <span className="graph-legend-key text-ink">
+            <span className="graph-legend-key">
               <Mark kind="opportunity" />
             </span>
             Solicitation

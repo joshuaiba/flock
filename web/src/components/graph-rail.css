@@ -638,6 +638,46 @@
   flex: none;
   place-items: center;
 }
+/* The legend's icons are the map's own sprites, 18px square. Each is one flat
+   color with transparency in two tones, and the mode shows one: wreath and
+   tablet in the mode's tone (light lines in Dark, ink in Paper and Classic). */
+.graph-legend-sprite {
+  position: relative;
+  display: block;
+  width: 1.125rem;
+  height: 1.125rem;
+}
+.graph-legend-sprite > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  user-select: none;
+}
+:root:not([data-theme="dark"]) .graph-legend-sprite:not(.graph-legend-coin) > .art-on-dark,
+:root[data-theme="dark"] .graph-legend-sprite:not(.graph-legend-coin) > .art-on-light {
+  display: none;
+}
+/* The company coin, as the flat view draws it: a text-colored disc with a
+   hairline ring of the page around it, and the coin's lines in the opposite
+   tone on top, a little larger than the disc so its rim covers the edge. */
+.graph-legend-coin {
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text) 95%, transparent);
+  box-shadow: 0 0 0 1.4px var(--bg);
+}
+.graph-legend-coin > img {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 107.5%;
+  height: 107.5%;
+  transform: translate(-50%, -50%);
+}
+:root[data-theme="dark"] .graph-legend-coin > .art-on-dark,
+:root:not([data-theme="dark"]) .graph-legend-coin > .art-on-light {
+  display: none;
+}
 
 @media (min-width: 768px) {
   .graph-controls {
