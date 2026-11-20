@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Cormorant_Garamond, EB_Garamond, Inter } from "next/font/google";
+import { Cormorant_Garamond, EB_Garamond, IBM_Plex_Mono, Inter } from "next/font/google";
 import { Suspense } from "react";
 import { Flock } from "@/components/Flock";
 import { Nav } from "@/components/Nav";
@@ -17,6 +17,9 @@ const display = Cormorant_Garamond({
 });
 const serif = EB_Garamond({ variable: "--font-garamond", subsets: ["latin"], style: ["normal", "italic"] });
 const sans = Inter({ variable: "--font-inter", subsets: ["latin"] });
+// Numbers: IBM Plex Mono for dollars and counts (tabular by nature), the small
+// uppercase labels and timestamps.
+const mono = IBM_Plex_Mono({ variable: "--font-plex-mono", subsets: ["latin"], weight: ["400", "500"] });
 
 export const metadata: Metadata = {
   title: { default: "flock", template: "%s · flock" },
@@ -38,7 +41,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="en"
       data-theme="dark"
-      className={`${display.variable} ${serif.variable} ${sans.variable} antialiased`}
+      className={`${display.variable} ${serif.variable} ${sans.variable} ${mono.variable} antialiased`}
       suppressHydrationWarning
     >
       <head>
