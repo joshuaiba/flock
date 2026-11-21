@@ -16,6 +16,8 @@ import {
   NO_FILTERS,
   parseWindowKey,
   span,
+  WINDOW_KEYS,
+  WINDOW_NAMES,
   windowPhrase,
   type Filters,
   type Flows,
@@ -24,13 +26,9 @@ import {
 import { Empty } from "../Empty";
 import { ConstellationView } from "./ConstellationView";
 import { FilterRail, MINIMUMS } from "./FilterRail";
-import { WINDOW_KEYS, WINDOW_NAMES } from "@/lib/flows";
 import { FlowView, type Fresh } from "./FlowView";
 import { Inspector } from "./Inspector";
 import { useLastVisit } from "./parts";
-import { ConstellationFan } from "./variants/ConstellationFan";
-import { FlowBundled } from "./variants/FlowBundled";
-import { FlowChord } from "./variants/FlowChord";
 import { Timeline, type Brush } from "./Timeline";
 import "./explorer.css";
 
@@ -55,7 +53,7 @@ const VIEWS: { key: View; label: string }[] = [
 ];
 const isView = (v: string | null): v is View => v === "flow" || v === "constellation" || v === "timeline";
 
-type UrlState = { view: View; focus: string | null; hops: 1 | 2; filters: Filters; fresh: boolean; viz: string | null };
+type UrlState = { view: View; focus: string | null; hops: 1 | 2; filters: Filters; fresh: boolean };
 
 function readUrl(search: string): UrlState {
   const q = new URLSearchParams(search);
@@ -72,9 +70,6 @@ function readUrl(search: string): UrlState {
     focus: focus || null,
     hops: q.get("hops") === "1" ? 1 : 2,
     fresh: q.get("new") === "1",
-    // Chart variants under comparison: ?viz=sankey|chord|bundled for the flow,
-    // ?viz=rings|fan for the constellation.
-    viz: q.get("viz"),
     filters: {
       ...NO_FILTERS,
       missions: missions ? new Set(missions.split(",").filter(Boolean)) : null,
@@ -318,22 +313,16 @@ export function Explorer({ initial, search }: { initial: Flows | null; search: s
             <>
               {view === "flow" && (
                 <section className="ex-card" aria-label="Flow of dollars">
-                  {state.viz === "chord" ? (
-                    <FlowChord model={model} who={who} selected={selected} onSelect={select} />
-                  ) : state.viz === "bundled" ? (
-                    <FlowBundled model={model} who={who} selected={selected} onSelect={select} />
-                  ) : (
-                    <FlowView
-                      model={model}
-                      who={who}
-                      order={order}
-                      selected={selected}
-                      onSelect={(id) => select(id && id.endsWith(">others") ? id.split(">")[0] : id)}
-                      fresh={fresh}
-                      gen={gen}
-                      label={when}
-                    />
-                  )}
+                  <FlowView
+                    model={model}
+                    who={who}
+                    order={order}
+                    selected={selected}
+                    onSelect={(id) => select(id && id.endsWith(">others") ? id.split(">")[0] : id)}
+                    fresh={fresh}
+                    gen={gen}
+                    label={when}
+                  />
                   <p className="ex-legend">
                     <span>
                       <i className="ex-key ex-key-on" aria-hidden="true" />
@@ -349,26 +338,16 @@ export function Explorer({ initial, search }: { initial: Flows | null; search: s
               )}
               {view === "constellation" && (
                 <section className="ex-card" aria-label="Constellation">
-                  {state.viz === "fan" ? (
-                    <ConstellationFan
-                      model={model}
-                      who={who}
-                      center={center}
-                      hops={hops}
-                      onCenter={(id) => select(id)}
-                    />
-                  ) : (
-                    <ConstellationView
-                      model={model}
-                      who={who}
-                      center={center}
-                      hops={hops}
-                      onCenter={(id) => select(id)}
-                      fresh={fresh}
-                      gen={gen}
-                      missions={centerMissions}
-                    />
-                  )}
+                  <ConstellationView
+                    model={model}
+                    who={who}
+                    center={center}
+                    hops={hops}
+                    onCenter={(id) => select(id)}
+                    fresh={fresh}
+                    gen={gen}
+                    missions={centerMissions}
+                  />
                   <p className="ex-legend">
                     <span>
                       <i className="ex-key ex-key-edge" aria-hidden="true" />
