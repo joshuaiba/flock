@@ -115,46 +115,48 @@ and a few other values are read straight from the process environment.
 ## Web UI
 
 `web/` is a Next.js site over a read-only API (`pipeline/api`). It is a
-near-black site in one color, with classical line engravings ghosted at the
-page edges and the data in plain, quiet UI. The only hue is one accent, and it
-always means dollars awarded: amounts, award edges in the graph, award birds.
-Serif (Cormorant Garamond, EB Garamond) is for identity and reading; every
-control, label and number is in Inter. Dark is the default; the Display menu
-has a paper mode (ink on a paper ground) and a switch for motion. All of the
-art comes from an engraving pack, in two tones; nothing decorative is drawn in
-code. The landing page's ambient motion is the swallows and the two boats on
-the hero's lake; no other art moves.
+near-black site in one color: dark, minimal, with classical line-engraving
+details (diagonal hatch fills, fine tick rings, labels set along curves). The
+only hue is copper, and it always means dollars awarded and what is selected;
+steel appears only as the solicitation diamond. Three faces: Cormorant
+Garamond italic for the narrative voice (headlines, ledes, mission names),
+Inter for the interface, IBM Plex Mono for numbers, dollars and the small
+uppercase labels. Dark is the default; the Display menu has a paper mode, a
+parchment mode (Classic) and a switch for motion.
 
-The Display menu has a third mode, Classic, for fun: the painted design the
-site began with. On the landing page it shows the painted lakeside hero (a
-painted sky, village, lake and boats, a leafy frame in the bottom corners that
-sways, and painted swallows), About's frieze in color and the painted terrace
-in the footer. Every other page keeps its layout and its engravings and only
-takes the old parchment colors. In Dark and Paper none of the painted art is
-fetched.
+Nothing moves by itself. Bands and arcs ink in once when data arrives, and
+after that the page moves only when the reader hovers, selects, drags the
+timeline's brush or asks for the landing page's narrated tour. The OS
+reduced-motion setting and Display → Motion → Off turn the ink-in off too.
 
 | Screen | Path | What it shows |
 | --- | --- | --- |
-| Landing | `/` | The headline, the engraved lakeside village along the bottom, two boats on its lake (both bob, and the sailboat drifts slowly across), the live flock in the open sky (award birds in the accent, solicitation birds in the text color), and the way into the Forum; then About, under a ghost of the Pergamon Altar's frieze |
+| Landing | `/` | The window's headline ("Army, Air Force and Defense Logistics paid 90% of autonomy dollars") beside a star chart of the same awards: agencies on the outer ring, missions as sectors, companies as stars, an arc for every agency → company flow, and the newest awards on record as copper arcs that open their source record. "Play the narrated tour" walks the chart in six paragraphs. Under it: the newest awards as a feed, three ways into the graph (each thumbnail drawn from the same data), the top recipients, and companies per mission; then About, under a ghost of the Pergamon Altar's frieze |
 | The Forum | `/forum` | The signals dashboard: the summary row, where the money went (award dollars by category family, as parts of a whole), momentum, stage transitions, topic heat, largest awards, funding by category, agency appetite and watchlist changes, over 30 days, 90 days or 1 year, for all categories or one. Engraved figures stand in the side margins on a wide window |
 | Leaderboards | `/forum/leaderboards` | The full rankings behind the Forum's panels |
-| Graph explorer | `/graph` | Companies as filled dots sized by dollars, agencies and offices as rings, solicitations as small diamonds; award edges in the accent, weight by dollars; search; filters for window (Recent, the default: the 90 days up to the newest award on record, so the map is never empty when the data has not been loaded lately; or 30 days / 90 days / 1 year back from today / everything on record), category, agency, minimum dollars, node type and watchlist only. Selecting a node dims everything but its neighbors and opens a side card. It opens in 3D (drag to orbit, click a node to fly to it, drag a node to move it) with a toggle to a flat view that keeps the filters and the selection |
+| Graph explorer | `/graph` | One answer from `GET /api/flows`, drawn three ways. **Flow** (the default): a three-column Sankey, Agency → Mission → Recipient, bands as wide as their dollars; selecting a node turns its bands copper, hovering a band isolates it, and the long tail of companies folds into "All other companies (n)", which opens on click. **Constellation**: one company or agency at the center, who it trades dollars with on ring 1, who else they trade with on ring 2 (1 or 2 hops), the rest ghosted; clicking any node re-centers. **Timeline**: a tick per award, a row per mission. A filter rail (window, missions, agency, minimum award), an inspector whose every figure leads to the award records behind it and their USAspending pages, a timeline strip whose brush narrows every view, and "New since your last visit". The window, view, selection and filters are in the address (`?window=90d&view=constellation&focus=org:12`) |
 | Entity page | `/entity/<id>` | An organization, its name as the hero: its signals for the last 90 days (dollars, rank, stage reached, the last award), path to production as one line with dates and the time between stages, awards, who pays it, sources |
 | Field report | `/feed` | The week's digest in a reading column, then every recent award and solicitation as a table |
 | About the numbers | `/about/numbers` | What each figure means, the tables it is computed from, how far back the record reaches, and what the numbers cannot tell you |
 
-Clicking a bird in the flock opens the page of the company that received that
-award; a solicitation bird opens the graph on its node. The flock lives in the
-landing page's hero only: it scrolls with the scene, and over the last third of
-the hero's scroll the birds climb away and fade. No other page has birds. The
-watchlist (up to five organizations, kept in the browser) is a panel on the
-Forum; the top bar shows its count.
+Cmd+K (Ctrl+K) opens a command palette on every page: find a company or an
+agency and open its constellation. The watchlist (up to five organizations,
+kept in the browser) is a panel on the Forum; the top bar shows its count.
+
+**Windows end on the newest award, not on today.** USAspending publishes
+Defense contracts about 90 days after they are signed, so "the last 90 days"
+counted back from the calendar holds nothing. Every window of the graph (30d,
+90d, 1y, All) is computed by one function, `pipeline/api/windows.py`, and ends
+on the day of the newest award on record; its label says so ("90 days to Aug
+19"). A visit opens on the first window that holds an award and writes it to
+the address, so the page never opens empty.
 
 Run it locally in two terminals:
 
 ```sh
 # 1. API on :8000, on an embedded Postgres with sample data. No keys, no tokens.
 uv run python -m pipeline.api.dev            # --reseed starts the sample data over
+                                             # --as-of 2026-08-19: a record that ends that day
 
 # 2. Site on :3000
 cd web && pnpm install && pnpm dev
@@ -203,9 +205,11 @@ response carries `as_of`, the window, the source tables, and `coverage`, which
 says whether the data reaches back far enough to compare with the prior period.
 
 The views are refreshed by `python -m pipeline.signals`, the last step of the
-nightly workflow. The hero's 30-day figures and the field report's weekly
-figures read the same views, so pages cannot disagree. The API server does not
-refresh them: after loading data by hand, run the refresh.
+nightly workflow. The Forum, the entity pages and the field report's weekly
+figures read the same views, so those pages cannot disagree. The API server
+does not refresh them: after loading data by hand, run the refresh. (The
+signal views' windows still end on the day of the refresh; the landing page
+and the graph read `/api/flows`, whose windows end on the newest award.)
 
 Things to know:
 
@@ -249,16 +253,23 @@ Things to know:
   award's dollars split evenly across its families, so the parts add up to the
   Awarded figure) and lists them on `/api/signals/definitions`; the site keeps
   no copy of the grouping.
-- **The graph is laid out once and then stays put.** The 3D view groups
-  categories into constellations with `d3-force-3d`
-  (`web/src/components/Graph3DLayout.ts`); the flat view uses ForceAtlas2, then
-  noverlap (`web/src/lib/graphLayout.ts`). A node moves only when dragged. In
-  development, `/graph?stress=2000` loads a synthetic 2,000-node graph for
-  profiling.
-- **Motion can be turned off.** The site follows the OS reduced-motion setting,
-  and Display → Motion → Off in the top bar freezes the scene: the hero becomes
-  a still painting with a few birds held in a loose V. Day and dusk are in the
-  same menu.
+- **The charts are laid out, never simulated.** The Sankey, the constellation
+  and the landing page's star chart are computed from rank and from a hash of
+  each id (`web/src/lib/flows.ts`, `web/src/lib/starChart.ts`): no force
+  simulation runs, so the same data draws the same picture on every load and
+  in the server's HTML. Filters thin the Sankey's columns but never reorder
+  them. Which charts were tried and why these were kept is in
+  [docs/redesign/README.md](docs/redesign/README.md).
+- **An award with several missions splits its dollars evenly between them** in
+  the flow, so its three columns add up to the same total (the same rule as
+  "Where the money went" on the Forum).
+- **"New since your last visit" compares award ids, not dates.** The browser
+  remembers the highest award id on record at the last visit; anything above
+  it was loaded since, whatever date it carries (a newly published DoD award
+  is usually about 90 days old).
+- **The lake hero's art is still in `web/public/art/`** (`hero/`, `sprites/`,
+  `nodes/` and the painted `classic/hero/`), though the star chart replaced the
+  scene and nothing draws those files now. `build-art.py` still builds them.
 
 ## Where agents are used and why
 
