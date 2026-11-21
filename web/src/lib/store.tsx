@@ -115,7 +115,7 @@ export function useStore() {
     () => ({
       theme: s.theme,
       setTheme,
-      /** user chose "still" (low-power): the flock is a frozen formation */
+      /** user chose "still": nothing inks in or animates */
       still: s.still,
       toggleStill,
       /** false when the user or the OS asked for no motion */

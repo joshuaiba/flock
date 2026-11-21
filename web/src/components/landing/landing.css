@@ -1,0 +1,814 @@
+/* The landing page: the star-chart hero, the feed under it, three ways in,
+   who leads and where the activity is. Plain CSS with an ld- prefix. Colors
+   are the tokens of globals.css; copper is dollars and the newest arcs, steel
+   only the solicitation diamond.
+
+   Motion: the copper arcs ink in once when the page arrives and the feed's
+   rows fade in once. After that nothing moves unless the reader hovers, or
+   asks for the narrated tour (which moves the chart's view between
+   paragraphs). With motion off, none of it animates. */
+
+.ld-page {
+  max-width: 85rem;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+@media (min-width: 640px) {
+  .ld-page {
+    padding: 0 2.5rem;
+  }
+}
+
+/* ---- Hero ---- */
+
+.ld-hero {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 28.75rem), 1fr));
+  gap: 2rem 3rem;
+  align-items: center;
+  max-width: 85rem;
+  margin: 0 auto;
+  padding: 6.5rem 1rem 2.5rem;
+}
+@media (min-width: 640px) {
+  .ld-hero {
+    padding: 7.5rem 2.5rem 2.5rem;
+  }
+}
+.ld-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+  min-width: 0;
+}
+.ld-eyebrow,
+.ld-label,
+.ld-stats dt {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.ld-eyebrow {
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+}
+.ld-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(2.5rem, 1.4rem + 4.2vw, 4.25rem);
+  font-style: italic;
+  font-weight: 500;
+  line-height: 1.02;
+  letter-spacing: -0.01em;
+}
+.ld-lede {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(1.375rem, 1.1rem + 1vw, 1.75rem);
+  font-style: italic;
+  line-height: 1.2;
+  color: var(--soft);
+}
+.ld-body {
+  max-width: 29.5rem;
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.65;
+  color: var(--muted);
+}
+.ld-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 0;
+}
+.ld-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+  min-height: 3rem;
+  padding: 0 1.5rem;
+  border: 1px solid var(--line2);
+  border-radius: 999px;
+  background: transparent;
+  font: 500 0.9375rem/1 var(--font-sans);
+  color: var(--text);
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background-color 0.15s;
+}
+.ld-btn:hover {
+  border-color: var(--text);
+}
+.ld-btn-primary {
+  border-color: var(--text);
+  background: var(--text);
+  color: var(--bg);
+}
+.ld-btn-primary:hover {
+  background: color-mix(in srgb, var(--text) 88%, var(--bg));
+}
+.ld-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.5rem;
+  margin: 0.75rem 0 0;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--hair);
+}
+.ld-stats dd {
+  margin: 0.375rem 0 0;
+  font-family: var(--font-display);
+  font-size: 2.5rem;
+  font-weight: 500;
+  line-height: 1;
+  font-feature-settings: normal;
+}
+
+/* ---- The star chart ---- */
+
+.ld-chart {
+  position: relative;
+  min-width: 0;
+}
+.ld-star {
+  display: block;
+  width: 100%;
+  max-width: 42.5rem;
+  height: auto;
+  margin: 0 auto;
+}
+.ld-star text {
+  font-family: var(--font-sans);
+}
+.ld-camera {
+  transform-origin: 0 0;
+  transition: transform 1.3s cubic-bezier(0.3, 0.6, 0.2, 1);
+}
+.ld-ring,
+.ld-ring-faint,
+.ld-rose {
+  fill: none;
+  stroke: color-mix(in srgb, var(--text) 30%, transparent);
+  stroke-width: 1;
+}
+.ld-ring-faint {
+  stroke: color-mix(in srgb, var(--text) 18%, transparent);
+  stroke-dasharray: 2 4;
+}
+.ld-rose {
+  stroke-width: 0.8;
+}
+.ld-tick {
+  stroke: color-mix(in srgb, var(--text) 22%, transparent);
+  stroke-width: 1;
+}
+.ld-tick-major {
+  stroke: var(--tick);
+}
+.ld-deg {
+  font-family: var(--font-mono) !important;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-anchor: middle;
+  fill: var(--muted);
+}
+.ld-spoke {
+  stroke: color-mix(in srgb, var(--text) 18%, transparent);
+  stroke-width: 1;
+  stroke-dasharray: 1 5;
+}
+.ld-figure {
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 0.6;
+  opacity: 0.2;
+}
+.ld-hit,
+.ld-arc-hit {
+  fill: none;
+  stroke: transparent;
+}
+.ld-hit {
+  fill: transparent;
+}
+.ld-arc-hit {
+  stroke-width: 9;
+  pointer-events: stroke;
+}
+.ld-arc,
+.ld-live,
+.ld-starlink,
+.ld-agency {
+  cursor: pointer;
+  outline: none;
+  transition: opacity 0.2s;
+}
+.ld-arc-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 0.6;
+  opacity: 0.22;
+  pointer-events: none;
+}
+.ld-arc-lead .ld-arc-line {
+  stroke-width: 0.7;
+  opacity: 0.42;
+}
+.ld-arc-lit .ld-arc-line {
+  stroke: var(--accent-light);
+  stroke-width: 1;
+  opacity: 0.9;
+}
+.ld-live-line {
+  fill: none;
+  stroke: var(--accent-light);
+  stroke-width: 1.2;
+  opacity: 0.95;
+  pointer-events: none;
+  stroke-dasharray: 1;
+  animation: ld-ink 2.6s cubic-bezier(0.3, 0.6, 0.2, 1) both;
+}
+.ld-live-hot .ld-live-line,
+.ld-live:focus-visible .ld-live-line {
+  stroke-width: 2.2;
+  opacity: 1;
+}
+@keyframes ld-ink {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+/* Hovering isolates: everything not part of what is under the pointer drops
+   to about an eighth. */
+.ld-off {
+  opacity: 0.12;
+}
+.ld-starmark {
+  fill: var(--text);
+  opacity: 0.85;
+}
+.ld-starlink:hover .ld-starmark,
+.ld-starlink:focus-visible .ld-starmark {
+  fill: var(--accent-light);
+  opacity: 1;
+}
+.ld-spike {
+  stroke: var(--text);
+  stroke-width: 0.8;
+  opacity: 0.9;
+}
+.ld-lead-ring {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1;
+  opacity: 0.7;
+}
+.ld-named {
+  font-size: 12.5px;
+  font-weight: 500;
+  fill: var(--text);
+}
+.ld-halo {
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+.ld-agency-ring {
+  fill: var(--bg);
+  stroke: var(--text);
+  stroke-width: 1;
+}
+.ld-agency-core {
+  fill: var(--accent);
+}
+.ld-agency-open {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1;
+}
+.ld-agency:hover .ld-agency-ring,
+.ld-agency:focus-visible .ld-agency-ring {
+  stroke: var(--accent-light);
+  stroke-width: 2;
+}
+.ld-agencylabel {
+  font-family: var(--font-mono) !important;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  fill: var(--text);
+}
+.ld-sectorlabel {
+  font-family: var(--font-display) !important;
+  font-size: 15px;
+  font-style: italic;
+  fill: var(--soft);
+}
+.ld-sectorlabels {
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+.ld-sectorlabels-quiet .ld-sectorlabel:not(.ld-sectorlabel-on) {
+  opacity: 0.35;
+}
+.ld-sectorlabel-on {
+  fill: var(--text);
+}
+.ld-core {
+  fill: var(--bg);
+  stroke: var(--tick);
+  stroke-width: 1;
+}
+.ld-big {
+  font-family: var(--font-display) !important;
+  font-size: 38px;
+  font-style: italic;
+  font-weight: 500;
+  text-anchor: middle;
+  fill: var(--text);
+}
+.ld-cap {
+  font-family: var(--font-mono) !important;
+  font-size: 8.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-anchor: middle;
+  fill: var(--accent);
+}
+
+/* ---- The tour's caption ---- */
+
+.ld-tour {
+  max-width: 34rem;
+  margin: 0.75rem auto 0;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--hair);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.ld-tour-text {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-style: italic;
+  line-height: 1.35;
+  outline: none;
+}
+.ld-tour-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+  margin: 0.75rem 0 0;
+}
+.ld-tour-count {
+  margin-right: auto;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.ld-tour-nav button {
+  min-height: 2.25rem;
+  padding: 0 0.875rem;
+  border: 1px solid var(--hair);
+  border-radius: 999px;
+  background: transparent;
+  font: 500 0.8125rem/1 var(--font-sans);
+  color: var(--text);
+  cursor: pointer;
+}
+.ld-tour-nav button:hover:not(:disabled) {
+  border-color: var(--line2);
+}
+.ld-tour-nav button:disabled {
+  color: var(--faint);
+  cursor: default;
+}
+
+/* ---- The feed ---- */
+
+.ld-feed {
+  display: flex;
+  align-items: stretch;
+  min-height: 3.5rem;
+  border-block: 1px solid var(--hair);
+  background: var(--panel);
+}
+.ld-feed-head {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.125rem;
+  padding: 0 1.25rem 0 1rem;
+  border-right: 1px solid var(--hair);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 400;
+  letter-spacing: 0.14em;
+  line-height: 1.3;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.ld-feed-head span {
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+@media (min-width: 640px) {
+  .ld-feed-head {
+    padding-left: 2.5rem;
+  }
+}
+.ld-feed-row {
+  display: flex;
+  flex: 1;
+  gap: 3rem;
+  align-items: center;
+  min-width: 0;
+  margin: 0;
+  padding: 0 2rem;
+  list-style: none;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  font-family: var(--font-mono);
+  font-size: 0.78125rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.ld-feed-row li {
+  flex: none;
+  animation: ld-fade 0.6s ease-out both;
+}
+.ld-feed-row li > * {
+  display: inline-flex;
+  gap: 0.625rem;
+  align-items: center;
+  min-height: 2.75rem;
+  color: inherit;
+  text-decoration: none;
+}
+.ld-feed-row a:hover .ld-feed-who {
+  color: var(--accent-light);
+}
+.ld-dot,
+.ld-feed-amt {
+  color: var(--accent);
+}
+.ld-sol {
+  color: var(--steel);
+}
+.ld-feed-who {
+  color: var(--text);
+}
+.ld-feed-what {
+  color: var(--muted);
+}
+@keyframes ld-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* ---- Sections ---- */
+
+.ld-section {
+  max-width: 85rem;
+  margin: 0 auto;
+  padding: 5rem 1rem 2.5rem;
+}
+@media (min-width: 640px) {
+  .ld-section {
+    padding: 6rem 2.5rem 2.5rem;
+  }
+}
+.ld-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem 1.5rem;
+  margin-bottom: 2.5rem;
+}
+.ld-section-head p {
+  max-width: 23.75rem;
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.ld-h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(2.125rem, 1.5rem + 2.4vw, 3.25rem);
+  font-style: italic;
+  font-weight: 500;
+  line-height: 1.05;
+}
+.ld-h2-small {
+  margin-bottom: 1rem;
+  font-size: 2.25rem;
+}
+.ld-ways {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+  gap: 1.5rem;
+}
+.ld-way {
+  display: flex;
+  flex-direction: column;
+  gap: 1.125rem;
+  padding: 1.75rem;
+  border: 1px solid var(--hair);
+  border-radius: 6px;
+  background: var(--panel);
+}
+.ld-way-art {
+  padding-bottom: 1.125rem;
+  border-bottom: 1px solid var(--hair);
+}
+.ld-thumb {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 300 / 190;
+}
+.ld-way-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.875rem;
+}
+.ld-way-title span {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--accent);
+}
+.ld-way-title h3 {
+  margin: 0;
+  font-size: 2rem;
+  font-style: italic;
+  font-weight: 500;
+}
+.ld-way p {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.ld-way-link {
+  align-self: flex-start;
+  margin-top: auto;
+  padding: 0.5rem 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-decoration: none;
+}
+.ld-way-link:hover {
+  color: var(--accent-light);
+}
+.ld-th-band {
+  fill: color-mix(in srgb, var(--text) 16%, transparent);
+  stroke: color-mix(in srgb, var(--text) 30%, transparent);
+  stroke-width: 0.4;
+  vector-effect: non-scaling-stroke;
+}
+.ld-th-on {
+  fill: color-mix(in srgb, var(--accent) 50%, transparent);
+  stroke: var(--accent);
+}
+.ld-th-node,
+.ld-th-dot {
+  fill: var(--text);
+}
+.ld-th-dot {
+  opacity: 0.6;
+}
+.ld-th-ghost {
+  fill: var(--text);
+  opacity: 0.12;
+}
+.ld-th-edge1,
+.ld-th-edge2 {
+  fill: none;
+  stroke: var(--accent);
+}
+.ld-th-edge2 {
+  stroke: var(--text);
+  stroke-width: 0.6;
+  opacity: 0.25;
+}
+.ld-th-ring {
+  fill: var(--panel);
+  stroke: var(--text);
+  stroke-width: 1;
+}
+.ld-th-core {
+  fill: var(--accent);
+}
+.ld-th-axis {
+  stroke: color-mix(in srgb, var(--text) 25%, transparent);
+}
+.ld-th-tick {
+  stroke: var(--text);
+  stroke-width: 1.4;
+  opacity: 0.35;
+}
+.ld-th-tick-on {
+  stroke: var(--accent);
+  opacity: 0.8;
+}
+.ld-th-brush {
+  fill: color-mix(in srgb, var(--text) 5%, transparent);
+  stroke: color-mix(in srgb, var(--text) 40%, transparent);
+  stroke-dasharray: 3 3;
+}
+
+/* ---- Who leads, and where the activity is ---- */
+
+.ld-report {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 26.25rem), 1fr));
+  gap: 3rem;
+  padding-top: 4rem;
+}
+.ld-leaders,
+.ld-missions {
+  margin: 0.5rem 0 1rem;
+  padding: 0;
+  list-style: none;
+}
+.ld-leaders li {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: baseline;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.ld-rank {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--accent);
+}
+.ld-leader {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.ld-leader a {
+  font-size: 1.0625rem;
+  font-weight: 500;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.ld-leader a:hover,
+.ld-missions a:hover {
+  color: var(--accent-light);
+}
+.ld-leader-sub {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-style: italic;
+  color: var(--muted);
+}
+.ld-bar {
+  display: block;
+  height: 5px;
+  margin-top: 0.25rem;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--hair);
+}
+.ld-bar > span {
+  display: block;
+  height: 5px;
+  background: var(--accent);
+}
+.ld-amount,
+.ld-count {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.ld-amount {
+  font-size: 0.875rem;
+  color: var(--text);
+  text-decoration-color: var(--line2);
+}
+.ld-amount:hover {
+  color: var(--accent-light);
+}
+.ld-missions li {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 2fr) 2.5rem;
+  gap: 1rem;
+  align-items: center;
+  min-height: 2.75rem;
+  border-bottom: 1px solid var(--line);
+}
+.ld-missions a {
+  font-size: 0.875rem;
+  text-decoration: none;
+}
+.ld-missions .ld-bar {
+  height: 6px;
+  margin: 0;
+}
+.ld-missions .ld-bar > span {
+  height: 6px;
+}
+.ld-count {
+  font-size: 0.8125rem;
+  color: var(--muted);
+  text-align: right;
+}
+.ld-close {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem 1.5rem;
+  max-width: 85rem;
+  margin: 2rem auto 0;
+  padding: 2.5rem 1rem 0;
+  border-top: 1px solid var(--hair);
+}
+@media (min-width: 640px) {
+  .ld-close {
+    padding-inline: 2.5rem;
+  }
+}
+.ld-close p {
+  margin: 0;
+}
+.ld-close-line {
+  font-family: var(--font-display);
+  font-size: 1.625rem;
+  font-style: italic;
+}
+.ld-close-src {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ld-live-line,
+  .ld-feed-row li {
+    animation: none;
+  }
+  .ld-camera,
+  .ld-arc,
+  .ld-live,
+  .ld-starlink,
+  .ld-agency {
+    transition: none;
+  }
+}
+html[data-still] .ld-live-line,
+html[data-still] .ld-feed-row li {
+  animation: none;
+}
+html[data-still] .ld-camera {
+  transition: none;
+}
+/* ---- About, under the hero: the frieze ghost in the top right corner ---- */
+.about-fresco {
+  position: absolute;
+  z-index: 0;
+  top: 2.5rem;
+  right: 0;
+  width: min(600px, 60vw);
+}
+/* On a phone the ghost sits above the words, not beside them. */
+@media (max-width: 1023.98px) {
+  .about-fresco {
+    position: relative;
+    top: auto;
+    width: min(600px, 86vw);
+    margin: 3rem 0 -2rem auto;
+  }
+}
+/* The photograph's credit: a small line of its own under the caption, in the
+   interface face. */
+.about-credit {
+  display: block;
+  margin-top: 0.3rem;
+  font-family: var(--font-sans);
+  font-style: normal;
+  font-size: 0.75rem;
+  line-height: 1.4;
+}

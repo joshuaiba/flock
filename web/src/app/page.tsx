@@ -2,13 +2,61 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { Art } from "@/components/Art";
 import { Footer } from "@/components/Footer";
-import { Hero } from "@/components/Hero";
+import { Report, ThreeWays } from "@/components/landing/Sections";
+import { StarHero } from "@/components/landing/StarHero";
 import { serverGet, type Summary } from "@/lib/api";
 import { FRIEZE_CAPTION, FRIEZE_CREDIT } from "@/lib/art";
+import { day } from "@/lib/format";
+import type { Flows } from "@/lib/flows";
+import "@/components/landing/landing.css";
 
 async function FooterWithData() {
   const s = await serverGet<Summary>("summary");
   return <Footer terrace sources sample={s?.sample} />;
+}
+
+/** The top of the page, from the same answer the graph is drawn from: the
+ *  default window (the first one with an award in it), so the headline, the
+ *  chart, the feed and the lists below all describe the same days. Without
+ *  the API there is only the headline and the two ways in. */
+async function Top() {
+  const data = await serverGet<Flows>("flows");
+  if (!data || !data.awards.length) return <Fallback />;
+  return (
+    <>
+      {/* The hero runs in the browser, so its data travels in the page: without
+          the award descriptions, which it never prints. */}
+      <StarHero data={{ ...data, awards: data.awards.map((a) => ({ ...a, description: null })) }} />
+      <ThreeWays data={data} />
+      <Report data={data} />
+      <div className="ld-close">
+        <p className="ld-close-line">Every connection is drawn from the public record.</p>
+        <p className="ld-close-src">
+          USAspending.gov · SAM.gov · DoD contract announcements. Data through {day(data.window.latest_data_date)}
+          {data.sample ? " · sample data" : ""}
+        </p>
+      </div>
+    </>
+  );
+}
+
+function Fallback() {
+  return (
+    <section className="ld-hero">
+      <div className="ld-copy">
+        <p className="ld-eyebrow">Field report</p>
+        <h1 className="ld-title">Following the money on the frontier of autonomy, from solicitation to production.</h1>
+        <p className="ld-actions">
+          <Link href="/graph" className="ld-btn ld-btn-primary">
+            Open the graph
+          </Link>
+          <Link href="/forum" className="ld-btn">
+            Open the Forum
+          </Link>
+        </p>
+      </div>
+    </section>
+  );
 }
 
 // The three things Flock follows, in the order the money moves. The titles
@@ -31,19 +79,10 @@ const ABOUT = [
 export default function Home() {
   return (
     <>
-      {/* Hero: the headline, the engraved lake and its two boats along the bottom, and the flock. */}
-      <Hero>
-        <h1 className="hero-title">Following the money on the frontier of autonomy, from solicitation to production.</h1>
-        {/* The way in: the Forum is where a visit starts after the hero. */}
-        <p className="mt-10 flex flex-wrap items-center gap-2.5">
-          <Link href="/forum" className="btn btn-primary">
-            Open the Forum
-          </Link>
-          <Link href="/graph" className="btn">
-            Explore the graph
-          </Link>
-        </p>
-      </Hero>
+      {/* The star chart and its headline, the feed, three ways in, who leads. */}
+      <Suspense fallback={<Fallback />}>
+        <Top />
+      </Suspense>
 
       <section id="about" className="relative scroll-mt-16">
         {/* The page's one picture: the Pergamon Altar's frieze as a ghost in the
