@@ -886,10 +886,10 @@
 .ex-insp-title {
   margin-top: 0.125rem;
   font-family: var(--font-display);
-  font-size: 2rem;
+  font-size: 1.875rem;
   font-weight: 500;
   line-height: 1.05;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 .ex-clear {
   display: inline-flex;
@@ -1029,9 +1029,27 @@
   background: var(--accent);
 }
 .ex-barpct {
+  padding: 0;
+  border: 0;
+  background: none;
   font-size: 0.75rem;
   color: var(--muted);
   text-align: right;
+  text-decoration: underline;
+  text-decoration-color: var(--line2);
+  text-underline-offset: 0.25em;
+  cursor: pointer;
+}
+.ex-barpct:hover {
+  color: var(--accent-light);
+}
+.ex-big a,
+.ex-facts a {
+  text-decoration-color: var(--line2);
+}
+.ex-big a:hover,
+.ex-facts a:hover {
+  color: var(--accent-light);
 }
 .ex-weeks {
   display: block;
@@ -1127,8 +1145,15 @@
 .ex-sources {
   display: flex;
   flex-wrap: wrap;
-  gap: 1rem;
+  align-items: baseline;
+  gap: 0.5rem 1rem;
   font-size: 0.84375rem;
+}
+.ex-uei {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--muted);
+  user-select: all;
 }
 .ex-sources a,
 .ex-figures a {

@@ -33,11 +33,15 @@ function Bars({
   rows,
   whole,
   onPick,
+  band,
 }: {
   title: string;
   rows: { id: string; label: string; dollars: number }[];
   whole: number;
   onPick: (id: string) => void;
+  /** the key of the flow between the selection and a row: its share then
+   *  selects that flow, whose award records the panel lists */
+  band?: (id: string) => string;
 }) {
   if (!rows.length) return null;
   const top = rows[0].dollars || 1;
@@ -53,9 +57,20 @@ function Bars({
             <span className="ex-bartrack" aria-hidden="true">
               <span style={{ width: `${Math.max(2, (r.dollars / top) * 100)}%` }} />
             </span>
-            <span className="ex-barpct" title={dollars(r.dollars)}>
-              {pct(r.dollars, whole)}
-            </span>
+            {band ? (
+              <button
+                type="button"
+                className="ex-barpct"
+                onClick={() => onPick(band(r.id))}
+                title={`${dollars(r.dollars)} · see the awards behind this share`}
+              >
+                {pct(r.dollars, whole)}
+              </button>
+            ) : (
+              <a className="ex-barpct" href="#ex-records" title={`${dollars(r.dollars)} · see the award records`}>
+                {pct(r.dollars, whole)}
+              </a>
+            )}
           </li>
         ))}
       </ul>
@@ -184,6 +199,9 @@ export function Inspector({
     ? (model.agencies.get(selected) ?? model.companies.get(selected) ?? model.missions.get(selected))
     : undefined;
   const records = "ex-records";
+  // In the constellation the selection is the drawing's center, so a share
+  // there leads to the records without selecting a flow.
+  const flow = (key: (id: string) => string) => (inConstellation ? undefined : key);
 
   /** dollars counted for the selection, by the party at the other end */
   const split = (
@@ -200,7 +218,11 @@ export function Inspector({
   const Total = ({ value, n }: { value: number; n: number }) => (
     <div className="ex-figures">
       <div>
-        <p className="ex-big">{pct(value, model.total)}</p>
+        <p className="ex-big">
+          <a href={`#${records}`} title={`${dollars(value)} of ${dollars(model.total)} · see the award records`}>
+            {pct(value, model.total)}
+          </a>
+        </p>
         <p className="ex-figsub">of autonomy dollars in view</p>
       </div>
       <div>
@@ -250,6 +272,12 @@ export function Inspector({
           {s.label} ↗
         </a>
       ))}
+      {/* The id both sites file the company under, to paste into either. */}
+      {p.uei && (
+        <span className="ex-uei" title="Unique Entity ID: the key for this company on SAM.gov and USAspending">
+          UEI {p.uei}
+        </span>
+      )}
     </p>
   );
 
@@ -348,18 +376,32 @@ export function Inspector({
         <dl className="ex-facts">
           <div>
             <dt>Paying agencies</dt>
-            <dd>{paidBy.length}</dd>
+            <dd>
+              <a href={`#${records}`} title="Counted from the award records below">
+                {paidBy.length}
+              </a>
+            </dd>
           </div>
           <div>
             <dt>Missions</dt>
-            <dd>{builds.length}</dd>
+            <dd>
+              <a href={`#${records}`} title="Counted from the award records below">
+                {builds.length}
+              </a>
+            </dd>
           </div>
           <div>
             <dt>First award on record</dt>
             <dd className="ex-fact-small">{day(co?.first_award)}</dd>
           </div>
         </dl>
-        <Bars title="Paid by" rows={paidBy} whole={tally.dollars} onPick={onSelect} />
+        <Bars
+          title="Paid by"
+          rows={paidBy}
+          whole={tally.dollars}
+          onPick={onSelect}
+          band={flow((id) => `${id}>${party.id}`)}
+        />
         <Weeks awards={awards} label={data.window.label} />
         {alongside.length > 0 && (
           <section>
@@ -400,8 +442,20 @@ export function Inspector({
           </p>
         )}
         <Total value={tally.dollars} n={tally.awards} />
-        <Bars title="Where it goes" rows={goes} whole={tally.dollars} onPick={onSelect} />
-        <Bars title="Largest recipients" rows={pays} whole={tally.dollars} onPick={onSelect} />
+        <Bars
+          title="Where it goes"
+          rows={goes}
+          whole={tally.dollars}
+          onPick={onSelect}
+          band={flow((id) => `${party.id}>${id}`)}
+        />
+        <Bars
+          title="Largest recipients"
+          rows={pays}
+          whole={tally.dollars}
+          onPick={onSelect}
+          band={flow((id) => `${party.id}>${id}`)}
+        />
         {openSolicitations(party.id, null)}
         {ag && sources(ag)}
       </>
@@ -416,15 +470,35 @@ export function Inspector({
         <dl className="ex-facts">
           <div>
             <dt>Paying agencies</dt>
-            <dd>{paidBy.length}</dd>
+            <dd>
+              <a href={`#${records}`} title="Counted from the award records below">
+                {paidBy.length}
+              </a>
+            </dd>
           </div>
           <div>
             <dt>Recipients</dt>
-            <dd>{goes.length}</dd>
+            <dd>
+              <a href={`#${records}`} title="Counted from the award records below">
+                {goes.length}
+              </a>
+            </dd>
           </div>
         </dl>
-        <Bars title="Paid by" rows={paidBy} whole={tally.dollars} onPick={onSelect} />
-        <Bars title="Largest recipients" rows={goes} whole={tally.dollars} onPick={onSelect} />
+        <Bars
+          title="Paid by"
+          rows={paidBy}
+          whole={tally.dollars}
+          onPick={onSelect}
+          band={flow((id) => `${id}>${party.id}`)}
+        />
+        <Bars
+          title="Largest recipients"
+          rows={goes}
+          whole={tally.dollars}
+          onPick={onSelect}
+          band={flow((id) => `${party.id}>${id}`)}
+        />
         {openSolicitations(null, party.id.slice(4))}
       </>
     );
@@ -453,14 +527,18 @@ export function Inspector({
             </p>
           </div>
           <div>
-            <p className="ex-big">{model.companies.size.toLocaleString("en-US")}</p>
+            <p className="ex-big">
+              <a href={`#${records}`} title="Counted from the award records below">
+                {model.companies.size.toLocaleString("en-US")}
+              </a>
+            </p>
             <p className="ex-figsub">
               recipients, {model.agencies.size} paying {model.agencies.size === 1 ? "agency" : "agencies"}
             </p>
           </div>
         </div>
-        <Bars title="Who paid" rows={payers} whole={model.total} onPick={onSelect} />
-        <Bars title="Who leads" rows={leaders} whole={model.total} onPick={onSelect} />
+        <Bars title="Who paid" rows={payers} whole={model.total} onPick={onSelect} band={flow((id) => id)} />
+        <Bars title="Who leads" rows={leaders} whole={model.total} onPick={onSelect} band={flow((id) => id)} />
         {openSolicitations(null, null)}
         <p className="ex-sources">
           <a href="https://www.usaspending.gov/" target="_blank" rel="noreferrer">
