@@ -226,9 +226,13 @@ export function Report({ data }: { data: Flows }) {
                   }}
                 />
               </span>
-              <span className="ld-count" title={`${moneyRound(m.dollars)} awarded`}>
+              <Link
+                href={`${focus(m.id)}#ex-records`}
+                className="ld-count"
+                title={`${moneyRound(m.dollars)} awarded · see the records`}
+              >
                 {m.companies}
-              </span>
+              </Link>
             </li>
           ))}
         </ul>

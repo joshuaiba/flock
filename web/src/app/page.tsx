@@ -2,12 +2,13 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { Art } from "@/components/Art";
 import { Footer } from "@/components/Footer";
+import { Hero } from "@/components/Hero";
 import { Report, ThreeWays } from "@/components/landing/Sections";
 import { StarHero } from "@/components/landing/StarHero";
 import { serverGet, type Summary } from "@/lib/api";
 import { FRIEZE_CAPTION, FRIEZE_CREDIT } from "@/lib/art";
 import { day } from "@/lib/format";
-import type { Flows } from "@/lib/flows";
+import { buildModel, headline, names, type Flows } from "@/lib/flows";
 import "@/components/landing/landing.css";
 
 async function FooterWithData() {
@@ -15,16 +16,51 @@ async function FooterWithData() {
   return <Footer terrace sources sample={s?.sample} />;
 }
 
+/** The hero's words, on the lake: what the window's awards say, and the two
+ *  ways on. The flock passes behind them. */
+function HeroWords({ data }: { data: Flows | null }) {
+  const head = data ? headline(buildModel(data.awards), names(data)) : null;
+  return (
+    <div className="ld-hero-text">
+      <p className="ld-eyebrow">{data ? `Field report · ${data.window.label}` : "Field report"}</p>
+      <h1 className="hero-title ld-hero-title">
+        {head ? `${head.claim}.` : "Following the money on the frontier of autonomy, from solicitation to production."}
+      </h1>
+      {head?.leaders && <p className="ld-lede">{head.leaders}</p>}
+      <p className="ld-body">Flock follows the money on the frontier of autonomy, from solicitation to production.</p>
+      <p className="ld-actions">
+        <Link href="/graph" className="ld-btn ld-btn-primary">
+          Open the graph
+        </Link>
+        {data ? (
+          <a href="#chart" className="ld-btn">
+            See the chart
+          </a>
+        ) : (
+          <Link href="/forum" className="ld-btn">
+            Open the Forum
+          </Link>
+        )}
+      </p>
+    </div>
+  );
+}
+
 /** The top of the page, from the same answer the graph is drawn from: the
  *  default window (the first one with an award in it), so the headline, the
- *  chart, the feed and the lists below all describe the same days. Without
- *  the API there is only the headline and the two ways in. */
+ *  chart, the feed and the lists below all describe the same days. First the
+ *  lake, the flock and the headline; then the star chart. Without the API
+ *  there is only the lake and the site's own line. */
 async function Top() {
-  const data = await serverGet<Flows>("flows");
-  if (!data || !data.awards.length) return <Fallback />;
+  const got = await serverGet<Flows>("flows");
+  const data = got && got.awards.length ? got : null;
+  if (!data) return <Fallback />;
   return (
     <>
-      {/* The hero runs in the browser, so its data travels in the page: without
+      <Hero>
+        <HeroWords data={data} />
+      </Hero>
+      {/* The chart runs in the browser, so its data travels in the page: without
           the award descriptions, which it never prints. */}
       <StarHero data={{ ...data, awards: data.awards.map((a) => ({ ...a, description: null })) }} />
       <ThreeWays data={data} />
@@ -42,20 +78,9 @@ async function Top() {
 
 function Fallback() {
   return (
-    <section className="ld-hero">
-      <div className="ld-copy">
-        <p className="ld-eyebrow">Field report</p>
-        <h1 className="ld-title">Following the money on the frontier of autonomy, from solicitation to production.</h1>
-        <p className="ld-actions">
-          <Link href="/graph" className="ld-btn ld-btn-primary">
-            Open the graph
-          </Link>
-          <Link href="/forum" className="ld-btn">
-            Open the Forum
-          </Link>
-        </p>
-      </div>
-    </section>
+    <Hero>
+      <HeroWords data={null} />
+    </Hero>
   );
 }
 
@@ -79,7 +104,7 @@ const ABOUT = [
 export default function Home() {
   return (
     <>
-      {/* The star chart and its headline, the feed, three ways in, who leads. */}
+      {/* The lake and the headline, the star chart, the feed, three ways in, who leads. */}
       <Suspense fallback={<Fallback />}>
         <Top />
       </Suspense>

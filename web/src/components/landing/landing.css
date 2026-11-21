@@ -19,26 +19,53 @@
   }
 }
 
-/* ---- Hero ---- */
+/* ---- The hero's words (the lake scene itself is hero.css) ---- */
 
-.ld-hero {
+.ld-hero-title {
+  max-width: 10.8em;
+  font-style: italic;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+.ld-hero-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+/* The second button sits over the engraving on a narrow or short screen: a
+   veil of page color keeps its word readable. */
+.ld-hero-text .ld-btn:not(.ld-btn-primary) {
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+}
+/* On a phone the words are taller than the old one-line headline, so the hero
+   grows until the village starts below them. */
+@media (max-width: 639px) {
+  section#hero.hero {
+    min-height: max(100svh, 56rem);
+  }
+}
+
+/* ---- The chart's section: the chart, and the words beside it ---- */
+
+.ld-chartsec {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 28.75rem), 1fr));
-  gap: 2rem 3rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr));
+  gap: 2rem 3.5rem;
   align-items: center;
   max-width: 85rem;
   margin: 0 auto;
-  padding: 6.5rem 1rem 2.5rem;
+  padding: 4rem 1rem 3rem;
+  scroll-margin-top: 4rem;
 }
 @media (min-width: 640px) {
-  .ld-hero {
-    padding: 7.5rem 2.5rem 2.5rem;
+  .ld-chartsec {
+    padding: 5rem 2.5rem 3.5rem;
   }
 }
-.ld-copy {
+.ld-side {
   display: flex;
   flex-direction: column;
-  gap: 1.75rem;
+  gap: 1.5rem;
   min-width: 0;
 }
 .ld-eyebrow,
@@ -55,15 +82,6 @@
   font-size: 0.75rem;
   letter-spacing: 0.12em;
   color: var(--accent);
-}
-.ld-title {
-  margin: 0;
-  font-family: var(--font-display);
-  font-size: clamp(2.5rem, 1.4rem + 4.2vw, 4.25rem);
-  font-style: italic;
-  font-weight: 500;
-  line-height: 1.02;
-  letter-spacing: -0.01em;
 }
 .ld-lede {
   margin: 0;
@@ -351,7 +369,6 @@
 
 .ld-tour {
   max-width: 34rem;
-  margin: 0.75rem auto 0;
   padding: 1rem 1.25rem;
   border: 1px solid var(--hair);
   border-radius: 8px;
@@ -785,30 +802,11 @@ html[data-still] .ld-feed-row li {
 html[data-still] .ld-camera {
   transition: none;
 }
-/* ---- About, under the hero: the frieze ghost in the top right corner ---- */
-.about-fresco {
-  position: absolute;
-  z-index: 0;
-  top: 2.5rem;
-  right: 0;
-  width: min(600px, 60vw);
+.ld-stats a,
+.ld-count {
+  text-decoration-color: var(--line2);
 }
-/* On a phone the ghost sits above the words, not beside them. */
-@media (max-width: 1023.98px) {
-  .about-fresco {
-    position: relative;
-    top: auto;
-    width: min(600px, 86vw);
-    margin: 3rem 0 -2rem auto;
-  }
-}
-/* The photograph's credit: a small line of its own under the caption, in the
-   interface face. */
-.about-credit {
-  display: block;
-  margin-top: 0.3rem;
-  font-family: var(--font-sans);
-  font-style: normal;
-  font-size: 0.75rem;
-  line-height: 1.4;
+.ld-stats a:hover,
+a.ld-count:hover {
+  color: var(--accent-light);
 }

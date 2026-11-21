@@ -206,7 +206,7 @@ function DisplayMenu() {
               </button>
             </div>
           </div>
-          <p className="mt-2.5 text-muted">Off draws every chart at once, with no ink-in.</p>
+          <p className="mt-2.5 text-muted">Off holds the swallows still and draws every chart at once.</p>
         </div>
       )}
     </div>

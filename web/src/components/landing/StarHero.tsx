@@ -9,16 +9,18 @@ import { useStore } from "@/lib/store";
 import { Hatch, useSvgId, useTip } from "../explorer/parts";
 import "./landing.css";
 
-// The landing page's hero: the headline beside an engraved star chart of the
-// window's awards, and under them the newest awards as a feed. Agencies sit on
-// the chart's outer ring, missions are its sectors, companies the stars inside
-// them, and every arc is an agency paying a company. The copper arcs are the
-// newest awards on record and ink in once when the page arrives; hovering any
-// arc says what it is, and a copper one opens its source record.
+// The landing page's second screen: an engraved star chart of the window's
+// awards, the words about it beside it, and under them the newest awards as a
+// feed. Agencies sit on the chart's outer ring, missions are its sectors,
+// companies the stars inside them, and every arc is an agency paying a
+// company. The copper arcs are the newest awards on record and ink in once
+// when the page arrives; hovering any arc says what it is, and a copper one
+// opens its source record.
 //
-// "Play the narrated tour" walks the chart in a few paragraphs, moving the
-// view to what each one is about. It starts only when asked, and with motion
-// off it steps without moving. Nothing else on the page moves by itself.
+// "Play the narrated tour" walks the chart in a few paragraphs, set beside it,
+// moving the view to what each one is about. It starts only when asked, and
+// with motion off it steps without moving. The chart itself never moves on its
+// own: the page's ambient motion is the hero's swallows and boats, above.
 
 /** What is lit: whole agencies, companies or a sector (the tour, a hovered
  *  node), the newest arcs, or one arc by key with its two ends. */
@@ -209,55 +211,7 @@ export function StarHero({ data }: { data: Flows }) {
 
   return (
     <>
-      <section className="ld-hero">
-        <div className="ld-copy">
-          <p className="ld-eyebrow">Field report · {w.label}</p>
-          <h1 className="ld-title">
-            {head
-              ? `${head.claim}.`
-              : "Following the money on the frontier of autonomy, from solicitation to production."}
-          </h1>
-          {head?.leaders && <p className="ld-lede">{head.leaders}</p>}
-          <p className="ld-body">
-            Flock follows the money on the frontier of autonomy, from solicitation to production. Every line on the
-            chart is a contract you can open.
-          </p>
-          <p className="ld-actions">
-            <button
-              type="button"
-              className="ld-btn ld-btn-primary"
-              onClick={touring ? stop : start}
-              aria-expanded={touring}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
-                {touring ? (
-                  <path d="M6 6h12v12H6z" fill="currentColor" />
-                ) : (
-                  <path d="M7 4l13 8-13 8z" fill="currentColor" />
-                )}
-              </svg>
-              {touring ? "End the tour" : "Play the narrated tour"}
-            </button>
-            <Link href="/graph" className="ld-btn">
-              Open the graph
-            </Link>
-          </p>
-          <dl className="ld-stats">
-            <div>
-              <dt>Entities</dt>
-              <dd>{entities.toLocaleString("en-US")}</dd>
-            </div>
-            <div>
-              <dt>Missions</dt>
-              <dd>{model.missions.size}</dd>
-            </div>
-            <div>
-              <dt>Paying agencies</dt>
-              <dd>{model.agencies.size}</dd>
-            </div>
-          </dl>
-        </div>
-
+      <section id="chart" className="ld-chartsec">
         <div className="ld-chart">
           <svg
             viewBox={`-30 -30 ${SIZE + 60} ${SIZE + 60}`}
@@ -526,7 +480,13 @@ export function StarHero({ data }: { data: Flows }) {
             </g>
           </svg>
 
-          {touring && cur && (
+          {tip}
+        </div>
+
+        <div className="ld-side">
+          <p className="ld-eyebrow">The chart · {w.label}</p>
+          <h2 className="ld-h2">Every arc is an agency paying a company.</h2>
+          {touring && cur ? (
             <div className="ld-tour" role="group" aria-label="Narrated tour">
               <p ref={caption} tabIndex={-1} aria-live="polite" className="ld-tour-text">
                 {cur.text}
@@ -551,8 +511,59 @@ export function StarHero({ data }: { data: Flows }) {
                 </button>
               </p>
             </div>
+          ) : (
+            <p className="ld-body">
+              The {spell(model.agencies.size)} paying agencies sit on the outer ring, the missions are its sectors, and
+              every company is a star in the sector it is paid most for. The copper arcs are the newest awards on
+              record: hover one to read it, click it to open the contract.
+            </p>
           )}
-          {tip}
+          <p className="ld-actions">
+            <button
+              type="button"
+              className="ld-btn ld-btn-primary"
+              onClick={touring ? stop : start}
+              aria-expanded={touring}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+                {touring ? (
+                  <path d="M6 6h12v12H6z" fill="currentColor" />
+                ) : (
+                  <path d="M7 4l13 8-13 8z" fill="currentColor" />
+                )}
+              </svg>
+              {touring ? "End the tour" : "Play the narrated tour"}
+            </button>
+            <Link href="/graph" className="ld-btn">
+              Open the graph
+            </Link>
+          </p>
+          <dl className="ld-stats">
+            <div>
+              <dt>Entities</dt>
+              <dd>
+                <Link href="/graph" title="Counted from the window's award records: open them in the graph">
+                  {entities.toLocaleString("en-US")}
+                </Link>
+              </dd>
+            </div>
+            <div>
+              <dt>Missions</dt>
+              <dd>
+                <Link href="/graph" title="Counted from the window's award records: open them in the graph">
+                  {model.missions.size}
+                </Link>
+              </dd>
+            </div>
+            <div>
+              <dt>Paying agencies</dt>
+              <dd>
+                <Link href="/graph" title="Counted from the window's award records: open them in the graph">
+                  {model.agencies.size}
+                </Link>
+              </dd>
+            </div>
+          </dl>
         </div>
       </section>
 
