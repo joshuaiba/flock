@@ -35,6 +35,21 @@ from pipeline.api.app import app, get_conn
 ROOT = queries.taxonomy()["root"]
 
 
+@pytest.fixture(autouse=True)
+def windows_end_today(monkeypatch):
+    """Most tests here place rows by their age from today and check the window
+    arithmetic, so their refreshes pin as_of to today. What as_of is when
+    nothing pins it (the newest record's day) has its own tests at the end,
+    which pass as_of=None."""
+    real = refresher.refresh
+
+    def pinned(conn, **kw):
+        today = conn.execute("SELECT current_date").fetchone()[0]
+        return real(conn, as_of=kw.get("as_of", today))
+
+    monkeypatch.setattr(refresher, "refresh", pinned)
+
+
 def _build(db) -> dict:
     today = db.execute("SELECT current_date").fetchone()[0]
     now = datetime.now(UTC)
@@ -978,3 +993,84 @@ def test_definitions_cover_every_signal(world):
     ]
     assert (d["awards"], d["opportunities"]) == (6, 4)
     assert d["as_of"] == str(date.fromisoformat(str(ids["today"])))
+
+
+def _stale_record(db, days: int = 94) -> date:
+    """The seeded record, aged so its newest award is `days` days old: Nov 21
+    against Aug 19. Returns the day of the newest record."""
+    seed.seed(db)
+    db.execute(
+        "UPDATE opportunities SET posted_at = posted_at - make_interval(days => %s),"
+        " closes_at = closes_at - make_interval(days => %s),"
+        " fetched_at = fetched_at - make_interval(days => %s)",
+        (days, days, days),
+    )
+    db.execute(
+        "UPDATE awards SET signed_at = signed_at - %s::int,"
+        " fetched_at = fetched_at - make_interval(days => %s)",
+        (days, days),
+    )
+    db.commit()
+    # The newest record: an award, or a solicitation posted after the last one.
+    return db.execute(
+        "SELECT GREATEST("
+        " (SELECT max(signed_at) FROM awards WHERE source_id <> 'award-not-autonomy'),"
+        " (SELECT max(posted_at)::date FROM opportunities))"
+    ).fetchone()[0]
+
+
+def test_windows_end_on_the_newest_record_not_on_the_refresh_day(db):
+    latest = _stale_record(db)
+    today = db.execute("SELECT current_date").fetchone()[0]
+    assert 85 <= (today - latest).days <= 94
+    refresher.refresh(db, as_of=None)
+    assert db.execute("SELECT as_of FROM signal_meta").fetchone()[0] == latest
+    # Counted back from today, 30 and 90 days hold nothing; from the record they do.
+    for days in (30, 90):
+        (expected, n) = db.execute(
+            "SELECT sum(amount), count(*) FROM awards WHERE source_id <> 'award-not-autonomy'"
+            " AND signed_at > %s::date - %s::int AND signed_at <= %s",
+            (latest, days, latest),
+        ).fetchone()
+        (amount, awards) = db.execute(
+            "SELECT amount, awards FROM signal_funding"
+            " WHERE window_days = %s AND subject_type = 'total' AND slice = ''",
+            (days,),
+        ).fetchone()
+        assert n > 0 and awards == n
+        assert float(amount) == pytest.approx(float(expected))
+
+
+def test_the_api_reports_the_record_day_as_of(db):
+    latest = _stale_record(db)
+    refresher.refresh(db, as_of=None)
+    app.dependency_overrides[get_conn] = lambda: db
+    try:
+        client = TestClient(app)
+        overview = client.get("/api/signals/overview", params={"window": 90}).json()
+        assert overview["as_of"] == str(latest)
+        digest = client.get("/api/digest").json()
+        assert digest["through"] == str(latest)
+        assert client.get("/api/summary").json()["awards_30d"] > 0
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_as_of_is_today_for_an_empty_record_and_never_in_the_future(db):
+    refresher.refresh(db, as_of=None)
+    today = db.execute("SELECT current_date").fetchone()[0]
+    assert db.execute("SELECT as_of FROM signal_meta").fetchone()[0] == today
+    # An award dated ahead of the calendar does not drag the windows past today.
+    seed.seed(db)
+    db.execute("UPDATE awards SET signed_at = signed_at + 10")
+    db.commit()
+    refresher.refresh(db, as_of=None)
+    assert db.execute("SELECT as_of FROM signal_meta").fetchone()[0] == today
+
+
+def test_a_pinned_as_of_lasts_one_refresh(db):
+    latest = _stale_record(db)
+    refresher.refresh(db, as_of=latest - timedelta(days=10))
+    assert db.execute("SELECT as_of FROM signal_meta").fetchone()[0] == latest - timedelta(days=10)
+    refresher.refresh(db, as_of=None)
+    assert db.execute("SELECT as_of FROM signal_meta").fetchone()[0] == latest

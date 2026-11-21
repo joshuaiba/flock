@@ -53,7 +53,7 @@ def main(argv: list[str] | None = None) -> None:
             print(f"applied {name}")
         if conn.execute("SELECT count(*) FROM awards").fetchone()[0] == 0:
             print(f"seeded sample data: {seed.seed(conn, today=args.as_of)}")
-        # Windows end on the day of the refresh, so refresh on every start.
+        # Windows end on the newest record; refresh on every start so they follow it.
         signals.refresh(conn)
     os.environ["DATABASE_URL"] = dsn
     try:

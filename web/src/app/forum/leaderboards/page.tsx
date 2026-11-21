@@ -14,7 +14,7 @@ export const metadata: Metadata = { title: "Leaderboards" };
 
 type Query = Promise<Record<string, string | string[] | undefined>>;
 
-/** "As of Nov 11, 2026". Says nothing when the API is down: the ledger does. */
+/** "Data through Aug 19, 2026". Says nothing when the API is down: the ledger does. */
 async function Stamp() {
   const record = await getRecord();
   return record ? <AsOf env={record} /> : null;

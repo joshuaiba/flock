@@ -1,9 +1,9 @@
 """Signals: computed metrics over the award and solicitation stream.
 
 One endpoint per signal, all under /api/signals. Every endpoint reads the
-materialized views in migrations/007_signals.sql (where each metric's exact
-definition lives, as SQL and comments) and returns the same envelope: `as_of`
-(the day the views were last refreshed; every window ends on it), the window,
+materialized views in migrations/007_signals.sql and 008 (where each metric's
+exact definition lives, as SQL and comments) and returns the same envelope:
+`as_of` (the day of the newest record; every window ends on it), the window,
 the category filter, the source tables the numbers came from, and `coverage`,
 which says how far back the data goes, so a page can tell "no change" from "no
 earlier data to compare with".
@@ -66,7 +66,9 @@ DEFINITIONS: list[dict] = [
         "text": (
             "A window of 30, 90 or 365 days is that many days ending on the as-of date, "
             "inclusive. The prior period is the same number of days immediately before it. "
-            "The as-of date is the last nightly refresh. When our data does not reach back "
+            "The as-of date is the day of the newest award or solicitation on record, not "
+            "today: USAspending publishes Defense contracts about 90 days after they are "
+            "signed, so the record trails the calendar. When our data does not reach back "
             "to the start of the prior period, changes are not shown."
         ),
         "tables": ["awards"],

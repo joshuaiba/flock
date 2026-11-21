@@ -65,7 +65,7 @@ async function Numbers() {
       <header>
         <h1 className="page-title">About the numbers</h1>
         <p className="mt-3 text-muted">
-          As of {day(d.as_of)}
+          Data through {day(d.as_of)}
           {d.sample && " · sample data"}
         </p>
       </header>

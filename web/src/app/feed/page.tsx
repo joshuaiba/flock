@@ -42,7 +42,7 @@ async function Report() {
   } else {
     lines.push(
       <>
-        {plural(d.awards, "award")} landed this week, worth <span className="money">{money(d.amount)}</span>.
+        {plural(d.awards, "award")} landed in the week to {day(d.through, true)}, worth <span className="money">{money(d.amount)}</span>.
         {d.prev_awards > 0 && <> The week before it was {plural(d.prev_awards, "award")} and {money(d.prev_amount)}.</>}
       </>,
     );
@@ -78,7 +78,7 @@ async function Report() {
       lines.push(
         <>
           New to the flock: {list(d.newcomers.map((n) => <Entity key={n.id} id={n.id} name={n.name} />))}, with{" "}
-          {d.newcomers.length === 1 ? "a first award" : "first awards"} on record this week.
+          {d.newcomers.length === 1 ? "a first award" : "first awards"} on record that week.
         </>,
       );
   }

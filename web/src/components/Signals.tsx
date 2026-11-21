@@ -221,11 +221,15 @@ export function StageTrack({
   );
 }
 
-/** "As of Nov 11, 2026 · sample data": the line every signals page carries. */
+/** "Data through Aug 19, 2026 · sample data": the line every signals page
+ *  carries. The as-of date is the day of the newest record, and every window
+ *  ends on it, not on today. */
 export function AsOf({ env, className = "" }: { env: Pick<Envelope, "as_of" | "sample">; className?: string }) {
   return (
     <p className={`text-muted ${className}`}>
-      As of {day(env.as_of)}
+      <span title="Every window on this page ends on this day: the newest award or solicitation on record.">
+        Data through {day(env.as_of)}
+      </span>
       {env.sample && " · sample data"}
     </p>
   );
