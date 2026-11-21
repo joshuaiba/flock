@@ -124,14 +124,16 @@ Inter for the interface, IBM Plex Mono for numbers, dollars and the small
 uppercase labels. Dark is the default; the Display menu has a paper mode, a
 parchment mode (Classic) and a switch for motion.
 
-Nothing moves by itself. Bands and arcs ink in once when data arrives, and
-after that the page moves only when the reader hovers, selects, drags the
-timeline's brush or asks for the landing page's narrated tour. The OS
-reduced-motion setting and Display → Motion → Off turn the ink-in off too.
+The charts never move by themselves. Bands and arcs ink in once when data
+arrives, and after that they move only when the reader hovers, selects, drags
+the timeline's brush or asks for the landing page's narrated tour. The site's
+one piece of ambient motion is the landing page's hero: the swallows over the
+lake (each one a recent award) and the two boats on it. The OS reduced-motion
+setting and Display → Motion → Off still all of it, the ink-in included.
 
 | Screen | Path | What it shows |
 | --- | --- | --- |
-| Landing | `/` | The window's headline ("Army, Air Force and Defense Logistics paid 90% of autonomy dollars") beside a star chart of the same awards: agencies on the outer ring, missions as sectors, companies as stars, an arc for every agency → company flow, and the newest awards on record as copper arcs that open their source record. "Play the narrated tour" walks the chart in six paragraphs. Under it: the newest awards as a feed, three ways into the graph (each thumbnail drawn from the same data), the top recipients, and companies per mission; then About, under a ghost of the Pergamon Altar's frieze |
+| Landing | `/` | First the lake: the engraved lakeside village along the bottom, two boats on its lake, the flock in the open sky (award birds in copper, solicitation birds in the text color; clicking one opens its company), and over it the window's headline ("Army, Air Force and Defense Logistics paid 90% of autonomy dollars"). Then a star chart of the same awards: agencies on the outer ring, missions as sectors, companies as stars, an arc for every agency → company flow, and the newest awards on record as copper arcs that open their source record. "Play the narrated tour" walks the chart in six paragraphs, set beside it. Under it: the newest awards as a feed, three ways into the graph (each thumbnail drawn from the same data), the top recipients, and companies per mission; then About, under a ghost of the Pergamon Altar's frieze |
 | The Forum | `/forum` | The signals dashboard: the summary row, where the money went (award dollars by category family, as parts of a whole), momentum, stage transitions, topic heat, largest awards, funding by category, agency appetite and watchlist changes, over 30 days, 90 days or 1 year, for all categories or one. Engraved figures stand in the side margins on a wide window |
 | Leaderboards | `/forum/leaderboards` | The full rankings behind the Forum's panels |
 | Graph explorer | `/graph` | One answer from `GET /api/flows`, drawn three ways. **Flow** (the default): a three-column Sankey, Agency → Mission → Recipient, bands as wide as their dollars; selecting a node turns its bands copper, hovering a band isolates it, and the long tail of companies folds into "All other companies (n)", which opens on click. **Constellation**: one company or agency at the center, who it trades dollars with on ring 1, who else they trade with on ring 2 (1 or 2 hops), the rest ghosted; clicking any node re-centers. **Timeline**: a tick per award, a row per mission. A filter rail (window, missions, agency, minimum award), an inspector whose every figure leads to the award records behind it and their USAspending pages, a timeline strip whose brush narrows every view, and "New since your last visit". The window, view, selection and filters are in the address (`?window=90d&view=constellation&focus=org:12`) |
@@ -207,9 +209,9 @@ says whether the data reaches back far enough to compare with the prior period.
 The views are refreshed by `python -m pipeline.signals`, the last step of the
 nightly workflow. The Forum, the entity pages and the field report's weekly
 figures read the same views, so those pages cannot disagree. The API server
-does not refresh them: after loading data by hand, run the refresh. (The
-signal views' windows still end on the day of the refresh; the landing page
-and the graph read `/api/flows`, whose windows end on the newest award.)
+does not refresh them: after loading data by hand, run the refresh. Their
+windows end on the day of the newest record too (`migrations/008`), so the
+Forum's "90 days" and the graph's are the same days.
 
 Things to know:
 
@@ -267,9 +269,12 @@ Things to know:
   remembers the highest award id on record at the last visit; anything above
   it was loaded since, whatever date it carries (a newly published DoD award
   is usually about 90 days old).
-- **The lake hero's art is still in `web/public/art/`** (`hero/`, `sprites/`,
-  `nodes/` and the painted `classic/hero/`), though the star chart replaced the
-  scene and nothing draws those files now. `build-art.py` still builds them.
+- **The old graph's node art is still in `web/public/art/`** (`nodes/`: coins,
+  wreaths, tablets, the crown), though nothing draws it now that the graph is
+  SVG. `build-art.py` still builds it.
+- **Motion can be turned off.** The site follows the OS reduced-motion setting,
+  and Display → Motion → Off in the top bar freezes the hero: a still scene
+  with a few birds held in a loose V, and charts that appear without inking in.
 
 ## Where agents are used and why
 

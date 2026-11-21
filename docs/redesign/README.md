@@ -73,7 +73,8 @@ ellipsis and spelled out on hover.
 
 ## The finished views
 
-![Landing](landing.png)
+![Landing: the lake, the flock and the headline](landing.png)
+![Landing, second screen: the star chart](landing-chart.png)
 ![Landing, an arc under the pointer](landing-hover.png)
 ![Flow](flow.png)
 ![Flow, Army selected](flow-selected.png)
