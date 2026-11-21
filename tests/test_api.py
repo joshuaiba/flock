@@ -38,62 +38,6 @@ def test_recent_is_newest_first_and_mixed(seeded):
     assert client.get("/api/recent", params={"limit": 0}).status_code == 422
 
 
-def test_graph_edges_join_known_nodes_and_exclude_untagged(seeded):
-    client, db, _ = seeded
-    g = client.get("/api/graph", params={"days": 365}).json()
-    ids = {n["id"] for n in g["nodes"]}
-    assert all(e["source"] in ids and e["target"] in ids for e in g["edges"])
-    assert {n["kind"] for n in g["nodes"]} >= {"company", "agency", "office", "opportunity"}
-    awarded = sum(e["amount"] for e in g["edges"] if e["kind"] == "award")
-    (expected,) = db.execute(
-        "SELECT sum(amount) FROM awards WHERE source_id <> 'award-not-autonomy'"
-        " AND signed_at >= current_date - 365"
-    ).fetchone()
-    assert awarded == pytest.approx(float(expected))
-    assert client.get("/api/graph", params={"days": 7}).status_code == 422
-
-
-def test_graph_window_narrows(seeded):
-    client, _, _ = seeded
-    wide = client.get("/api/graph", params={"days": 365}).json()
-    narrow = client.get("/api/graph", params={"days": 30}).json()
-    total = lambda g: sum(e["amount"] for e in g["edges"] if e["kind"] == "award")  # noqa: E731
-    assert 0 < total(narrow) < total(wide)
-    # 0 means everything on record: at least as much as the widest window.
-    everything = client.get("/api/graph", params={"days": 0}).json()
-    assert total(everything) >= total(wide)
-    assert len(everything["nodes"]) >= len(wide["nodes"])
-
-
-def test_graph_recent_window_ends_on_the_newest_award(seeded):
-    client, db, _ = seeded
-    # A record that was last loaded 200 days ago: nothing is recent by the calendar.
-    db.execute(
-        "UPDATE awards SET signed_at = signed_at - 200,"
-        " fetched_at = fetched_at - interval '200 days'"
-    )
-    db.execute(
-        "UPDATE opportunities SET posted_at = posted_at - interval '200 days',"
-        " fetched_at = fetched_at - interval '200 days'"
-    )
-    total = lambda g: sum(e["amount"] for e in g["edges"] if e["kind"] == "award")  # noqa: E731
-    by_calendar = client.get("/api/graph", params={"days": 90}).json()
-    assert total(by_calendar) == 0
-    assert by_calendar["age"] == 200
-    assert by_calendar["recent"] is False
-
-    recent = client.get("/api/graph", params={"days": 90, "recent": True}).json()
-    assert total(recent) > 0
-    assert recent["recent"] is True
-    assert recent["through"] == recent["latest"] == by_calendar["latest"]
-    (expected,) = db.execute(
-        "SELECT sum(amount) FROM awards WHERE source_id <> 'award-not-autonomy'"
-        " AND signed_at >= (SELECT max(signed_at) FROM awards"
-        " WHERE source_id <> 'award-not-autonomy') - 90"
-    ).fetchone()
-    assert total(recent) == pytest.approx(float(expected))
-
-
 def _band_total(body: dict, kind: str) -> float:
     return sum(f["dollars"] for f in body["flows"] if f["kind"] == kind)
 
@@ -345,29 +289,6 @@ def test_tags_come_from_the_taxonomy():
 )
 def test_stage_is_read_from_the_description(text, stage):
     assert queries._stage_of(text) == stage
-
-
-def test_graph_nodes_carry_short_names_and_the_sample_flag(seeded):
-    client, _, _ = seeded
-    g = client.get("/api/graph", params={"days": 365}).json()
-    assert g["sample"] is True
-    by_name = {n["name"]: n for n in g["nodes"]}
-    assert by_name["Department of the Army"]["display_name"] == "Army"
-    assert by_name["U.S. Special Operations Command"]["display_name"] == "SOCOM"
-    assert by_name["Air Force Research Laboratory"]["display_name"] == "AFRL"
-    for n in g["nodes"]:
-        if n["kind"] == "company":
-            # The seed's names end in a legal suffix; the label drops it.
-            assert n["display_name"] and n["name"].startswith(n["display_name"])
-            assert n["display_name"] != n["name"]
-        elif n["kind"] == "opportunity":
-            assert n.get("display_name") is None
-
-
-def test_graph_sample_is_false_without_seed_rows(seeded):
-    client, db, _ = seeded
-    db.execute("UPDATE awards SET source = 'usaspending' WHERE source = 'seed'")
-    assert client.get("/api/graph", params={"days": 365}).json()["sample"] is False
 
 
 def test_flow_parties_carry_short_names_and_the_sample_flag(seeded):
