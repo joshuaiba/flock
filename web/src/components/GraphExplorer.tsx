@@ -289,7 +289,10 @@ function selectionLine(graph: Graph, id: string, w: Window): string | null {
  *  map, or plain text when the filters hide it. */
 function CardName({ node, hidden, onSelect }: { node: GraphNode; hidden: boolean; onSelect: (id: string) => void }) {
   const name = shortName(node);
-  const title = name !== node.name ? node.name : undefined;
+  // The full name on hover: the legal name where the card shows a short one,
+  // and always for a solicitation, whose title is cut to one line (two can
+  // differ only in the part that is cut).
+  const title = name !== node.name || node.kind === "opportunity" ? node.name : undefined;
   if (hidden)
     return (
       <span className="graph-card-name" title={title}>
