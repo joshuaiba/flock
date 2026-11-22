@@ -37,7 +37,13 @@ export async function LargestAwards({ days, tag, className = "" }: PanelProps) {
       title="Largest awards"
       className={className}
       takeaway={d.items.length > 0 ? reading(d.items, period(d), tag) : undefined}
-      note={<>Largest obligated amount first. Point at a recipient for what the award was for.</>}
+      note={
+        <>
+          Largest obligated amount first.
+          {/* only where there is a pointer to point with */}
+          <span className="hidden [@media(hover:hover)]:inline"> Point at a recipient for what the award was for.</span>
+        </>
+      }
     >
       {d.items.length === 0 ? (
         <NoRows>
@@ -59,7 +65,8 @@ export async function LargestAwards({ days, tag, className = "" }: PanelProps) {
                 <th scope="col" className="hidden lg:table-cell">
                   Category
                 </th>
-                <th scope="col" className="num">
+                {/* below `sm` this is the last column shown, so it runs to the rule's end */}
+                <th scope="col" className="num max-sm:pr-0!">
                   Amount
                 </th>
                 <th scope="col" className="hidden sm:table-cell">
@@ -76,8 +83,8 @@ export async function LargestAwards({ days, tag, className = "" }: PanelProps) {
                 );
                 return (
                   <tr key={a.id}>
-                    <td className="hidden w-px whitespace-nowrap pr-8! text-muted md:table-cell">{day(a.day, true)}</td>
-                    <td className="max-w-0 md:w-[30%]" title={a.description ?? undefined}>
+                    <td className="hidden w-px whitespace-nowrap pr-8! text-muted md:table-cell">{day(a.day, d.window_days < 365)}</td>
+                    <td className="w-full max-w-0 md:w-[30%]" title={a.description ?? undefined}>
                       {a.recipient ? (
                         <OrgLink org={a.recipient} className="max-w-full align-middle" />
                       ) : (
@@ -101,7 +108,7 @@ export async function LargestAwards({ days, tag, className = "" }: PanelProps) {
                     <td className="hidden whitespace-nowrap text-muted lg:table-cell">
                       {a.tags.length > 0 ? tagLabel(a.tags[0]) : "—"}
                     </td>
-                    <td className="num money">{money(a.amount)}</td>
+                    <td className="num money max-sm:pr-0!">{money(a.amount)}</td>
                     <td className="hidden w-px text-right sm:table-cell">{source}</td>
                   </tr>
                 );

@@ -254,6 +254,11 @@ export type Windowed = Pick<Envelope, "window_days" | "as_of">;
 export function endDay(asOf: string): string {
   return day(asOf, Number(asOf.slice(0, 4)) === new Date().getUTCFullYear());
 }
+/** "90 days earlier", "a year earlier": the day a prior period ended on,
+ *  for figures that are counted on a day (open solicitations), not over one. */
+export function earlierLabel(days: number): string {
+  return days === 365 ? "a year earlier" : `${days} days earlier`;
+}
 /** A window in a sentence: "the 90 days to Aug 19", "the year to Aug 19". */
 export function period(env: Windowed): string {
   return `the ${env.window_days === 365 ? "year" : `${env.window_days} days`} to ${endDay(env.as_of)}`;

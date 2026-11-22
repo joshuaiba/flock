@@ -69,9 +69,14 @@ export async function Rising({ days, tag, className = "" }: PanelProps) {
                   <span className="sr-only">Rank</span>
                 </th>
                 <th scope="col">Company</th>
-                <th scope="col" className="hidden md:table-cell">
-                  Category
-                </th>
+                {/* The company's largest category overall: left out when a
+                    category is chosen, where it would name another one beside
+                    this category's dollars. */}
+                {!tag && (
+                  <th scope="col" className="hidden md:table-cell">
+                    Category
+                  </th>
+                )}
                 <th scope="col" className="num">
                   Awarded
                 </th>
@@ -93,9 +98,11 @@ export async function Rising({ days, tag, className = "" }: PanelProps) {
                       <span className="name">Unnamed recipient</span>
                     )}
                   </td>
-                  <td className="hidden whitespace-nowrap text-muted md:table-cell">
-                    {r.org?.tag ? tagLabel(r.org.tag) : ""}
-                  </td>
+                  {!tag && (
+                    <td className="hidden whitespace-nowrap text-muted md:table-cell">
+                      {r.org?.tag ? tagLabel(r.org.tag) : ""}
+                    </td>
+                  )}
                   <td className="num leading-tight">
                     <span className="money">{money(r.amount)}</span>
                     <span className="block text-[0.75rem] text-muted">

@@ -44,12 +44,15 @@ export function dollars(n: number | null | undefined): string {
   return "$" + Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
-/** "2026-11-10" -> "Nov 10, 2026" (or "Nov 10" when short). */
+/** "2026-11-10" -> "Nov 10, 2026" (or "Nov 10" when short). The month and
+ *  the day are joined by a no-break space, so a narrow label never ends a line
+ *  on "Nov" and starts the next with a lone "10". */
 export function day(iso: string | null | undefined, short = false): string {
   if (!iso) return "—";
   const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
   if (!y || !m || !d) return iso;
-  return short ? `${MONTHS[m - 1]} ${d}` : `${MONTHS[m - 1]} ${d}, ${y}`;
+  const md = `${MONTHS[m - 1]}\u00a0${d}`;
+  return short ? md : `${md}, ${y}`;
 }
 
 /** How long ago, from a count of days: "today", "12 days ago", "5 months ago". */

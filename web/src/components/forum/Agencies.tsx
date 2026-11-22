@@ -63,13 +63,17 @@ export async function Agencies({ days, tag, className = "" }: PanelProps) {
     >
       <ul className="forum-rows border-t border-line2">
         {d.items.map((a) => {
-          const mix = (tag ? a.mix.filter((m) => m.category === tag) : a.mix).filter((m) => m.amount > 0);
+          const mix = a.mix.filter((m) => m.amount > 0);
           // An award with two categories counts in both, so shares are taken of
           // the categorized dollars, which can be more than the agency's total.
-          const words = mixText(
-            mix,
-            mix.reduce((s, m) => s + m.amount, 0),
-          );
+          // With a category chosen there is no mix to tell: every dollar on
+          // the row is that category's.
+          const words = tag
+            ? ""
+            : mixText(
+                mix,
+                mix.reduce((s, m) => s + m.amount, 0),
+              );
           return (
             <li key={a.org.id} className="py-3">
               <div className="flex items-baseline justify-between gap-x-4">
@@ -89,9 +93,9 @@ export async function Agencies({ days, tag, className = "" }: PanelProps) {
                 />
               )}
               {(words || a.posted > 0) && (
-                <p className="mt-1.5 flex flex-wrap justify-between gap-x-4 text-muted">
-                  <span>{words}</span>
-                  {a.posted > 0 && <span>{plural(a.posted, "solicitation")} posted</span>}
+                <p className="mt-1.5 flex justify-between gap-x-4 text-muted">
+                  <span className="min-w-0">{words}</span>
+                  {a.posted > 0 && <span className="shrink-0 text-right">{plural(a.posted, "solicitation")} posted</span>}
                 </p>
               )}
             </li>

@@ -56,24 +56,30 @@ export async function ReachedProduction({ days, tag, className = "" }: PanelProp
         </NoRows>
       ) : (
         <>
-          {/* The four stages, named once above the tracks. */}
-          <div className="forum-cols flex flex-wrap justify-end gap-x-4" aria-hidden="true">
-            <span>Solicitation</span>
-            <span>Phase I</span>
-            <span>Phase II</span>
-            <span>Production</span>
+          {/* The ends of the tracks, named once above them. The head is as
+              wide as a track (four 9px dots and three links, see StageTrack),
+              so each name sits over its own end; four names would not fit over
+              four dots, and the two between are Phase I and Phase II, as each
+              dot says when pointed at. */}
+          <div className="forum-cols flex justify-end" aria-hidden="true">
+            <span className="flex w-[132px] justify-between sm:w-[144px]">
+              <span>Solicitation</span>
+              <span>Production</span>
+            </span>
           </div>
           <ul className="forum-rows">
             {d.items.map((t) => (
+              // On a phone the name has the whole first line, so the figures
+              // beside the other lines cannot squeeze it to an ellipsis.
               <li key={t.org.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-0.5 py-3">
-                <div className="min-w-0">
+                <div className="min-w-0 max-sm:col-span-2">
                   <OrgLink org={t.org} className="max-w-full" />
                 </div>
-                <StageTrack path={t.path} wide className="justify-self-end" />
-                <p className="min-w-0 text-muted">
+                <StageTrack path={t.path} wide className="justify-self-end max-sm:order-2" />
+                <p className="min-w-0 text-muted max-sm:order-1">
                   {day(t.day)} · {cameFrom(t)}
                 </p>
-                <p className="text-right text-muted">
+                <p className="text-right text-muted max-sm:order-3 max-sm:col-span-2 max-sm:text-left">
                   <span className="money">{money(t.amount)}</span> in {plural(t.awards, "production award")}
                 </p>
               </li>
