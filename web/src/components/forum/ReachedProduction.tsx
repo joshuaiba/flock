@@ -1,9 +1,9 @@
 import { NoRows, OrgLink, Panel, StageTrack } from "@/components/Signals";
 import { serverGet } from "@/lib/api";
 import { day, money, plural } from "@/lib/format";
-import { period, signalPath, STAGE_LABEL, type Page, type TransitionRow } from "@/lib/signals";
+import { signalPath, STAGE_LABEL, type Page, type TransitionRow } from "@/lib/signals";
 import { tagPhrase } from "@/lib/tags";
-import { Down, type PanelProps } from "./shared";
+import { Down, lastLabel, type PanelProps } from "./shared";
 
 const LIMIT = 8;
 
@@ -36,13 +36,13 @@ export async function ReachedProduction({ days, tag, className = "" }: PanelProp
         some ? (
           <>
             {plural(d.total, "company", "companies")}
-            {tag && <> with {tagPhrase(tag)} awards</>} crossed into production in {period(d)}.
+            {tag && <> with {tagPhrase(tag)} awards</>} crossed into production in {lastLabel(days)}.
           </>
         ) : undefined
       }
       note={
         <>
-          Companies with a first production award in {period(d)}
+          Companies with a first production award in {lastLabel(days)}
           {/* The filter is on the company (any award in the category), not on
               the production award itself. */}
           {tag && <>, among companies with {tagPhrase(tag)} awards</>}. Stages are read from award descriptions; the
@@ -52,34 +52,28 @@ export async function ReachedProduction({ days, tag, className = "" }: PanelProp
     >
       {!some ? (
         <NoRows>
-          No company{tag && <> with {tagPhrase(tag)} awards</>} reached production in {period(d)}.
+          No company{tag && <> with {tagPhrase(tag)} awards</>} reached production in {lastLabel(days)}.
         </NoRows>
       ) : (
         <>
-          {/* The ends of the tracks, named once above them. The head is as
-              wide as a track (four 9px dots and three links, see StageTrack),
-              so each name sits over its own end; four names would not fit over
-              four dots, and the two between are Phase I and Phase II, as each
-              dot says when pointed at. */}
-          <div className="forum-cols flex justify-end" aria-hidden="true">
-            <span className="flex w-[132px] justify-between sm:w-[144px]">
-              <span>Solicitation</span>
-              <span>Production</span>
-            </span>
+          {/* The four stages, named once above the tracks. */}
+          <div className="forum-cols flex flex-wrap justify-end gap-x-4" aria-hidden="true">
+            <span>Solicitation</span>
+            <span>Phase I</span>
+            <span>Phase II</span>
+            <span>Production</span>
           </div>
           <ul className="forum-rows">
             {d.items.map((t) => (
-              // On a phone the name has the whole first line, so the figures
-              // beside the other lines cannot squeeze it to an ellipsis.
               <li key={t.org.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-0.5 py-3">
-                <div className="min-w-0 max-sm:col-span-2">
+                <div className="min-w-0">
                   <OrgLink org={t.org} className="max-w-full" />
                 </div>
-                <StageTrack path={t.path} wide className="justify-self-end max-sm:order-2" />
-                <p className="min-w-0 text-muted max-sm:order-1">
+                <StageTrack path={t.path} wide className="justify-self-end" />
+                <p className="min-w-0 text-muted">
                   {day(t.day)} · {cameFrom(t)}
                 </p>
-                <p className="text-right text-muted max-sm:order-3 max-sm:col-span-2 max-sm:text-left">
+                <p className="text-right text-muted">
                   <span className="money">{money(t.amount)}</span> in {plural(t.awards, "production award")}
                 </p>
               </li>

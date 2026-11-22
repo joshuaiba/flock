@@ -54,22 +54,15 @@ def pg_server_dsn(tmp_path_factory):
 
 
 @pytest.fixture
-def blank_db(pg_server_dsn):
-    """A fresh database per test with no migrations applied, for tests that
-    apply them in steps."""
+def db(pg_server_dsn):
+    """A fresh, migrated database per test."""
     name = f"t_{uuid.uuid4().hex[:12]}"
     with psycopg.connect(pg_server_dsn, autocommit=True) as admin:
         admin.execute(f'CREATE DATABASE "{name}"')
     dsn = psycopg.conninfo.make_conninfo(pg_server_dsn, dbname=name)
     conn = psycopg.connect(dsn)
+    migrate(conn)
     yield conn
     conn.close()
     with psycopg.connect(pg_server_dsn, autocommit=True) as admin:
         admin.execute(f'DROP DATABASE "{name}" WITH (FORCE)')
-
-
-@pytest.fixture
-def db(blank_db):
-    """A fresh, migrated database per test."""
-    migrate(blank_db)
-    return blank_db

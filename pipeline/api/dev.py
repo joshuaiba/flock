@@ -5,12 +5,15 @@
 Starts pgserver in data/dev-pg (kept between runs), applies migrations, seeds
 sample data if the database is empty, and serves the API on :8000. DATABASE_URL
 from the shell or .env is ignored on purpose, so this can never touch a real
-database. `--reseed` wipes the sample database and starts over.
+database. `--reseed` wipes the sample database and starts over. `--as-of
+2026-08-19` seeds a record whose newest award is that day, the way the real
+one lags the calendar (USAspending publishes DoD contracts about 90 days late).
 """
 
 from __future__ import annotations
 
 import argparse
+import datetime
 import os
 import shutil
 from pathlib import Path
@@ -31,6 +34,13 @@ def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--reseed", action="store_true", help="wipe the sample database first")
+    p.add_argument(
+        "--as-of",
+        type=datetime.date.fromisoformat,
+        default=None,
+        metavar="YYYY-MM-DD",
+        help="the sample record's last day (default: today); only applies when seeding",
+    )
     args = p.parse_args(argv)
 
     if args.reseed and DATA_DIR.exists():
@@ -42,8 +52,8 @@ def main(argv: list[str] | None = None) -> None:
         for name in migrate(conn):
             print(f"applied {name}")
         if conn.execute("SELECT count(*) FROM awards").fetchone()[0] == 0:
-            print(f"seeded sample data: {seed.seed(conn)}")
-        # Recompute the signals over whatever the database holds now.
+            print(f"seeded sample data: {seed.seed(conn, today=args.as_of)}")
+        # Windows end on the newest record; refresh on every start so they follow it.
         signals.refresh(conn)
     os.environ["DATABASE_URL"] = dsn
     try:

@@ -36,18 +36,13 @@ async function Report() {
     );
 
   // The report is a short run of paragraphs, written from the week's records.
-  // The week is the newest seven days on record, `week_of` to `through`, and
-  // can end months before today: the sources publish late. So it is never
-  // "this week", always the week to a date. Only "closing soon" is by the
-  // calendar.
-  const week = `the week to ${day(d.through, true)}`;
   const lines: React.ReactNode[] = [];
   if (d.awards === 0) {
     lines.push(<>A quiet week. No autonomy awards landed between {day(d.week_of, true)} and {day(d.through, true)}.</>);
   } else {
     lines.push(
       <>
-        {plural(d.awards, "award")} landed in {week}, worth <span className="money">{money(d.amount)}</span>.
+        {plural(d.awards, "award")} landed in the week to {day(d.through, true)}, worth <span className="money">{money(d.amount)}</span>.
         {d.prev_awards > 0 && <> The week before it was {plural(d.prev_awards, "award")} and {money(d.prev_amount)}.</>}
       </>,
     );
@@ -90,7 +85,7 @@ async function Report() {
   if (d.opened.length)
     lines.push(
       <>
-        {plural(d.opened.length, "new solicitation")} opened that week. Among them: {truncate(d.opened[0].title, 80)}
+        {plural(d.opened.length, "new solicitation")} opened. Among them: {truncate(d.opened[0].title, 80)}
         {d.opened[0].agency_name && (
           <>
             , from <Entity id={d.opened[0].agency_id} name={d.opened[0].agency_name} />
@@ -113,8 +108,7 @@ async function Report() {
         <p className="mt-2 font-display text-[1.4375rem] leading-tight">Week of {day(d.week_of)}</p>
         {/* The week's figures come from the same views as the Forum. */}
         <p className="mt-2 text-muted">
-          Written from the newest week on record, {day(d.week_of, true)} to {day(d.through)}. The same figures, by
-          quarter:{" "}
+          Written from the records of {day(d.week_of, true)} to {day(d.through)}. The same figures, by quarter:{" "}
           <Link href="/forum" className="ui-link">
             the Forum
           </Link>
@@ -133,11 +127,9 @@ async function Report() {
 
       {recent && recent.length > 0 && (
         <section className="mt-14 border-t border-line pt-10">
-          <h2 className="panel-title">The newest on record</h2>
-          <p className="lede mt-1.5">
-            The {recent.length} newest awards and open solicitations, one row per swallow on the landing page.
-          </p>
-          <div className="relative mt-4 overflow-x-auto" tabIndex={0} role="region" aria-label="The newest on record: table">
+          <h2 className="panel-title">Everything spotted lately</h2>
+          <p className="lede mt-1.5">One row per swallow on the landing page.</p>
+          <div className="relative mt-4 overflow-x-auto" tabIndex={0} role="region" aria-label="Everything spotted lately: table">
             <table className="ledger">
               <thead>
                 <tr>

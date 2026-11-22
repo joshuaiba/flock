@@ -4,7 +4,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { NoRows, OrgLink, Panel, RankChange, SkeletonRows } from "@/components/Signals";
 import { clientGet } from "@/lib/api";
 import { day, money, plural, truncate } from "@/lib/format";
-import { period, signalPath, STAGE_LABEL, type WatchRow, type Watchlist as WatchlistData } from "@/lib/signals";
+import { signalPath, STAGE_LABEL, type WatchRow, type Watchlist as WatchlistData } from "@/lib/signals";
 import { useStore } from "@/lib/store";
 import { PanelEmpty } from "./shared";
 
@@ -99,8 +99,8 @@ export function Watchlist({ className = "" }: { className?: string }) {
       note={
         data
           ? data.since
-            ? `What is new in the record since your last visit, ${localDay(data.since)}. Rank is by award dollars over ${period(data)}.`
-            : `Rank is by award dollars over ${period(data)}.`
+            ? `What is new in the record since your last visit, ${localDay(data.since)}. Rank is by award dollars over the last 90 days.`
+            : "Rank is by award dollars over the last 90 days."
           : undefined
       }
     >
@@ -126,7 +126,7 @@ export function Watchlist({ className = "" }: { className?: string }) {
           )}
           <ul className="forum-rows border-t border-line2">
             {data.items.map((w) => (
-              <Watched key={w.org.id} w={w} since={data.since} when={period(data)} />
+              <Watched key={w.org.id} w={w} since={data.since} />
             ))}
           </ul>
         </>
@@ -145,10 +145,8 @@ function Loading() {
 }
 
 /** One watched organization: where it ranks, when it last won an award, and,
- *  when there is an earlier visit to compare with, what is new since then.
- *  `when` is the ranking's window in words ("the 90 days to Aug 19"); "days
- *  ago" is by the calendar, counted from today. */
-function Watched({ w, since, when }: { w: WatchRow; since: string | null; when: string }) {
+ *  when there is an earlier visit to compare with, what is new since then. */
+function Watched({ w, since }: { w: WatchRow; since: string | null }) {
   const capped = w.new_awards.length >= AWARD_CAP;
   const last =
     w.days_since_last == null
@@ -163,7 +161,7 @@ function Watched({ w, since, when }: { w: WatchRow; since: string | null; when: 
       </div>
       <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-muted">
         {w.rank == null ? (
-          <span>not ranked in {when}</span>
+          <span>not ranked in the last 90 days</span>
         ) : (
           <span className="inline-flex items-center gap-1.5">
             <span className="text-ink">rank {w.rank}</span>

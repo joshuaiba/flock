@@ -1,16 +1,6 @@
 import Link from "next/link";
 import { day } from "@/lib/format";
-import {
-  change,
-  earlierLabel,
-  endDay,
-  pct,
-  priorLabel,
-  STAGE_LABEL,
-  type Envelope,
-  type SignalOrg,
-  type StagePoint,
-} from "@/lib/signals";
+import { change, pct, priorLabel, STAGE_LABEL, type Envelope, type SignalOrg, type StagePoint } from "@/lib/signals";
 import "./forum/forum.css";
 
 // Shared pieces of the Forum, the leaderboards and the entity page's signals.
@@ -77,19 +67,13 @@ export function signedPct(v: number): string {
  *
  *  Pass `pct` when the API gives one for this figure: `null` there means the
  *  API withheld the percentage (the prior period is under its baseline), and
- *  this says so instead of working one out from the two amounts.
- *
- *  Pass `point` for a figure that is counted on a day, not summed over the
- *  window (solicitations open on the as-of date): its earlier value is the
- *  count on the day the prior period ended, so the comparison reads "+50% vs
- *  90 days earlier", not "vs the prior 90 days". */
+ *  this says so instead of working one out from the two amounts. */
 export function Delta({
   cur,
   prev,
   env,
   pct: given,
   short = false,
-  point = false,
 }: {
   cur: number;
   prev: number;
@@ -97,21 +81,17 @@ export function Delta({
   pct?: number | null;
   /** just the signed figure, for tight rows */
   short?: boolean;
-  /** counted on a day, compared with the same count a window earlier */
-  point?: boolean;
 }) {
   const quiet = "text-muted";
-  const then = point ? earlierLabel(env.window_days) : priorLabel(env.window_days);
-  if (!env.coverage.prior_complete)
-    return <span className={quiet}>{point ? "no earlier count on record" : "no earlier period on record"}</span>;
-  if (given === null && prev > 0) return <span className={quiet}>too little in {then} for a percentage</span>;
+  if (!env.coverage.prior_complete) return <span className={quiet}>no earlier period on record</span>;
+  if (given === null && prev > 0)
+    return <span className={quiet}>too little in {priorLabel(env.window_days)} for a percentage</span>;
   const c = change(cur, prev, true);
-  if (!c) return <span className={quiet}>{point ? `none ${then}` : `nothing in ${then}`}</span>;
-  if (c.flat) return <span className={quiet}>level{!short && <> with {then}</>}</span>;
+  if (!c) return <span className={quiet}>nothing in {priorLabel(env.window_days)}</span>;
+  if (c.flat) return <span className={quiet}>level{!short && <> with {priorLabel(env.window_days)}</>}</span>;
   const text = signedPct((cur - prev) / prev);
-  // "+41% vs the prior 90 days", but "13× the prior 90 days" (and, for a
-  // count on a day, "13× the count 90 days earlier").
-  const joiner = text.endsWith("×") ? (point ? "the count " : "") : "vs ";
+  // "+41% vs the prior 90 days", but "13× the prior 90 days".
+  const joiner = text.endsWith("×") ? "" : "vs ";
   return (
     <span className={quiet}>
       <span className="delta text-ink">{text}</span>
@@ -119,7 +99,7 @@ export function Delta({
         <>
           {" "}
           {joiner}
-          {then}
+          {priorLabel(env.window_days)}
         </>
       )}
     </span>
@@ -231,10 +211,7 @@ export function StageTrack({
         <span key={p.stage} className="inline-flex items-center" title={`${STAGE_LABEL[p.stage]}${p.day ? `: ${day(p.day)}` : ": not on record"}`}>
           {i > 0 && (
             <span
-              // A solid link is a move from the stage before to this one: both
-              // reached, and in that order. A company whose solicitation is
-              // dated after its Phase I reached both, but did not move between.
-              className={`${wide ? "w-8 sm:w-9" : "w-4 sm:w-5"} ${p.day && path[i - 1].day && path[i - 1].day! <= p.day ? "h-[1.5px] bg-ink" : "h-px bg-line2"}`}
+              className={`${wide ? "w-8 sm:w-9" : "w-4 sm:w-5"} ${p.day && path[i - 1].day ? "h-[1.5px] bg-ink" : "h-px bg-line2"}`}
             />
           )}
           <span className={`block h-[9px] w-[9px] rounded-full border ${p.day ? "border-ink bg-ink" : "border-muted bg-transparent"}`} />
@@ -244,28 +221,15 @@ export function StageTrack({
   );
 }
 
-/** "Data through Aug 19, 2026 · refreshed Nov 22 · sample data": the line
- *  every signals page carries. The date is `as_of`, the day of the newest
- *  award on record, which is the day every window on the page ends on. It is
- *  not today: the sources publish contracts weeks to months after signing. So
- *  the line never says "as of", which reads as today, and when the numbers
- *  were computed on a later day it says that too, so an old date is not taken
- *  for a site that stopped updating. */
-export function AsOf({
-  env,
-  className = "",
-}: {
-  env: Pick<Envelope, "as_of" | "sample"> & Partial<Pick<Envelope, "refreshed_at">>;
-  className?: string;
-}) {
-  const refreshed = env.refreshed_at?.slice(0, 10);
+/** "Data through Aug 19, 2026 · sample data": the line every signals page
+ *  carries. The as-of date is the day of the newest record, and every window
+ *  ends on it, not on today. */
+export function AsOf({ env, className = "" }: { env: Pick<Envelope, "as_of" | "sample">; className?: string }) {
   return (
-    <p
-      className={`text-muted ${className}`}
-      title="Every window ends on the newest award on record. Sources publish contracts weeks to months after they are signed."
-    >
-      Data through {day(env.as_of)}
-      {refreshed && refreshed > env.as_of && ` · refreshed ${endDay(refreshed)}`}
+    <p className={`text-muted ${className}`}>
+      <span title="Every window on this page ends on this day: the newest award or solicitation on record.">
+        Data through {day(env.as_of)}
+      </span>
       {env.sample && " · sample data"}
     </p>
   );

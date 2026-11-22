@@ -57,7 +57,7 @@ export function Hero({ children }: { children: React.ReactNode }) {
 
       {/* What the birds are, said once, the way a plate carries its caption. */}
       <div className="hero-key" data-flock-avoid>
-        <p className="caption">Each swallow is one of the newest awards or open solicitations on record.</p>
+        <p className="caption">Each swallow is one of the newest awards on record, or an open solicitation.</p>
         <ul className="hero-legend">
           <li>
             <span className="hero-dot bg-accent" aria-hidden="true" />

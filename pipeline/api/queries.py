@@ -17,8 +17,6 @@ import psycopg
 import yaml
 from psycopg.rows import dict_row
 
-from pipeline.api.names import display_name
-
 TAXONOMY = Path(__file__).resolve().parent.parent.parent / "config" / "taxonomy.yaml"
 
 # Awards tagged with the taxonomy root, with their non-root tag slugs and a
@@ -113,9 +111,7 @@ def tags() -> list[dict]:
 def summary(conn: psycopg.Connection) -> dict:
     """The hero's figures. The 30-day numbers and the open-solicitation count
     come from the signal views (migrations/007_signals.sql), so they match the
-    dashboard exactly. Like every signal window, the 30 days end on `as_of`,
-    the day of the newest award on record, not today
-    (migrations/008_signals_data_anchor.sql), and "open" is open on that day."""
+    dashboard exactly."""
     row = _one(
         conn,
         """
@@ -189,172 +185,6 @@ def recent(conn: psycopg.Connection, limit: int = 70) -> list[dict]:
 
 def _primary(tag_totals: dict[str, float]) -> str | None:
     return max(tag_totals, key=lambda k: (tag_totals[k], k)) if tag_totals else None
-
-
-def graph(
-    conn: psycopg.Connection, days: int = 90, max_companies: int = 150, *, recent: bool = False
-) -> dict:
-    """Companies, agencies and solicitations in the window, with money edges.
-    `days = 0` means everything on record.
-
-    The window ends today, or, with `recent`, on the day of the newest award on
-    record: the sources publish contracts weeks to months after signing, so the
-    last `days` days can be empty while the record's own latest stretch is not.
-    The site always asks for `recent`. Either way the answer says when the
-    newest award was (`latest`, and `age` in days), so the caller can tell
-    which windows have anything in them.
-
-    `latest` and the window follow the rules of the signal views, so a window
-    here covers the same days as the same window on the dashboard: `latest` is
-    signal_meta.as_of (the newest autonomy award not dated after today, see
-    migrations/008_signals_data_anchor.sql), computed over the live rows
-    instead of the nightly snapshot, and a window of N days is the N days
-    ending on `through`, inclusive: `since` is its first day.
-
-    Each organization node also carries `display_name`, a short label for the
-    graph ("AeroVironment", "Army"; see pipeline/api/names.py), next to its full
-    legal `name`. `sample` is true while any seed rows exist, the same test the
-    signal views use (signal_meta.sample), so the page can say "Sample data"."""
-    at = _one(
-        conn,
-        AWARDS_CTE
-        + "SELECT current_date AS today,"
-        + " max(aa.day) FILTER (WHERE aa.day <= current_date) AS latest,"
-        + " EXISTS (SELECT 1 FROM awards WHERE source = 'seed') AS sample"
-        + " FROM aa",
-    )
-    today, latest = at["today"], at["latest"]
-    through = latest if recent and latest else today
-    since = through - timedelta(days=days - 1) if days else None
-    rows = _rows(
-        conn,
-        AWARDS_CTE
-        + """
-        SELECT aa.recipient_id, aa.agency_id, aa.opportunity_id, aa.amount, aa.tags
-        FROM aa
-        WHERE (%(since)s::date IS NULL OR aa.day BETWEEN %(since)s::date AND %(through)s::date)
-          AND aa.recipient_id IS NOT NULL
-        """,
-        since=since,
-        through=through,
-    )
-    totals: dict[int, float] = {}
-    for r in rows:
-        totals[r["recipient_id"]] = totals.get(r["recipient_id"], 0.0) + _money(r["amount"])
-    keep = set(sorted(totals, key=lambda k: totals[k], reverse=True)[:max_companies])
-
-    nodes: dict[str, dict] = {}
-    edges: dict[tuple[str, str, str], dict] = {}
-
-    def node(key: str) -> dict:
-        return nodes.setdefault(key, {"id": key, "total": 0.0, "awards": 0, "tag_totals": {}})
-
-    def bump(n: dict, amount: float, tags_: list[str]) -> None:
-        n["total"] += amount
-        n["awards"] += 1
-        for t in tags_:
-            n["tag_totals"][t] = n["tag_totals"].get(t, 0.0) + amount
-
-    def edge(src: str, dst: str, kind: str, amount: float = 0.0) -> None:
-        e = edges.setdefault(
-            (src, dst, kind), {"source": src, "target": dst, "kind": kind, "amount": 0.0, "n": 0}
-        )
-        e["amount"] += amount
-        e["n"] += 1
-
-    opp_ids: set[int] = set()
-    for r in rows:
-        if r["recipient_id"] not in keep:
-            continue
-        amount = _money(r["amount"])
-        co = f"org:{r['recipient_id']}"
-        bump(node(co), amount, r["tags"])
-        if r["agency_id"]:
-            ag = f"org:{r['agency_id']}"
-            bump(node(ag), amount, r["tags"])
-            edge(ag, co, "award", amount)
-        if r["opportunity_id"]:
-            op = f"opp:{r['opportunity_id']}"
-            opp_ids.add(r["opportunity_id"])
-            bump(node(op), amount, r["tags"])
-            edge(op, co, "answered")
-
-    # Solicitations posted in the window, plus any an in-window award answered.
-    for o in _rows(
-        conn,
-        f"""
-        SELECT o.id, o.title, o.agency_id, o.url, o.posted_at::date AS posted,
-               o.closes_at::date AS closes, {OPP_TAGS} AS tags,
-               (o.closes_at IS NULL OR o.closes_at > now()) AS open
-        FROM opportunities o
-        WHERE o.id = ANY(%(ids)s)
-           OR %(since)s::date IS NULL
-           OR COALESCE(o.posted_at, o.fetched_at)::date
-              BETWEEN %(since)s::date AND %(through)s::date
-        """,
-        ids=list(opp_ids),
-        since=since,
-        through=through,
-    ):
-        n = node(f"opp:{o['id']}")
-        n.update(
-            kind="opportunity",
-            name=o["title"],
-            url=o["url"],
-            posted=o["posted"],
-            closes=o["closes"],
-            open=o["open"],
-        )
-        for t in o["tags"]:
-            n["tag_totals"].setdefault(t, 0.0)
-        if o["agency_id"]:
-            node(f"org:{o['agency_id']}")
-            edge(f"org:{o['agency_id']}", f"opp:{o['id']}", "issued")
-
-    org_ids = [int(k.split(":")[1]) for k in nodes if k.startswith("org:")]
-    for o in _rows(
-        conn,
-        "SELECT id, canonical_name, kind, uei FROM organizations WHERE id = ANY(%(ids)s)",
-        ids=org_ids,
-    ):
-        nodes[f"org:{o['id']}"].update(
-            kind=o["kind"],
-            name=o["canonical_name"],
-            display_name=display_name(o["canonical_name"], o["kind"]),
-            uei=o["uei"],
-        )
-
-    for e in _rows(
-        conn,
-        """
-        SELECT src_id, dst_id FROM edges
-        WHERE rel = 'part_of' AND src_type = 'organization' AND dst_type = 'organization'
-          AND src_id = ANY(%(ids)s) AND dst_id = ANY(%(ids)s)
-        """,
-        ids=org_ids,
-    ):
-        edge(f"org:{e['src_id']}", f"org:{e['dst_id']}", "part_of")
-
-    out = []
-    for n in nodes.values():
-        if "kind" not in n:  # an org row that vanished mid-query
-            continue
-        tt = n.pop("tag_totals")
-        n["tags"] = sorted(tt)
-        n["tag"] = _primary(tt)
-        out.append(n)
-    ids = {n["id"] for n in out}
-    return {
-        "days": days,
-        "recent": recent,
-        "since": since,
-        "through": through,
-        "latest": latest,
-        "age": (today - latest).days if latest else None,
-        "sample": bool(at["sample"]),
-        "nodes": out,
-        "edges": [e for e in edges.values() if e["source"] in ids and e["target"] in ids],
-    }
 
 
 # Stage detection is a text heuristic over award descriptions: the schema has no
@@ -539,19 +369,13 @@ def search(conn: psycopg.Connection, q: str, limit: int = 12) -> list[dict]:
 
 
 def digest(conn: psycopg.Connection) -> dict:
-    """The newest seven days on record against the seven before, for the field
-    report.
+    """The last seven days against the seven before, for the field report.
 
     Read from the signal views, with the 7-day window: the same rows and the
-    same as-of date as the dashboard, so the two never disagree. The week is
-    `week_of` to `through`, and `through` is that as-of date: the day of the
-    newest award on record, which can be months before today
-    (migrations/008_signals_data_anchor.sql). Only `closing` looks at the
-    calendar: a solicitation is closing soon when it closes in the next 14
-    days from today, whatever week the report covers."""
+    same as-of date as the dashboard, so the two never disagree."""
     meta = _one(conn, "SELECT as_of FROM signal_meta")
-    through = meta["as_of"]
-    start = through - timedelta(days=6)
+    today = meta["as_of"]
+    start = today - timedelta(days=6)
     week = _one(
         conn,
         """SELECT amount, awards, prev_amount, prev_awards FROM signal_funding
@@ -566,11 +390,11 @@ def digest(conn: psycopg.Connection) -> dict:
         FROM signal_awards a
         LEFT JOIN organizations o ON o.id = a.recipient_id
         LEFT JOIN organizations ag ON ag.id = a.agency_id
-        WHERE a.day >= %(start)s AND a.day <= %(through)s AND a.amount IS NOT NULL
+        WHERE a.day >= %(start)s AND a.day <= %(today)s AND a.amount IS NOT NULL
         ORDER BY a.amount DESC, a.id LIMIT 5
         """,
         start=start,
-        through=through,
+        today=today,
     )
     by_tag = _rows(
         conn,
@@ -585,11 +409,11 @@ def digest(conn: psycopg.Connection) -> dict:
         """
         SELECT o.id, o.canonical_name AS name, c.first_day, c.amount
         FROM signal_companies c JOIN organizations o ON o.id = c.org_id
-        WHERE c.first_day >= %(start)s AND c.first_day <= %(through)s
+        WHERE c.first_day >= %(start)s AND c.first_day <= %(today)s
         ORDER BY c.amount DESC, o.id LIMIT 5
         """,
         start=start,
-        through=through,
+        today=today,
     )
     opened = _rows(
         conn,
@@ -597,11 +421,11 @@ def digest(conn: psycopg.Connection) -> dict:
         SELECT o.id, o.title, o.url, o.day AS posted, o.closes_at::date AS closes,
                ag.id AS agency_id, ag.canonical_name AS agency_name
         FROM signal_opportunities o LEFT JOIN organizations ag ON ag.id = o.agency_id
-        WHERE o.day >= %(start)s AND o.day <= %(through)s
+        WHERE o.day >= %(start)s AND o.day <= %(today)s
         ORDER BY o.day DESC, o.id DESC LIMIT 5
         """,
         start=start,
-        through=through,
+        today=today,
     )
     closing = _rows(
         conn,
@@ -609,9 +433,10 @@ def digest(conn: psycopg.Connection) -> dict:
         SELECT o.id, o.title, o.url, o.closes_at::date AS closes,
                ag.id AS agency_id, ag.canonical_name AS agency_name
         FROM signal_opportunities o LEFT JOIN organizations ag ON ag.id = o.agency_id
-        WHERE o.closes_at::date > current_date AND o.closes_at::date <= current_date + 14
+        WHERE o.closes_at::date > %(today)s AND o.closes_at::date <= %(today)s::date + 14
         ORDER BY o.closes_at LIMIT 4
         """,
+        today=today,
     )
     for r in top:
         r["amount"] = _money(r["amount"])
@@ -619,7 +444,7 @@ def digest(conn: psycopg.Connection) -> dict:
         r["amount"] = _money(r["amount"])
     return {
         "week_of": start,
-        "through": through,
+        "through": today,
         "awards": week["awards"],
         "amount": _money(week["amount"]),
         "prev_awards": week["prev_awards"],

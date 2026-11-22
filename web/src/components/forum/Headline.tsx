@@ -1,14 +1,14 @@
 import { AsOf, Delta } from "@/components/Signals";
 import { money } from "@/lib/format";
-import { endDay, forSolicitations, periodLabel } from "@/lib/signals";
+import { forSolicitations, windowLabel } from "@/lib/signals";
 import { getDefinitions, getOverview } from "./data";
 import type { PanelProps } from "./shared";
 import "./forum.css";
 
-// The top of the Forum: the data-through line and the summary row, four
-// totals in plain figures, each with its change against the prior period.
+// The top of the Forum: the as-of line and the summary row, four totals in
+// plain figures, each with its change against the prior period.
 
-/** "Data through Aug 19, 2026 · sample data", under the page title. */
+/** "As of Nov 11, 2026 · sample data", under the page title. */
 export async function AsOfLine({ days, tag }: PanelProps) {
   const o = await getOverview(days, tag);
   if (!o) return <p className="text-muted">The data service is not answering.</p>;
@@ -56,7 +56,7 @@ export async function HeadlineStats({ days, tag }: PanelProps) {
   const thinPrior = defs != null && o.prev_amount > 0 && o.prev_amount < defs.min_baseline;
   return (
     <dl className="forum-kpis mt-6">
-      <Stat label={`Awarded, ${periodLabel(o)}`} value={money(o.amount)} money>
+      <Stat label={`Awarded, last ${windowLabel(days)}`} value={money(o.amount)} money>
         <Delta cur={o.amount} prev={o.prev_amount} pct={thinPrior ? null : undefined} env={o} />
       </Stat>
       <Stat label="Awards" value={o.awards.toLocaleString("en-US")}>
@@ -72,9 +72,8 @@ export async function HeadlineStats({ days, tag }: PanelProps) {
           <span className="text-muted">no solicitations on record</span>
         </Stat>
       ) : (
-        // Open on the day the window ends, like every other figure here.
-        <Stat label={`Open solicitations, ${endDay(o.as_of)}`} value={o.open_solicitations.toLocaleString("en-US")}>
-          <Delta cur={o.open_solicitations} prev={o.prev_open_solicitations} env={forSolicitations(o)} point />
+        <Stat label="Open solicitations" value={o.open_solicitations.toLocaleString("en-US")}>
+          <Delta cur={o.open_solicitations} prev={o.prev_open_solicitations} env={forSolicitations(o)} />
         </Stat>
       )}
     </dl>

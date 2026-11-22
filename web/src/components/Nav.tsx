@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import { clientGet, type Summary } from "@/lib/api";
 import { useStore } from "@/lib/store";
+import { CommandPalette } from "./CommandPalette";
 
 // `short` is what a narrow screen shows; the link keeps its full name for
 // screen readers. A `tiny` link is dropped on phones narrower than 390px,
@@ -46,8 +47,9 @@ function useSample(): boolean {
 }
 
 /** The top bar: the wordmark, then forum, graph, field report and about as
- *  plain words (the current page in the text color), and at the right the
- *  sample-data mark, the watchlist count and the Display menu. Centered links
+ *  plain words (the current page in the text color, on a copper rule), and at
+ *  the right the sample-data mark, the watchlist count, the command palette
+ *  (Cmd+K: find a company or an agency) and the Display menu. Centered links
  *  when there is room; on a phone they sit just to the right of the wordmark.
  *  The bar has no box of its own: a veil of page color keeps its words
  *  readable when a page scrolls under it. */
@@ -73,7 +75,7 @@ export function Nav() {
               href={l.href}
               aria-current={active ? "page" : undefined}
               aria-label={l.short ? l.label : undefined}
-              className={`${ITEM} ${active ? "font-medium text-ink" : "text-muted hover:text-ink"} ${
+              className={`${ITEM} ${active ? "nav-current font-medium text-ink" : "text-muted hover:text-ink"} ${
                 l.tiny ? "max-[390px]:hidden" : ""
               }`}
             >
@@ -105,6 +107,7 @@ export function Nav() {
             Watchlist <span className="ml-1.5 text-ink">{pins.length}</span>
           </Link>
         )}
+        <CommandPalette />
         <DisplayMenu key={path} />
       </div>
     </header>
@@ -203,7 +206,7 @@ function DisplayMenu() {
               </button>
             </div>
           </div>
-          <p className="mt-2.5 text-muted">Off holds the swallows still.</p>
+          <p className="mt-2.5 text-muted">Off holds the swallows still and draws every chart at once.</p>
         </div>
       )}
     </div>

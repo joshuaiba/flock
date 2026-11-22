@@ -102,9 +102,7 @@ jobs:
 
       # Recompute the dashboard's metrics (migrations/007_signals.sql) from
       # whatever the steps above loaded. Runs even when a step failed, so the
-      # site's numbers and its "data through" date (the newest award on
-      # record, migrations/008_signals_data_anchor.sql) match the data that
-      # is there.
+      # site's "as of" date and numbers still match the data that is there.
       - name: Refresh signals
         id: signals
         if: always()

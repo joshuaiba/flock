@@ -27,50 +27,6 @@ export type RecentItem = {
 };
 
 export type OrgKind = "company" | "agency" | "office";
-export type NodeKind = OrgKind | "opportunity";
-
-export type GraphNode = {
-  id: string; // "org:12" | "opp:5"
-  kind: NodeKind;
-  /** the full legal name for an organization; the title for a solicitation */
-  name: string;
-  /** a short label for the graph ("AeroVironment", "Army"), set on companies,
-   * agencies and offices; absent from solicitations and from older APIs, so
-   * fall back to `name` */
-  display_name?: string | null;
-  total: number;
-  awards: number;
-  tags: string[];
-  tag: string | null;
-  uei?: string | null;
-  url?: string | null;
-  posted?: string | null;
-  closes?: string | null;
-  open?: boolean;
-};
-export type GraphEdge = {
-  source: string;
-  target: string;
-  kind: "award" | "issued" | "answered" | "part_of";
-  amount: number;
-  n: number;
-};
-export type Graph = {
-  days: number;
-  /** the window ends on the newest award on record, not today; the site
-   *  always asks for this */
-  recent?: boolean;
-  /** the window's first and last day; no first day for everything on record */
-  since?: string | null;
-  through?: string | null;
-  /** the day of the newest award on record, and how many days ago that was */
-  latest?: string | null;
-  age?: number | null;
-  /** the database holds the synthetic seed data; absent from older APIs */
-  sample?: boolean;
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-};
 
 export type Stage = {
   key: "solicitation" | "phase_1" | "phase_2" | "production";

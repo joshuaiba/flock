@@ -8,10 +8,10 @@ import {
   familyOfTag,
   mixText,
   pct,
-  period,
   priorLabel,
   signalPath,
   STAGE_LABEL,
+  windowLabel,
   type AgencyRow,
   type Definitions,
   type EntrantRow,
@@ -93,6 +93,10 @@ function params(view: View, sort: Sort | null, tag = true) {
   };
 }
 
+/** "the last 90 days" / "the last year" */
+function lastLabel(days: number): string {
+  return days === 365 ? "the last year" : `the last ${windowLabel(days)}`;
+}
 /** ", maritime only" when a category is chosen */
 function only(tag: string | null): string {
   return tag ? `, ${tagPhrase(tag)} only` : "";
@@ -160,7 +164,7 @@ export const RECIPIENTS: Board<FundingRow, FundingPage> = {
   width: "min-w-[760px]",
   note: ({ page }) => (
     <>
-      Award dollars by company in {period(page)}
+      Award dollars by company in {lastLabel(page.window_days)}
       {only(page.tag)}.
       {page.coverage.prior_complete && <> Rank moves and changes are against {priorLabel(page.window_days)}.</>}
     </>
@@ -168,7 +172,7 @@ export const RECIPIENTS: Board<FundingRow, FundingPage> = {
   empty: {
     title: "No awards in this window",
     text: ({ page }) =>
-      `Companies would be ranked here by the award dollars they received in ${period(page)}${only(page.tag)}.`,
+      `Companies would be ranked here by the award dollars they received in ${lastLabel(page.window_days)}${only(page.tag)}.`,
   },
   columns: [
     {
@@ -287,7 +291,7 @@ export const ENTRANTS: Board<EntrantRow, Page<EntrantRow>> = {
   width: "min-w-[860px]",
   note: ({ page }) => (
     <>
-      Companies whose first award in this data set falls in {period(page)}
+      Companies whose first award in this data set falls in {lastLabel(page.window_days)}
       {among(page.tag)}. New means new to this record
       {page.coverage.first_award_day && <>, which begins {day(page.coverage.first_award_day)}</>}; a company can have won
       awards before it.
@@ -296,7 +300,7 @@ export const ENTRANTS: Board<EntrantRow, Page<EntrantRow>> = {
   empty: {
     title: "No newcomers",
     text: ({ page }) =>
-      `Companies with their first award on record in ${period(page)} would be listed here${among(page.tag)}.`,
+      `Companies with their first award on record in ${lastLabel(page.window_days)} would be listed here${among(page.tag)}.`,
   },
   columns: [
     place(),
@@ -342,7 +346,7 @@ export const TRANSITIONS: Board<TransitionCompanyRow, Page<TransitionCompanyRow>
   width: "min-w-[900px]",
   note: ({ page }) => (
     <>
-      Companies that moved from one stage to the next in {period(page)}
+      Companies that moved from one stage to the next in {lastLabel(page.window_days)}
       {among(page.tag)}. Stages are read from award descriptions; the sources publish no stage field. A filled dot is a
       stage on record.
     </>
@@ -350,7 +354,7 @@ export const TRANSITIONS: Board<TransitionCompanyRow, Page<TransitionCompanyRow>
   empty: {
     title: "No moves between stages",
     text: ({ page }) =>
-      `Companies that moved from one stage to the next in ${period(page)} would be ranked here${among(page.tag)}.`,
+      `Companies that moved from one stage to the next in ${lastLabel(page.window_days)} would be ranked here${among(page.tag)}.`,
   },
   columns: [
     place(),
@@ -423,7 +427,7 @@ export const AGENCIES: Board<AgencyRow, Page<AgencyRow>> = {
   width: "min-w-[900px]",
   note: ({ page, record }) => (
     <>
-      Agencies and offices by the award dollars they obligated in {period(page)}
+      Agencies and offices by the award dollars they obligated in {lastLabel(page.window_days)}
       {only(page.tag)}, as the source recorded them: offices are not rolled up into their parent.{" "}
       {page.tag
         ? "The mix names each agency's largest categories in the window, across all of its awards."
@@ -434,7 +438,7 @@ export const AGENCIES: Board<AgencyRow, Page<AgencyRow>> = {
   empty: {
     title: "No agencies in this window",
     text: ({ page }) =>
-      `Agencies and offices that awarded or posted in ${period(page)} would be ranked here${only(page.tag)}.`,
+      `Agencies and offices that awarded or posted in ${lastLabel(page.window_days)} would be ranked here${only(page.tag)}.`,
   },
   columns: [
     {
@@ -485,7 +489,7 @@ export const TOPICS: Board<TopicRow, TopicPage> = {
   noPriorSort: { sort: "posted", order: "desc" },
   note: ({ page, record }) => (
     <>
-      Solicitations posted per category in {period(page)}
+      Solicitations posted per category in {lastLabel(page.window_days)}
       {page.coverage.prior_complete && <> against {priorLabel(page.window_days)}</>}. Solicitations come before money,
       so this is the leading indicator.
       {page.coverage.prior_complete && record && (
@@ -496,7 +500,7 @@ export const TOPICS: Board<TopicRow, TopicPage> = {
   empty: {
     title: "No solicitations on record",
     text: ({ page, record }) =>
-      `Categories would be ranked here by the solicitations posted in ${period(page)}.` +
+      `Categories would be ranked here by the solicitations posted in ${lastLabel(page.window_days)}.` +
       (record?.opportunities === 0 ? " No solicitation source is loaded yet." : ""),
   },
   // The API orders categories by their slug, and the page shows their names
@@ -554,7 +558,7 @@ export const TOPICS: Board<TopicRow, TopicPage> = {
         </>
       ),
     },
-    { key: "open", head: "Open", hint: "Solicitations open on the day the data runs through", sort: "open", value: (r) => r.open, num: true, cell: (r) => r.open },
+    { key: "open", head: "Open now", hint: "Solicitations open on the as-of date", sort: "open", value: (r) => r.open, num: true, cell: (r) => r.open },
     {
       key: "amount",
       head: "Award dollars",

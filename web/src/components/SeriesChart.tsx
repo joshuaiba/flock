@@ -77,47 +77,42 @@ export function SeriesChart({
         if (e.key === "ArrowRight") setAt((i) => Math.min(n - 1, (i ?? 0) + 1));
       }}
     >
-      {/* The drawing's own box: the dot and the tooltip are placed from it,
-          so padding or margin on the chart (className) cannot move them off
-          the line. */}
-      <div className="relative">
-        <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="none" className="block overflow-visible" aria-hidden="true">
-          <defs>
-            <clipPath id={`${clip}-prev`}>
-              <rect x="0" y="0" width={cut} height={H} />
-            </clipPath>
-            <clipPath id={`${clip}-cur`}>
-              <rect x={cut} y="0" width={W - cut} height={H} />
-            </clipPath>
-          </defs>
-          {/* The prior period at 40%, the current one at full strength. */}
-          <g clipPath={`url(#${clip}-prev)`} opacity="0.4">
-            <path d={line} fill="none" stroke={color} strokeWidth="1.25" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
-          </g>
-          <g clipPath={`url(#${clip}-cur)`}>
-            <path d={line} fill="none" stroke={color} strokeWidth="1.25" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
-          </g>
-          {at != null && (
-            <line x1={x(at)} x2={x(at)} y1={top - 2} y2={bottom} stroke="var(--muted)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
-          )}
-        </svg>
-        {/* Dots are HTML so they stay round while the SVG stretches. */}
-        <Dot left={x(at ?? n - 1) / W} top={y(values[at ?? n - 1] ?? 0) / H} color={color} height={H} />
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="none" className="block overflow-visible" aria-hidden="true">
+        <defs>
+          <clipPath id={`${clip}-prev`}>
+            <rect x="0" y="0" width={cut} height={H} />
+          </clipPath>
+          <clipPath id={`${clip}-cur`}>
+            <rect x={cut} y="0" width={W - cut} height={H} />
+          </clipPath>
+        </defs>
+        {/* The prior period at 40%, the current one at full strength. */}
+        <g clipPath={`url(#${clip}-prev)`} opacity="0.4">
+          <path d={line} fill="none" stroke={color} strokeWidth="1.25" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+        </g>
+        <g clipPath={`url(#${clip}-cur)`}>
+          <path d={line} fill="none" stroke={color} strokeWidth="1.25" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+        </g>
         {at != null && (
-          <div
-            className="tip"
-            style={{
-              left: `${(x(at) / W) * 100}%`,
-              bottom: H + 6,
-              transform: `translateX(${at < n / 3 ? "-12%" : at > (2 * n) / 3 ? "-88%" : "-50%"})`,
-            }}
-          >
-            <span className="text-muted">{labels[at]}</span>
-            <br />
-            {show(values[at])}
-          </div>
+          <line x1={x(at)} x2={x(at)} y1={top - 2} y2={bottom} stroke="var(--muted)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
         )}
-      </div>
+      </svg>
+      {/* Dots are HTML so they stay round while the SVG stretches. */}
+      <Dot left={x(at ?? n - 1) / W} top={y(values[at ?? n - 1] ?? 0) / H} color={color} height={H} />
+      {at != null && (
+        <div
+          className="tip"
+          style={{
+            left: `${(x(at) / W) * 100}%`,
+            bottom: H + 6,
+            transform: `translateX(${at < n / 3 ? "-12%" : at > (2 * n) / 3 ? "-88%" : "-50%"})`,
+          }}
+        >
+          <span className="text-muted">{labels[at]}</span>
+          <br />
+          {show(values[at])}
+        </div>
+      )}
     </div>
   );
 }

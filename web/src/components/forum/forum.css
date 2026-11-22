@@ -26,11 +26,6 @@
   .forum-kpi:nth-child(n + 3) {
     border-top: 1px solid var(--line);
   }
-  /* Three readings (an agency's page): the third has the second row to
-     itself, so its rule runs the full width. */
-  .forum-kpis-3 > .forum-kpi:nth-child(3) {
-    grid-column: 1 / -1;
-  }
 }
 /* Four across: a rule between each, the first flush with the page's edge. */
 @media (min-width: 1024px) {
@@ -246,27 +241,6 @@ a.money-seg {
   border-bottom-color: var(--text);
   font-weight: 500;
   color: var(--text);
-}
-
-/* ---- A leaderboard on a phone: the ledger is wider than the screen and
-   scrolls sideways inside its section. The name column stays at the left
-   edge, on the page color with a hairline at its right, so a figure scrolled
-   into view still has its name beside it; the name is cut to under half the
-   screen. The company's category is left out. (Ledger.tsx, phoneClass.) ---- */
-@media (max-width: 639.98px) {
-  .ledger .ledger-stick {
-    position: sticky;
-    left: 0;
-    z-index: 1;
-    background: var(--bg);
-    box-shadow: 1px 0 0 var(--line);
-  }
-  .ledger td.ledger-stick > * {
-    max-width: 44vw;
-  }
-  .ledger .ledger-skip {
-    display: none;
-  }
 }
 
 /* The sort mark in a ledger header: a small caret that keeps its place. */

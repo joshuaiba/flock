@@ -2,17 +2,17 @@ import Link from "next/link";
 import { NoRows, OrgLink, Panel } from "@/components/Signals";
 import { serverGet } from "@/lib/api";
 import { day, money } from "@/lib/format";
-import { period, signalPath, type AwardRow, type Page } from "@/lib/signals";
+import { signalPath, type AwardRow, type Page } from "@/lib/signals";
 import { tagLabel, tagPhrase } from "@/lib/tags";
-import { Down, Scroll, type PanelProps } from "./shared";
+import { Down, lastLabel, Scroll, type PanelProps } from "./shared";
 
 const WORDS = ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"];
 
 /** The panel's one-line reading: how many awards are listed, and the category
- *  that took the most of them. `when` is the window in words. */
-function reading(items: AwardRow[], when: string, tag: string | null): string {
+ *  that took the most of them. */
+function reading(items: AwardRow[], days: number, tag: string | null): string {
   const n = items.length;
-  const head = `The ${n === 1 ? "largest single award" : `${WORDS[n]?.toLowerCase() ?? n} largest single awards`} in ${when}${tag ? `, in ${tagPhrase(tag)}` : ""}.`;
+  const head = `The ${n === 1 ? "largest single award" : `${WORDS[n]?.toLowerCase() ?? n} largest single awards`} in ${lastLabel(days)}${tag ? `, in ${tagPhrase(tag)}` : ""}.`;
   if (tag || n < 2) return head;
   const counts = new Map<string, number>();
   for (const a of items) for (const t of a.tags) counts.set(t, (counts.get(t) ?? 0) + 1);
@@ -36,18 +36,12 @@ export async function LargestAwards({ days, tag, className = "" }: PanelProps) {
     <Panel
       title="Largest awards"
       className={className}
-      takeaway={d.items.length > 0 ? reading(d.items, period(d), tag) : undefined}
-      note={
-        <>
-          Largest obligated amount first.
-          {/* only where there is a pointer to point with */}
-          <span className="hidden [@media(hover:hover)]:inline"> Point at a recipient for what the award was for.</span>
-        </>
-      }
+      takeaway={d.items.length > 0 ? reading(d.items, days, tag) : undefined}
+      note={<>Largest obligated amount first. Point at a recipient for what the award was for.</>}
     >
       {d.items.length === 0 ? (
         <NoRows>
-          No {tag && <>{tagPhrase(tag)} </>}awards on record in {period(d)}.
+          No {tag && <>{tagPhrase(tag)} </>}awards on record in {lastLabel(days)}.
         </NoRows>
       ) : (
         <Scroll label="Largest awards">
@@ -65,8 +59,7 @@ export async function LargestAwards({ days, tag, className = "" }: PanelProps) {
                 <th scope="col" className="hidden lg:table-cell">
                   Category
                 </th>
-                {/* below `sm` this is the last column shown, so it runs to the rule's end */}
-                <th scope="col" className="num max-sm:pr-0!">
+                <th scope="col" className="num">
                   Amount
                 </th>
                 <th scope="col" className="hidden sm:table-cell">
@@ -83,8 +76,8 @@ export async function LargestAwards({ days, tag, className = "" }: PanelProps) {
                 );
                 return (
                   <tr key={a.id}>
-                    <td className="hidden w-px whitespace-nowrap pr-8! text-muted md:table-cell">{day(a.day, d.window_days < 365)}</td>
-                    <td className="w-full max-w-0 md:w-[30%]" title={a.description ?? undefined}>
+                    <td className="hidden w-px whitespace-nowrap pr-8! text-muted md:table-cell">{day(a.day, true)}</td>
+                    <td className="max-w-0 md:w-[30%]" title={a.description ?? undefined}>
                       {a.recipient ? (
                         <OrgLink org={a.recipient} className="max-w-full align-middle" />
                       ) : (
@@ -108,7 +101,7 @@ export async function LargestAwards({ days, tag, className = "" }: PanelProps) {
                     <td className="hidden whitespace-nowrap text-muted lg:table-cell">
                       {a.tags.length > 0 ? tagLabel(a.tags[0]) : "—"}
                     </td>
-                    <td className="num money max-sm:pr-0!">{money(a.amount)}</td>
+                    <td className="num money">{money(a.amount)}</td>
                     <td className="hidden w-px text-right sm:table-cell">{source}</td>
                   </tr>
                 );

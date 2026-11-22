@@ -41,8 +41,8 @@ const SPAN = {
   watchlist: "min-w-0 lg:col-span-5",
 };
 
-/** The toolbar under the title: on the left the day the data runs through and
- *  where every figure is defined, on the right the window and the category. */
+/** The toolbar under the title: on the left the as-of date and where every
+ *  figure is defined, on the right the window and the category. */
 const TOOLBAR = "mt-5 flex flex-wrap items-center justify-between gap-x-8 gap-y-3";
 
 /** `?window=` and `?tag=`, read leniently: an unknown window becomes 90 days
@@ -51,14 +51,6 @@ async function readFilters(searchParams: Search): Promise<{ days: number; tag: s
   const q = await searchParams;
   const raw = Array.isArray(q.tag) ? q.tag[0] : q.tag;
   return { days: parseWindow(q.window), tag: raw && TAGS.includes(raw) ? raw : null };
-}
-
-/** The window and category filters, with the day the windows end on. The
- *  buttons do not wait for it: until the overview answers they are shown
- *  without the date (the Suspense fallback below). */
-async function Filters({ days, tag }: { days: number; tag: string | null }) {
-  const o = await getOverview(days, tag);
-  return <SignalFilters basePath="/forum" window={days} tag={tag} asOf={o?.as_of ?? null} />;
 }
 
 /** Everything under the title. Each signal is its own server component in its
@@ -80,9 +72,7 @@ async function Forum({ searchParams }: { searchParams: Search }) {
             How these are counted
           </Link>
         </div>
-        <Suspense key={key} fallback={<SignalFilters basePath="/forum" window={days} tag={tag} />}>
-          <Filters {...p} />
-        </Suspense>
+        <SignalFilters basePath="/forum" window={days} tag={tag} />
       </div>
 
       <Suspense key={key} fallback={<StatsSkeleton />}>

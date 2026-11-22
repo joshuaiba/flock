@@ -138,9 +138,9 @@ async function Sheet({ params }: { params: Promise<{ id: string }> }) {
         <h1 className="entity-name mt-2">{org.name}</h1>
         <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-3">
           <p className="text-muted">
-            {/* A UEI is a company's identifier: an agency has none to miss. */}
-            {org.uei ? `UEI ${org.uei} · ` : org.kind === "company" ? "No UEI on record · " : ""}
-            {org.first_award && <>First seen {day(org.first_award)} · </>}
+            {org.uei ? `UEI ${org.uei}` : "No UEI on record"}
+            {org.first_award && <> · First seen {day(org.first_award)}</>}
+            {" · "}
             {plural(org.award_count, "award")} on record
             {org.total > 0 && (
               <>

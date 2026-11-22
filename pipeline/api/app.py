@@ -13,7 +13,8 @@ from typing import Annotated
 import psycopg
 from fastapi import Depends, FastAPI, HTTPException, Query
 
-from pipeline.api import queries, signals
+from pipeline.api import flows as flow_queries
+from pipeline.api import queries, signals, windows
 from pipeline.api.signals import get_conn
 
 app = FastAPI(title="flock", docs_url="/api/docs", openapi_url="/api/openapi.json")
@@ -37,13 +38,15 @@ def recent(conn: Conn, limit: Annotated[int, Query(ge=1, le=200)] = 70) -> list[
     return queries.recent(conn, limit)
 
 
-@app.get("/api/graph")
-def graph(conn: Conn, days: int = 90, recent: bool = False) -> dict:
-    """`recent` ends the window on the newest award on record instead of today,
-    the day the signal windows end on. The site always asks for it."""
-    if days not in (0, 30, 90, 365):
-        raise HTTPException(422, "days must be 30, 90, 365, or 0 for everything on record")
-    return queries.graph(conn, days, recent=recent)
+@app.get("/api/flows")
+def flows(conn: Conn, window: str | None = None) -> dict:
+    """Agencies, missions, companies and the dollar flows between them, for one
+    window. Every window ends on the newest award on record (see
+    pipeline/api/windows.py). Without `window`, the first window that holds an
+    award is served."""
+    if window is not None and windows.canonical(window) is None:
+        raise HTTPException(422, f"window must be one of {', '.join(windows.KEYS)}")
+    return flow_queries.flows(conn, window)
 
 
 @app.get("/api/orgs/{org_id}")

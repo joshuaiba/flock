@@ -1,9 +1,9 @@
 import { NoRows, OrgLink, Panel, signedPct } from "@/components/Signals";
 import { serverGet } from "@/lib/api";
 import { money, plural } from "@/lib/format";
-import { pct, period, priorLabel, signalPath, type FundingPage } from "@/lib/signals";
+import { pct, priorLabel, signalPath, type FundingPage } from "@/lib/signals";
 import { tagLabel, tagPhrase } from "@/lib/tags";
-import { carry, Down, Scroll, signedMoney, type PanelProps } from "./shared";
+import { carry, Down, lastLabel, Scroll, signedMoney, type PanelProps } from "./shared";
 
 /** The panel's one-line reading: who grew the fastest, and how many are rising. */
 function reading(d: FundingPage, days: number): string | undefined {
@@ -43,7 +43,7 @@ export async function Rising({ days, tag, className = "" }: PanelProps) {
       takeaway={comparable ? reading(d, days) : undefined}
       note={
         <>
-          Companies by growth in award dollars, {period(d)} against {priorLabel(days)}
+          Companies by growth in award dollars, {lastLabel(days)} against {priorLabel(days)}
           {tag && <>, in {tagPhrase(tag)}</>}. Companies with under {money(d.min_baseline)} in the prior period are
           left out: growth from almost nothing is noise.
         </>
@@ -56,7 +56,7 @@ export async function Rising({ days, tag, className = "" }: PanelProps) {
       ) : d.items.length === 0 ? (
         <NoRows>
           No company with a prior period of {money(d.min_baseline)} or more grew{tag && <> in {tagPhrase(tag)}</>} in{" "}
-          {period(d)}.
+          {lastLabel(days)}.
         </NoRows>
       ) : (
         <Scroll label="Rising companies">
@@ -69,14 +69,9 @@ export async function Rising({ days, tag, className = "" }: PanelProps) {
                   <span className="sr-only">Rank</span>
                 </th>
                 <th scope="col">Company</th>
-                {/* The company's largest category overall: left out when a
-                    category is chosen, where it would name another one beside
-                    this category's dollars. */}
-                {!tag && (
-                  <th scope="col" className="hidden md:table-cell">
-                    Category
-                  </th>
-                )}
+                <th scope="col" className="hidden md:table-cell">
+                  Category
+                </th>
                 <th scope="col" className="num">
                   Awarded
                 </th>
@@ -98,11 +93,9 @@ export async function Rising({ days, tag, className = "" }: PanelProps) {
                       <span className="name">Unnamed recipient</span>
                     )}
                   </td>
-                  {!tag && (
-                    <td className="hidden whitespace-nowrap text-muted md:table-cell">
-                      {r.org?.tag ? tagLabel(r.org.tag) : ""}
-                    </td>
-                  )}
+                  <td className="hidden whitespace-nowrap text-muted md:table-cell">
+                    {r.org?.tag ? tagLabel(r.org.tag) : ""}
+                  </td>
                   <td className="num leading-tight">
                     <span className="money">{money(r.amount)}</span>
                     <span className="block text-[0.75rem] text-muted">

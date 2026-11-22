@@ -1,21 +1,15 @@
 """Signals (migrations/007_signals.sql, pipeline/api/signals.py) over a small
 hand-built data set where every answer can be worked out by reading the rows.
 
-T is the day of the newest autonomy award on record (Charlie's), which is the
-day every window ends on: `as_of`. The 90-day window is (T-90, T]; the prior
-period is (T-180, T-90]. T is not today. The record lags the calendar, so the
-whole fixture is built `lag` days back, and every test that takes `world` runs
-twice: on a record that ends today (lag 0) and on one that ends 94 days ago,
-where the last 30 and the last 90 days by the calendar hold nothing at all.
-The answers must be the same both times. Only two figures are counted from
-today: `days_since_last`, and the watchlist's rank "then".
+T is today, the day the views are refreshed. The 90-day window is (T-90, T];
+the prior period is (T-180, T-90].
 
     company   category            awards
     Alpha     maritime            T-10  $1,000,000  "SBIR Phase II ..."   (first seen 2 days ago)
                                   T-100 $400,000    "SBIR Phase I ..."    -> solicitation O1
     Bravo     uas                 T-5   $50,000     research
                                   T-120 $20,000     research
-    Charlie   maritime, swarming  T     $5,000,000  "Production and delivery ..."
+    Charlie   maritime, swarming  T-3   $5,000,000  "Production and delivery ..."
     Delta     uas                 T-200 $300,000    research
     (none)    not tagged          T-1   $9,000,000  never counted
 
@@ -29,8 +23,7 @@ today: `days_since_last`, and the watchlist's rank "then".
 
 from __future__ import annotations
 
-import shutil
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -38,24 +31,29 @@ from fastapi.testclient import TestClient
 from pipeline import signals as refresher
 from pipeline.api import queries, seed, signals
 from pipeline.api.app import app, get_conn
-from pipeline.db import MIGRATIONS_DIR, migrate
 
 ROOT = queries.taxonomy()["root"]
 
 
-# How far behind the calendar the aged record ends. USAspending publishes DoD
-# contracts about 90 days after signing; 94 puts the newest award outside the
-# last 30 and the last 90 days by the calendar, with a few days to spare.
-LAG = 94
+@pytest.fixture(autouse=True)
+def windows_end_today(monkeypatch):
+    """Most tests here place rows by their age from today and check the window
+    arithmetic, so their refreshes pin as_of to today. What as_of is when
+    nothing pins it (the newest record's day) has its own tests at the end,
+    which pass as_of=None."""
+    real = refresher.refresh
+
+    def pinned(conn, **kw):
+        today = conn.execute("SELECT current_date").fetchone()[0]
+        return real(conn, as_of=kw.get("as_of", today))
+
+    monkeypatch.setattr(refresher, "refresh", pinned)
 
 
-def _build(db, lag: int = 0) -> dict:
-    """The fixture above, with T `lag` days before today. `first_seen_at` is
-    not shifted: it is when a row reached us, which is always lately."""
-    (calendar,) = db.execute("SELECT current_date").fetchone()
-    today = calendar - timedelta(days=lag)
+def _build(db) -> dict:
+    today = db.execute("SELECT current_date").fetchone()[0]
     now = datetime.now(UTC)
-    ids: dict = {"T": today, "now": now, "lag": lag, "calendar": calendar}
+    ids: dict = {"today": today, "now": now}
 
     def tag_id(slug: str) -> int:
         return db.execute(
@@ -150,7 +148,7 @@ def _build(db, lag: int = 0) -> dict:
           opportunity="O1")  # fmt: skip
     award("b2", "Bravo", "Air Force", 5, 50_000, "Research and development", ["uas"])
     award("b1", "Bravo", "Air Force", 120, 20_000, "Research and development", ["uas"])
-    award("c1", "Charlie", "Navy", 0, 5_000_000, "Production and delivery of vessels",
+    award("c1", "Charlie", "Navy", 3, 5_000_000, "Production and delivery of vessels",
           ["maritime", "swarming"])  # fmt: skip
     award("d1", "Delta", "Air Force", 200, 300_000, "Research and development", ["uas"])
     award("x1", None, "Navy", 1, 9_000_000, "Destroyer maintenance", None)
@@ -159,18 +157,9 @@ def _build(db, lag: int = 0) -> dict:
     return ids
 
 
-@pytest.fixture(params=[0, LAG], ids=["ends-today", f"ends-{LAG}-days-ago"])
-def world(db, request):
-    ids = _build(db, request.param)
-    app.dependency_overrides[get_conn] = lambda: db
-    yield TestClient(app), db, ids
-    app.dependency_overrides.clear()
-
-
 @pytest.fixture
-def aged(db):
-    """The record as it really is: its newest award is LAG days old."""
-    ids = _build(db, LAG)
+def world(db):
+    ids = _build(db)
     app.dependency_overrides[get_conn] = lambda: db
     yield TestClient(app), db, ids
     app.dependency_overrides.clear()
@@ -196,10 +185,8 @@ def _tag(db, kind: str, entity_id: int, slugs: tuple[str, ...]) -> None:
 
 
 def add_award(db, ids, key, company, agency, age, amount, text, slugs=()) -> None:
-    """One more autonomy award on top of the fixture, signed at T-`age`, for the
-    sorting tests: with only the fixture's rows, most columns put the rows in
-    the same order. A negative age is an award newer than the fixture's, and
-    `slugs=None` is an award the classifier did not tag as autonomy at all."""
+    """One more autonomy award on top of the fixture, for the sorting tests:
+    with only the fixture's rows, most columns put the rows in the same order."""
     (aid,) = db.execute(
         """INSERT INTO awards (recipient_id, agency_id, amount, signed_at, description,
                                source, source_id)
@@ -208,25 +195,24 @@ def add_award(db, ids, key, company, agency, age, amount, text, slugs=()) -> Non
             ids[company] if company else None,
             ids[agency],
             amount,
-            ids["T"] - timedelta(days=age),
+            ids["today"] - timedelta(days=age),
             text,
             key,
         ),
     ).fetchone()
-    if slugs is not None:
-        _tag(db, "award", aid, slugs)
+    _tag(db, "award", aid, slugs)
 
 
 def add_opp(db, ids, key, agency, posted, closes=None, slugs=()) -> None:
-    """One more autonomy solicitation; `posted` and `closes` are days before T."""
+    """One more autonomy solicitation; `posted` and `closes` are days ago."""
     (oid,) = db.execute(
         """INSERT INTO opportunities (title, agency_id, posted_at, closes_at, source, source_id)
            VALUES (%s, %s, %s, %s, 'test', %s) RETURNING id""",
         (
             key,
             ids[agency],
-            ids["T"] - timedelta(days=posted),
-            ids["T"] - timedelta(days=closes) if closes is not None else None,
+            ids["today"] - timedelta(days=posted),
+            ids["today"] - timedelta(days=closes) if closes is not None else None,
             key,
         ),
     ).fetchone()
@@ -248,7 +234,7 @@ def test_every_response_says_when_and_from_what(world):
         "categories/series",
     ]:
         body = get(client, path)
-        assert body["as_of"] == str(ids["T"]), path
+        assert body["as_of"] == str(ids["today"]), path
         assert body["window_days"] == 90
         assert body["sources"] and set(body["sources"]) <= {
             "awards",
@@ -258,191 +244,19 @@ def test_every_response_says_when_and_from_what(world):
             "organizations",
         }
         assert body["sample"] is False
-        # as_of is T, the newest award's day, however long ago that was.
         # Awards start at T-200: enough for a 90-day prior period, not a 365-day
         # one. Solicitations start at T-150, inside the prior period (it opens at
         # T-179), so solicitation counts have no full prior period to compare with.
         # The topics endpoint counts only solicitations and is judged by them.
         assert body["coverage"] == {
-            "first_award_day": str(ids["T"] - timedelta(days=200)),
+            "first_award_day": str(ids["today"] - timedelta(days=200)),
             "prior_complete": path != "topics",
-            "first_solicitation_day": str(ids["T"] - timedelta(days=150)),
+            "first_solicitation_day": str(ids["today"] - timedelta(days=150)),
             "solicitations_prior_complete": False,
         }, path
     assert get(client, "overview", window=365)["coverage"]["prior_complete"] is False
     month = get(client, "topics", window=30)["coverage"]
     assert month["prior_complete"] is True and month["solicitations_prior_complete"] is True
-
-
-def test_a_record_that_ends_94_days_ago_still_fills_its_windows(aged):
-    """The case the windows are anchored for. USAspending publishes about 90
-    days late, so the newest award is 94 days old and the last 30 and the last
-    90 days by the calendar are empty. The windows end on that award instead,
-    and hold what the fixture's table says they hold."""
-    client, db, ids = aged
-    assert ids["T"] == ids["calendar"] - timedelta(days=LAG)
-    # Windows that ended today, as they did before, would count nothing.
-    for days in (30, 90):
-        (by_calendar,) = db.execute(
-            "SELECT count(*) FROM signal_awards WHERE day > current_date - %s", (days,)
-        ).fetchone()
-        assert by_calendar == 0
-
-    month, quarter = get(client, "overview", window=30), get(client, "overview")
-    assert month["as_of"] == quarter["as_of"] == str(ids["T"])
-    assert (month["awards"], month["amount"]) == (3, 6_050_000)
-    assert (quarter["awards"], quarter["amount"]) == (3, 6_050_000)
-    assert (quarter["prev_awards"], quarter["prev_amount"]) == (2, 420_000)
-    assert quarter["refreshed_at"][:10] == str(ids["calendar"])  # computed today, about then
-    for window in (30, 90):
-        assert names(get(client, "funding", window=window)) == ["Charlie", "Alpha", "Bravo"]
-        assert len(get(client, "largest-awards", window=window)["items"]) == 3
-        assert names(get(client, "new-entrants", window=window)) == ["Charlie"]
-        assert names(get(client, "agencies", window=window)) == ["Navy", "Air Force"]
-        money = get(client, "overview", window=window)["money_by_family"]
-        assert money["total"] == 6_050_000
-    assert names(get(client, "momentum", sort="delta")) == ["Charlie", "Alpha", "Bravo"]
-    assert [i["category"] for i in get(client, "topics")["items"]] == ["maritime", "uas"]
-
-    # The hero's 30-day figures and the field report's week read the same views.
-    summary = client.get("/api/summary").json()
-    assert (summary["awards_30d"], summary["amount_30d"]) == (3, 6_050_000)
-    assert summary["as_of"] == str(ids["T"])
-    digest = client.get("/api/digest").json()
-    assert (digest["awards"], digest["amount"]) == (2, 5_050_000)
-    assert digest["through"] == str(ids["T"])
-
-
-def test_window_edges_are_counted_from_the_newest_award(world):
-    """A window of N days is (T-N, T]: the award N days before the newest one
-    is the last day of the prior period, not the first day of this one."""
-    client, db, ids = world
-    for age, amount in [(29, 1), (30, 2), (89, 4), (90, 8), (179, 16), (180, 32)]:
-        add_award(db, ids, f"edge-{age}", "Delta", "Air Force", age, amount, "Research")
-    db.commit()
-    refresher.refresh(db)
-
-    def totals(window: int) -> tuple[int, int]:
-        o = get(client, "overview", window=window)
-        return o["amount"], o["prev_amount"]
-
-    # Fixture: $6,050,000 in the newest 10 days, $420,000 at T-100 and T-120,
-    # $300,000 at T-200.
-    assert totals(30) == (6_050_000 + 1, 2)
-    assert totals(90) == (6_050_000 + 1 + 2 + 4, 420_000 + 8 + 16)
-    assert totals(365) == (6_770_000 + 63, 0)
-    # The week is T-6 to T: Bravo's T-5 and Charlie's T; Alpha's T-10 is the week before.
-    assert totals(7) == (5_050_000, 1_000_000)
-
-
-def test_the_anchor_is_the_newest_dated_autonomy_award(aged):
-    client, db, ids = aged
-    quarter = get(client, "overview")
-
-    # An award the classifier did not tag is not on the record: it cannot move
-    # the windows, however new it is.
-    add_award(db, ids, "untagged", "Bravo", "Air Force", -30, 9_000_000, "Trucks", None)
-    # An award dated after today is a mistake in the source. It does not drag
-    # the windows into the future, and no window counts it.
-    add_award(db, ids, "typo", "Bravo", "Air Force", -(LAG + 300), 7_000_000, "Research")
-    db.commit()
-    refresher.refresh(db)
-    after = get(client, "overview")
-    assert after["as_of"] == str(ids["T"])
-    assert after == {**quarter, "refreshed_at": after["refreshed_at"]}
-    assert get(client, "definitions")["awards"] == 7  # the typo is on record, in no window
-
-    # A newer award arrives: the windows move to it, and what is now more than
-    # 30 days before it leaves the 30-day window.
-    add_award(db, ids, "newer", "Delta", "Air Force", -20, 2_000_000, "Research", ("uas",))
-    db.commit()
-    refresher.refresh(db)
-    month = get(client, "overview", window=30)
-    assert month["as_of"] == str(ids["T"] + timedelta(days=20))
-    # (T-10, T+20]: Bravo's T-5, Charlie's T and the new one. Alpha's T-10 is out.
-    assert (month["awards"], month["amount"]) == (3, 7_050_000)
-    assert (month["prev_awards"], month["prev_amount"]) == (1, 1_000_000)
-    assert names(get(client, "funding", window=30)) == ["Charlie", "Delta", "Bravo"]
-
-
-def test_the_field_report_is_the_newest_week_on_record(world):
-    client, db, ids = world
-    d = client.get("/api/digest").json()
-    assert d["week_of"] == str(ids["T"] - timedelta(days=6))
-    assert d["through"] == str(ids["T"])
-    assert (d["awards"], d["amount"]) == (2, 5_050_000)  # Bravo's T-5, Charlie's T
-    assert (d["prev_awards"], d["prev_amount"]) == (1, 1_000_000)  # Alpha's T-10
-    assert [(a["org_name"], a["amount"]) for a in d["top"]] == [
-        ("Charlie", 5_000_000),
-        ("Bravo", 50_000),
-    ]
-    assert [n["name"] for n in d["newcomers"]] == ["Charlie"]
-    assert d["opened"] == []
-    add_opp(db, ids, "this-week", "Navy", 2, None, ("maritime",))
-    # "Closing soon" is the one part that looks at the calendar: the next 14
-    # days from today. O3 closes at T+10, which is soon only when T is today.
-    add_opp(db, ids, "soon", "Navy", 20, -(ids["lag"] + 5), ("maritime",))
-    db.commit()
-    refresher.refresh(db)
-    d = client.get("/api/digest").json()
-    assert [o["title"] for o in d["opened"]] == ["this-week"]
-    assert [o["title"] for o in d["closing"]] == (["soon"] if ids["lag"] else ["soon", "O3"])
-
-
-def test_migrating_an_existing_database_moves_its_windows(blank_db, tmp_path):
-    """008 on a database that 007 already filled: the windows move to the
-    newest award in the migration itself, with no refresh in between, and the
-    public API roles are still kept off the rebuilt view."""
-    db = blank_db
-    before = tmp_path / "before"
-    before.mkdir()
-    for path in sorted(MIGRATIONS_DIR.glob("*.sql")):
-        if path.name < "008":
-            shutil.copy(path, before)
-    migrate(db, before)
-    # A database served by an auto-generated API (Supabase) grants its public
-    # roles every new relation by default. The role is cluster-wide, so only
-    # make one, and only remove one, when the server has none of its own.
-    made_role = not db.execute("SELECT 1 FROM pg_roles WHERE rolname = 'anon'").fetchone()
-    if made_role:
-        db.execute("CREATE ROLE anon")
-    db.execute("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO anon")
-    db.commit()
-    try:
-        ids = _build(db, LAG)
-        total = """SELECT awards, amount FROM signal_funding
-                   WHERE window_days = %s AND subject_type = 'total' AND slice = ''"""
-        # As 007 left it: windows end on the day of the refresh and are empty.
-        assert db.execute("SELECT as_of FROM signal_meta").fetchone() == (ids["calendar"],)
-        assert db.execute(total, (30,)).fetchone() is None
-        assert db.execute(total, (90,)).fetchone() == (0, 0)
-
-        assert migrate(db) == ["008_signals_data_anchor.sql"]
-        assert db.execute("SELECT as_of, awards, opportunities FROM signal_meta").fetchone() == (
-            ids["T"],
-            6,
-            4,
-        )
-        assert db.execute(total, (30,)).fetchone() == (3, 6_050_000)
-        assert db.execute(total, (90,)).fetchone() == (3, 6_050_000)
-        posted = db.execute(
-            """SELECT posted, open FROM signal_solicitations
-               WHERE window_days = 90 AND subject_type = 'total' AND slice = ''"""
-        ).fetchone()
-        assert posted == (2, 2)
-        for rel in ("signal_meta", "signal_windows"):
-            assert db.execute(
-                "SELECT has_table_privilege('anon', %s, 'SELECT')", (rel,)
-            ).fetchone() == (False,)
-        # The nightly refresh agrees with what the migration computed.
-        refresher.refresh(db)
-        assert db.execute(total, (90,)).fetchone() == (3, 6_050_000)
-    finally:
-        db.rollback()
-        if made_role:
-            db.execute("DROP OWNED BY anon")
-            db.execute("DROP ROLE anon")
-            db.commit()
 
 
 def test_overview_headline_figures(world):
@@ -679,7 +493,7 @@ def test_new_entrants(world):
     assert [(i["org"]["name"], i["first_amount"], i["tags"]) for i in e["items"]] == [
         ("Charlie", 5_000_000, ["maritime", "swarming"])
     ]
-    assert e["items"][0]["first_day"] == str(ids["T"])
+    assert e["items"][0]["first_day"] == str(ids["today"] - timedelta(days=3))
     assert get(client, "new-entrants", tag="uas")["items"] == []
     year = get(client, "new-entrants", window=365)
     assert [i["org"]["name"] for i in year["items"]] == ["Charlie", "Alpha", "Delta", "Bravo"]
@@ -691,7 +505,7 @@ def test_new_entrants_sorting(world):
     company  first award  first-day dollars  total       awards
     Alpha    T-100        $400,000           $1,400,000  2
     Bravo    T-120        $20,000            $70,000     2
-    Charlie  T            $5,000,000         $5,000,000  1
+    Charlie  T-3          $5,000,000         $5,000,000  1
     Delta    T-200        $300,000           $300,000    1
     """
     client, db, ids = world
@@ -739,7 +553,7 @@ def test_transitions_and_entries(world):
         ("phase_2", True),
         ("production", False),
     ]
-    assert row["path"][0]["day"] == str(ids["T"] - timedelta(days=150))
+    assert row["path"][0]["day"] == str(ids["today"] - timedelta(days=150))
 
     # Charlie's first record is a production contract: reached, but no transition.
     assert get(client, "transitions", stage="production")["items"] == []
@@ -957,7 +771,7 @@ def test_category_series_adds_up(world):
     for i in s["items"]:
         assert len(i["series"]) == signals.SERIES_BUCKETS
         assert sum(i["series"]) == i["amount"] + i["prev_amount"]
-    assert s["series_start"] == str(ids["T"] - timedelta(days=179))
+    assert s["series_start"] == str(ids["today"] - timedelta(days=179))
 
 
 def test_watchlist_reports_what_first_appeared_since_the_last_visit(world):
@@ -969,17 +783,9 @@ def test_watchlist_reports_what_first_appeared_since_the_last_visit(world):
     assert [a["id"] for a in alpha["new_awards"]] == [ids["a2"]]
     assert alpha["new_amount"] == 1_000_000
     assert [s["stage"] for s in alpha["new_stages"]] == ["phase_2"]
-    # "Days since" is counted from today, not from the as-of date.
-    assert (alpha["rank"], alpha["rank_then"]) == (2, None)
-    assert alpha["days_since_last"] == 10 + ids["lag"]
+    assert (alpha["rank"], alpha["rank_then"], alpha["days_since_last"]) == (2, None, 10)
     assert bravo["new_awards"] == [] and bravo["new_stages"] == []
-    # Rank "then" is over the awards we had five days ago (all but Alpha's
-    # Phase II), in the 90 days to the newest of them that was not dated after
-    # that day. On the record that ends today that is Bravo's T-5 award, alone
-    # in its window: Bravo was first. On the aged record Charlie's $5M at T was
-    # already in hand and already in the past, so Bravo was second.
-    assert bravo["rank"] == 3
-    assert bravo["rank_then"] == (2 if ids["lag"] else 1)
+    assert (bravo["rank"], bravo["rank_then"]) == (3, 1)
     assert [a["id"] for a in navy["new_awards"]] == [ids["a2"]]
     assert navy["rank"] == 1 and navy["rank_then"] is None
 
@@ -1001,12 +807,10 @@ def test_org_signals(world):
     )
     assert (a["rank"], a["prev_rank"]) == (2, 1)
     assert (a["category"], a["category_rank"], a["category_prev_rank"]) == ("maritime", 2, 1)
-    # "Days since" is counted from today, not from the as-of date.
-    assert (a["stage"], a["days_since_last"]) == ("phase_2", 10 + ids["lag"])
-    assert a["last_award_day"] == str(ids["T"] - timedelta(days=10))
+    assert (a["stage"], a["days_since_last"]) == ("phase_2", 10)
 
     navy = get(client, f"orgs/{ids['Navy']}")
-    assert (navy["rank"], navy["stage"], navy["days_since_last"]) == (1, None, ids["lag"])
+    assert (navy["rank"], navy["stage"], navy["days_since_last"]) == (1, None, 3)
     assert all(p["day"] is None for p in navy["path"])
     assert client.get("/api/signals/orgs/999999").status_code == 404
 
@@ -1053,10 +857,6 @@ def test_an_empty_database_gives_empty_answers_not_errors(db):
         ] * 6
         assert client.get("/api/summary").json()["awards_30d"] == 0
         assert client.get("/api/digest").json()["awards"] == 0
-        # With no award to anchor on, the windows end today.
-        (today,) = db.execute("SELECT current_date").fetchone()
-        assert o["as_of"] == str(today)
-        assert client.get("/api/digest").json()["through"] == str(today)
     finally:
         app.dependency_overrides.clear()
 
@@ -1065,8 +865,8 @@ def test_signals_are_stale_until_refreshed_and_refresh_is_repeatable(world):
     client, db, ids = world
     db.execute(
         """INSERT INTO awards (recipient_id, agency_id, amount, signed_at, source, source_id)
-           VALUES (%s, %s, 1000000, %s, 'test', 'late')""",
-        (ids["Bravo"], ids["Air Force"], ids["T"]),
+           VALUES (%s, %s, 1000000, current_date, 'test', 'late')""",
+        (ids["Bravo"], ids["Air Force"]),
     )
     (aid,) = db.execute("SELECT id FROM awards WHERE source_id = 'late'").fetchone()
     (root,) = db.execute("SELECT id FROM tags WHERE slug = %s", (ROOT,)).fetchone()
@@ -1164,11 +964,7 @@ def test_the_views_use_the_taxonomy_root():
     sql = (refresher.db.MIGRATIONS_DIR / "007_signals.sql").read_text()
     assert f"g.slug = '{ROOT}'" in sql and f"g.slug <> '{ROOT}'" in sql
     assert f">= {signals.MIN_BASELINE} THEN" in sql
-    windows = f"ARRAY[{', '.join(str(w) for w in signals.WINDOWS)}]"
-    assert windows in sql
-    # 008 redefines signal_windows on the data-anchored as_of: the same windows.
-    anchored = (refresher.db.MIGRATIONS_DIR / "008_signals_data_anchor.sql").read_text()
-    assert anchored.count(windows) == 2
+    assert f"ARRAY[{', '.join(str(w) for w in signals.WINDOWS)}]" in sql
 
 
 def test_definitions_cover_every_signal(world):
@@ -1196,4 +992,85 @@ def test_definitions_cover_every_signal(world):
         "other",
     ]
     assert (d["awards"], d["opportunities"]) == (6, 4)
-    assert d["as_of"] == str(ids["T"])
+    assert d["as_of"] == str(date.fromisoformat(str(ids["today"])))
+
+
+def _stale_record(db, days: int = 94) -> date:
+    """The seeded record, aged so its newest award is `days` days old: Nov 21
+    against Aug 19. Returns the day of the newest record."""
+    seed.seed(db)
+    db.execute(
+        "UPDATE opportunities SET posted_at = posted_at - make_interval(days => %s),"
+        " closes_at = closes_at - make_interval(days => %s),"
+        " fetched_at = fetched_at - make_interval(days => %s)",
+        (days, days, days),
+    )
+    db.execute(
+        "UPDATE awards SET signed_at = signed_at - %s::int,"
+        " fetched_at = fetched_at - make_interval(days => %s)",
+        (days, days),
+    )
+    db.commit()
+    # The newest record: an award, or a solicitation posted after the last one.
+    return db.execute(
+        "SELECT GREATEST("
+        " (SELECT max(signed_at) FROM awards WHERE source_id <> 'award-not-autonomy'),"
+        " (SELECT max(posted_at)::date FROM opportunities))"
+    ).fetchone()[0]
+
+
+def test_windows_end_on_the_newest_record_not_on_the_refresh_day(db):
+    latest = _stale_record(db)
+    today = db.execute("SELECT current_date").fetchone()[0]
+    assert 85 <= (today - latest).days <= 94
+    refresher.refresh(db, as_of=None)
+    assert db.execute("SELECT as_of FROM signal_meta").fetchone()[0] == latest
+    # Counted back from today, 30 and 90 days hold nothing; from the record they do.
+    for days in (30, 90):
+        (expected, n) = db.execute(
+            "SELECT sum(amount), count(*) FROM awards WHERE source_id <> 'award-not-autonomy'"
+            " AND signed_at > %s::date - %s::int AND signed_at <= %s",
+            (latest, days, latest),
+        ).fetchone()
+        (amount, awards) = db.execute(
+            "SELECT amount, awards FROM signal_funding"
+            " WHERE window_days = %s AND subject_type = 'total' AND slice = ''",
+            (days,),
+        ).fetchone()
+        assert n > 0 and awards == n
+        assert float(amount) == pytest.approx(float(expected))
+
+
+def test_the_api_reports_the_record_day_as_of(db):
+    latest = _stale_record(db)
+    refresher.refresh(db, as_of=None)
+    app.dependency_overrides[get_conn] = lambda: db
+    try:
+        client = TestClient(app)
+        overview = client.get("/api/signals/overview", params={"window": 90}).json()
+        assert overview["as_of"] == str(latest)
+        digest = client.get("/api/digest").json()
+        assert digest["through"] == str(latest)
+        assert client.get("/api/summary").json()["awards_30d"] > 0
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_as_of_is_today_for_an_empty_record_and_never_in_the_future(db):
+    refresher.refresh(db, as_of=None)
+    today = db.execute("SELECT current_date").fetchone()[0]
+    assert db.execute("SELECT as_of FROM signal_meta").fetchone()[0] == today
+    # An award dated ahead of the calendar does not drag the windows past today.
+    seed.seed(db)
+    db.execute("UPDATE awards SET signed_at = signed_at + 10")
+    db.commit()
+    refresher.refresh(db, as_of=None)
+    assert db.execute("SELECT as_of FROM signal_meta").fetchone()[0] == today
+
+
+def test_a_pinned_as_of_lasts_one_refresh(db):
+    latest = _stale_record(db)
+    refresher.refresh(db, as_of=latest - timedelta(days=10))
+    assert db.execute("SELECT as_of FROM signal_meta").fetchone()[0] == latest - timedelta(days=10)
+    refresher.refresh(db, as_of=None)
+    assert db.execute("SELECT as_of FROM signal_meta").fetchone()[0] == latest
