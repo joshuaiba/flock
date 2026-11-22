@@ -1,9 +1,9 @@
 import { NoRows, OrgLink, Panel, signedPct } from "@/components/Signals";
 import { serverGet } from "@/lib/api";
 import { money, plural } from "@/lib/format";
-import { pct, priorLabel, signalPath, type FundingPage } from "@/lib/signals";
+import { pct, period, priorLabel, signalPath, type FundingPage } from "@/lib/signals";
 import { tagLabel, tagPhrase } from "@/lib/tags";
-import { carry, Down, lastLabel, Scroll, signedMoney, type PanelProps } from "./shared";
+import { carry, Down, Scroll, signedMoney, type PanelProps } from "./shared";
 
 /** The panel's one-line reading: who grew the fastest, and how many are rising. */
 function reading(d: FundingPage, days: number): string | undefined {
@@ -43,7 +43,7 @@ export async function Rising({ days, tag, className = "" }: PanelProps) {
       takeaway={comparable ? reading(d, days) : undefined}
       note={
         <>
-          Companies by growth in award dollars, {lastLabel(days)} against {priorLabel(days)}
+          Companies by growth in award dollars, {period(d)} against {priorLabel(days)}
           {tag && <>, in {tagPhrase(tag)}</>}. Companies with under {money(d.min_baseline)} in the prior period are
           left out: growth from almost nothing is noise.
         </>
@@ -56,7 +56,7 @@ export async function Rising({ days, tag, className = "" }: PanelProps) {
       ) : d.items.length === 0 ? (
         <NoRows>
           No company with a prior period of {money(d.min_baseline)} or more grew{tag && <> in {tagPhrase(tag)}</>} in{" "}
-          {lastLabel(days)}.
+          {period(d)}.
         </NoRows>
       ) : (
         <Scroll label="Rising companies">

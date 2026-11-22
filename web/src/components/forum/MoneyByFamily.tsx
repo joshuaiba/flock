@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { NoRows } from "@/components/Signals";
 import { money, plural } from "@/lib/format";
-import type { MoneyFamily } from "@/lib/signals";
+import { period, periodLabel, type MoneyFamily } from "@/lib/signals";
 import { tagLabel } from "@/lib/tags";
 import { getOverview } from "./data";
 import { MoneyBar, type MoneySegment } from "./MoneyBar";
 import { OliveSprig } from "./Olive";
-import { carry, Down, lastLabel, type PanelProps } from "./shared";
+import { carry, Down, type PanelProps } from "./shared";
 
 // "Where the money went": the window's award dollars as parts of a whole, in
 // a tall segmented bar with the exact figures in a table under it. This is the
@@ -25,8 +25,9 @@ const tint = (family: string, i: number) => {
 
 const percent = (share: number) => `${(share * 100).toFixed(1)}%`;
 
-/** "Where the money went": title, the olive sprig, and the window's total. */
-function Heading({ days, total, of }: { days: number; total: number | null; of?: string }) {
+/** "Where the money went": title, the olive sprig, and the window's total,
+ *  under the window in words (`when`: "90 days to Aug 19"). */
+function Heading({ when, total, of }: { when?: string; total: number | null; of?: string }) {
   return (
     <header className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
       <h2 className="panel-title flex items-center gap-3">
@@ -35,7 +36,7 @@ function Heading({ days, total, of }: { days: number; total: number | null; of?:
       </h2>
       {total != null && (
         <p className="text-muted">
-          {lastLabel(days).replace(/^the /, "")}
+          {when}
           {of && <> · {of}</>} · <span className="money font-display text-[1.4375rem] leading-none">{money(total)}</span>
         </p>
       )}
@@ -54,7 +55,7 @@ export async function WhereTheMoneyWent({ days, tag, className = "" }: PanelProp
   if (!o)
     return (
       <section id="money" className={frame}>
-        <Heading days={days} total={null} />
+        <Heading total={null} />
         <div className="mt-4">
           <Down />
         </div>
@@ -73,10 +74,10 @@ export async function WhereTheMoneyWent({ days, tag, className = "" }: PanelProp
   if (total <= 0)
     return (
       <section id="money" className={frame}>
-        <Heading days={days} total={null} />
+        <Heading total={null} />
         <div className="mt-4">
           <NoRows>
-            No {family && <>{family.label.toLowerCase()} </>}awards on record in {lastLabel(days)}.
+            No {family && <>{family.label.toLowerCase()} </>}awards on record in {period(o)}.
           </NoRows>
         </div>
       </section>
@@ -128,11 +129,11 @@ export async function WhereTheMoneyWent({ days, tag, className = "" }: PanelProp
 
   return (
     <section id="money" className={frame}>
-      <Heading days={days} total={total} of={family?.label} />
+      <Heading when={periodLabel(o)} total={total} of={family?.label} />
       <p className="lede mt-1.5">
         {family ? (
           <>
-            {family.label} award dollars by category, across every award in {lastLabel(days)}. An award tagged with more
+            {family.label} award dollars by category, across every award in {period(o)}. An award tagged with more
             than one of these categories is split evenly between them, so the parts add up to the total.
           </>
         ) : (

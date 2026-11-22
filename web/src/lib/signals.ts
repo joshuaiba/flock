@@ -1,15 +1,20 @@
 // Types and helpers for the signals API (pipeline/api/signals.py). Every
-// response carries the same envelope: when the numbers were computed, the
-// window, the category filter, the tables they came from, and how far back the
-// data reaches.
+// response carries the same envelope: the day its window ends on, when the
+// numbers were computed, the window, the category filter, the tables they came
+// from, and how far back the data reaches.
 
 import type { OrgKind, Stage } from "./api";
+import { day } from "./format";
 import { tagLabel } from "./tags";
 
 export type SignalOrg = { id: number; name: string; kind: OrgKind; tag: string | null };
 
 export type Envelope = {
+  /** The day every window ends on: the newest award on record, not today.
+   *  The sources publish contracts weeks to months after signing, so the
+   *  record's last day can be far behind the calendar. */
   as_of: string;
+  /** when the numbers were last computed; can be months after `as_of` */
   refreshed_at: string;
   window_days: number;
   tag: string | null;
@@ -178,6 +183,7 @@ export type WatchRow = {
   rank: number | null;
   rank_then: number | null;
   last_award_day: string | null;
+  /** counted from today, not from `as_of` */
   days_since_last: number | null;
 };
 export type Watchlist = Envelope & { since: string | null; items: WatchRow[] };
@@ -198,10 +204,12 @@ export type OrgSignals = Envelope & {
   path: StagePoint[];
   first_day: string | null;
   last_award_day: string | null;
+  /** counted from today, not from `as_of` */
   days_since_last: number | null;
 };
 
 export type Definitions = {
+  /** the day every window ends on: the newest award on record */
   as_of: string;
   refreshed_at: string;
   sample: boolean;
@@ -221,12 +229,39 @@ export type Definitions = {
 export const WINDOWS = [30, 90, 365] as const;
 export type WindowDays = (typeof WINDOWS)[number];
 
+/** A window's length alone: "90 days", "1 year". For the window buttons,
+ *  which sit beside the date they end on. Anywhere else, name the end too:
+ *  `period` and `periodLabel` below. */
 export function windowLabel(days: number): string {
   return days === 365 ? "1 year" : `${days} days`;
 }
 /** "the prior 90 days" */
 export function priorLabel(days: number): string {
   return days === 365 ? "the prior year" : `the prior ${days} days`;
+}
+
+// A window ends on the record's newest award (`as_of`), which is usually
+// weeks or months before today. So a window is never "the last 90 days": it
+// is "the 90 days to Aug 19", and these three helpers are the only places
+// that say so.
+
+/** What names a window: its length and the day it ends on. Every signals
+ *  response carries both. */
+export type Windowed = Pick<Envelope, "window_days" | "as_of">;
+
+/** The day a window ends on, short: "Aug 19". The year is added only when it
+ *  is not this one ("Aug 19, 2025"). */
+export function endDay(asOf: string): string {
+  return day(asOf, Number(asOf.slice(0, 4)) === new Date().getUTCFullYear());
+}
+/** A window in a sentence: "the 90 days to Aug 19", "the year to Aug 19". */
+export function period(env: Windowed): string {
+  return `the ${env.window_days === 365 ? "year" : `${env.window_days} days`} to ${endDay(env.as_of)}`;
+}
+/** A window as a label, to follow "Awarded," or to stand alone: "90 days to
+ *  Aug 19", "1 year to Aug 19". */
+export function periodLabel(env: Windowed): string {
+  return `${windowLabel(env.window_days)} to ${endDay(env.as_of)}`;
 }
 
 /** Read `?window=` leniently: anything unknown becomes 90. */

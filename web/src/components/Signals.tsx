@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { day } from "@/lib/format";
-import { change, pct, priorLabel, STAGE_LABEL, type Envelope, type SignalOrg, type StagePoint } from "@/lib/signals";
+import { change, endDay, pct, priorLabel, STAGE_LABEL, type Envelope, type SignalOrg, type StagePoint } from "@/lib/signals";
 import "./forum/forum.css";
 
 // Shared pieces of the Forum, the leaderboards and the entity page's signals.
@@ -221,11 +221,28 @@ export function StageTrack({
   );
 }
 
-/** "As of Nov 11, 2026 · sample data": the line every signals page carries. */
-export function AsOf({ env, className = "" }: { env: Pick<Envelope, "as_of" | "sample">; className?: string }) {
+/** "Data through Aug 19, 2026 · refreshed Nov 22 · sample data": the line
+ *  every signals page carries. The date is `as_of`, the day of the newest
+ *  award on record, which is the day every window on the page ends on. It is
+ *  not today: the sources publish contracts weeks to months after signing. So
+ *  the line never says "as of", which reads as today, and when the numbers
+ *  were computed on a later day it says that too, so an old date is not taken
+ *  for a site that stopped updating. */
+export function AsOf({
+  env,
+  className = "",
+}: {
+  env: Pick<Envelope, "as_of" | "sample"> & Partial<Pick<Envelope, "refreshed_at">>;
+  className?: string;
+}) {
+  const refreshed = env.refreshed_at?.slice(0, 10);
   return (
-    <p className={`text-muted ${className}`}>
-      As of {day(env.as_of)}
+    <p
+      className={`text-muted ${className}`}
+      title="Every window ends on the newest award on record. Sources publish contracts weeks to months after they are signed."
+    >
+      Data through {day(env.as_of)}
+      {refreshed && refreshed > env.as_of && ` · refreshed ${endDay(refreshed)}`}
       {env.sample && " · sample data"}
     </p>
   );

@@ -14,10 +14,27 @@ export const metadata: Metadata = { title: "Leaderboards" };
 
 type Query = Promise<Record<string, string | string[] | undefined>>;
 
-/** "As of Nov 11, 2026". Says nothing when the API is down: the ledger does. */
+/** "Data through Aug 19, 2026". Says nothing when the API is down: the ledger does. */
 async function Stamp() {
   const record = await getRecord();
   return record ? <AsOf env={record} /> : null;
+}
+
+/** The window and category filters, with the day the windows end on. The
+ *  buttons do not wait for it: until the record answers they are shown
+ *  without the date (the Suspense fallback in Boards). */
+async function Filters({ view, showTag }: { view: View; showTag: boolean }) {
+  const record = await getRecord();
+  return (
+    <SignalFilters
+      basePath={BASE}
+      window={view.window}
+      tag={view.tag}
+      asOf={record?.as_of ?? null}
+      showTag={showTag}
+      params={filterParams(view)}
+    />
+  );
 }
 
 /** The leaderboard the URL asks for. */
@@ -47,15 +64,21 @@ async function Boards({ searchParams }: { searchParams: Query }) {
   return (
     <>
       <div className="mt-6">
-        <SignalFilters
-          basePath={BASE}
-          window={view.window}
-          // Topics are the categories: the filter is hidden there, but its
-          // window links keep the category for the other tabs.
-          tag={view.tag}
-          showTag={tab.usesTag}
-          params={filterParams(view)}
-        />
+        {/* Topics are the categories: the category filter is hidden there,
+            but its window links keep the category for the other tabs. */}
+        <Suspense
+          fallback={
+            <SignalFilters
+              basePath={BASE}
+              window={view.window}
+              tag={view.tag}
+              showTag={tab.usesTag}
+              params={filterParams(view)}
+            />
+          }
+        >
+          <Filters view={view} showTag={tab.usesTag} />
+        </Suspense>
         <div className="mt-6">
           <Tabs view={view} />
         </div>

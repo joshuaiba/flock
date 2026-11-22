@@ -1,14 +1,14 @@
 import Link from "next/link";
 import { serverGet } from "@/lib/api";
 import { day, money, plural } from "@/lib/format";
-import { priorLabel, signalPath, STAGE_LABEL, windowLabel, type OrgSignals } from "@/lib/signals";
+import { period, periodLabel, priorLabel, signalPath, STAGE_LABEL, type OrgSignals } from "@/lib/signals";
 import { tagLabel } from "@/lib/tags";
 import { AsOf, Delta, RankChange, StageTrack } from "./Signals";
 
-// The entity page's signals row: how one organization stands in the last 90
-// days. Four readings for a company (dollars, rank, stage reached, the last
-// award), three for an agency or office (no stages), in one hairline row like
-// the Forum's summary. Every figure comes from GET /api/signals/orgs/ID,
+// The entity page's signals row: how one organization stands in the 90 days
+// to the newest award on record. Four readings for a company (dollars, rank,
+// stage reached, the last award), three for an agency or office (no stages),
+// in one hairline row like the Forum's summary. Every figure comes from GET /api/signals/orgs/ID,
 // which reads the same views as the Forum, so the two cannot disagree.
 
 /** 1 -> "1st", 2 -> "2nd", 11 -> "11th", 23 -> "23rd". */
@@ -52,7 +52,7 @@ export async function EntitySignals({
   return (
     <Frame>
       <dl className={`forum-kpis ${company ? "" : "forum-kpis-3"}`}>
-        <Reading label={`${company ? "Awarded" : "Obligated"}, last ${windowLabel(s.window_days)}`}>
+        <Reading label={`${company ? "Awarded" : "Obligated"}, ${periodLabel(s)}`}>
           <p className={`${BIG} money`}>{money(s.amount)}</p>
           <p className={SMALL}>
             {/* The API withholds a percentage when the prior period is too
@@ -80,7 +80,7 @@ export async function EntitySignals({
             <>
               <p className={`${BIG} text-muted`}>unranked</p>
               <p className={SMALL}>
-                no awards in the last {windowLabel(s.window_days)}
+                no awards in {period(s)}
                 {compared && s.prev_rank != null && <>; {ordinal(s.prev_rank)} in the period before</>}
               </p>
             </>
