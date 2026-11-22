@@ -64,6 +64,8 @@ async function Top() {
       {/* The chart runs in the browser, so its data travels in the page: without
           the award descriptions, which it never prints. */}
       <StarHero data={{ ...data, awards: data.awards.map((a) => ({ ...a, description: null })) }} />
+      {/* A pause between the chart and the rest: swallows over the shore. */}
+      <Art name="bands/swallows" sizes="(min-width: 1200px) 1100px, 92vw" className="ld-band" />
       <ThreeWays data={data} />
       <Report data={data} />
       <div className="ld-close">

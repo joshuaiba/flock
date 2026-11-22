@@ -34,6 +34,12 @@ export const ART = {
   "vignettes/swallow-on-column": { widths: [280, 560], w: 906, h: 820 },
   // fades out toward its own top edge
   "footer/terrace": { widths: [1086, 2172], w: 2172, h: 724 },
+  // Swallows over a lake shore, a long low band whose ends thin out into
+  // reeds: the landing page's pause between the star chart and what follows.
+  // Generated to match the pack (one flat color with transparency, both
+  // tones), then cropped to the drawing; the 1498px file is the source's
+  // full width, so it stops there.
+  "bands/swallows": { widths: [749, 1498], w: 1498, h: 280 },
   // A detail of a real Roman wall painting, as a tonal ghost with faded edges.
   "fresco/garland-band": { widths: [625, 1250], w: 2499, h: 687 },
   // A photograph of the Pergamon Altar's frieze, as a tonal ghost with faded

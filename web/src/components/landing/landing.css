@@ -404,6 +404,15 @@
 }
 
 
+/* ---- The band of swallows between the chart and the sections ---- */
+
+.ld-band {
+  width: min(68.75rem, calc(100% - 2rem));
+  aspect-ratio: 1498 / 280;
+  margin: 1.5rem auto 0;
+  opacity: 0.5 !important;
+}
+
 /* ---- Sections ---- */
 
 .ld-section {
