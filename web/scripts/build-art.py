@@ -17,8 +17,9 @@ Writes web/public/art/on-dark/ (light lines, for the dark page),
 web/public/art/on-light/ (ink lines, for paper and Classic) and
 web/public/art/classic/ (the painted art that only the Classic mode shows).
 Every file in the engraving pack is one flat color with an alpha channel, in
-both tones; the site shows the tone that suits the mode. The files are used as they are: this only resizes (1x and 2x
-variants, never upscaling) and crops, as the pack's INSTRUCTIONS.md allows.
+both tones; the site shows the tone that suits the mode. The files are used as
+they are: this only resizes (1x and 2x variants, never upscaling) and crops, as
+the pack's INSTRUCTIONS.md allows.
 Nothing is redrawn, recolored or sharpened.
 
 The second folder is the landing hero's own pack: the lakeside village as one
