@@ -20,12 +20,16 @@ function limits(d: Definitions): { lead: string; rest: string }[] {
       lead: "Stages are read from words, not from a field.",
       rest: "The sources publish no stage, so Phase I, Phase II and production are found in the wording of award descriptions. An award that does not name its stage is missed, and progress is followed per company, not per contract.",
     },
-    {
-      lead: "Solicitation figures are empty until a solicitation source is loaded.",
-      rest:
-        "That covers topic heat, open solicitations, the solicitation stage and what each agency posted." +
-        (d.opportunities === 0 ? " None is loaded now, so those panels have nothing to show." : ""),
-    },
+    // A limit only while it holds: with solicitations on record the figures
+    // are not empty, and saying so would contradict the count above.
+    ...(d.opportunities === 0
+      ? [
+          {
+            lead: "Solicitation figures are empty until a solicitation source is loaded.",
+            rest: "That covers topic heat, open solicitations, the solicitation stage and what each agency posted. None is loaded now, so those panels have nothing to show.",
+          },
+        ]
+      : []),
     {
       lead: "A new entrant is new to this record, not necessarily to the market.",
       rest: d.first_award_day

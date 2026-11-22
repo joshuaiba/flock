@@ -133,9 +133,11 @@ async function Report() {
 
       {recent && recent.length > 0 && (
         <section className="mt-14 border-t border-line pt-10">
-          <h2 className="panel-title">Everything spotted lately</h2>
-          <p className="lede mt-1.5">One row per swallow on the landing page.</p>
-          <div className="relative mt-4 overflow-x-auto" tabIndex={0} role="region" aria-label="Everything spotted lately: table">
+          <h2 className="panel-title">The newest on record</h2>
+          <p className="lede mt-1.5">
+            The {recent.length} newest awards and open solicitations, one row per swallow on the landing page.
+          </p>
+          <div className="relative mt-4 overflow-x-auto" tabIndex={0} role="region" aria-label="The newest on record: table">
             <table className="ledger">
               <thead>
                 <tr>

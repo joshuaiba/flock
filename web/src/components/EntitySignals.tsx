@@ -125,9 +125,12 @@ export async function EntitySignals({
           </Reading>
         )}
 
+        {/* The date leads. "Days ago" is the one figure in this row counted
+            from today, not from the day the data runs through, so beside
+            "90 days to Aug 20" it would read as outside its own window. */}
         <Reading label="Last award">
-          <p className={BIG}>{since == null ? "—" : since <= 0 ? "today" : `${plural(since, "day")} ago`}</p>
-          <p className={SMALL}>{day(s.last_award_day)}</p>
+          <p className={BIG}>{day(s.last_award_day)}</p>
+          <p className={SMALL}>{since == null ? "—" : since <= 0 ? "today" : `${plural(since, "day")} ago`}</p>
         </Reading>
       </dl>
 
