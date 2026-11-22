@@ -57,7 +57,8 @@ export type GraphEdge = {
 };
 export type Graph = {
   days: number;
-  /** the window ends on the newest award on record, not today */
+  /** the window ends on the newest award on record, not today; the site
+   *  always asks for this */
   recent?: boolean;
   /** the window's first and last day; no first day for everything on record */
   since?: string | null;

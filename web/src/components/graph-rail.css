@@ -349,10 +349,6 @@
 .graph-seg > * {
   padding: 0 0.4rem;
 }
-/* a window that ends today and holds no awards: still there to press */
-.graph-seg > [data-empty="true"]:not([aria-pressed="true"]) {
-  color: var(--faint);
-}
 .graph-note {
   margin-top: 0.4rem;
   font-size: 0.75rem;

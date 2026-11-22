@@ -138,7 +138,7 @@ fetched.
 | Landing | `/` | The headline, the engraved lakeside village along the bottom, two boats on its lake (both bob, and the sailboat drifts slowly across), the live flock in the open sky (award birds in the accent, solicitation birds in the text color), and the way into the Forum; then About, under a ghost of the Pergamon Altar's frieze |
 | The Forum | `/forum` | The signals dashboard: the summary row, where the money went (award dollars by category family, as parts of a whole), momentum, stage transitions, topic heat, largest awards, funding by category, agency appetite and watchlist changes, over 30 days, 90 days or 1 year, for all categories or one. Engraved figures stand in the side margins on a wide window |
 | Leaderboards | `/forum/leaderboards` | The full rankings behind the Forum's panels |
-| Graph explorer | `/graph` | Companies as filled dots sized by dollars, agencies and offices as rings, solicitations as small diamonds; award edges in the accent, weight by dollars; search; filters for window (Recent, the default: the 90 days up to the newest award on record, so the map is never empty when the data has not been loaded lately; or 30 days / 90 days / 1 year back from today / everything on record), category, agency, minimum dollars, node type and watchlist only. Selecting a node dims everything but its neighbors and opens a side card. It opens in 3D (drag to orbit, click a node to fly to it, drag a node to move it) with a toggle to a flat view that keeps the filters and the selection |
+| Graph explorer | `/graph` | Companies as filled dots sized by dollars, agencies and offices as rings, solicitations as small diamonds; award edges in the accent, weight by dollars; search; filters for window (30 days / 90 days, the default / 1 year, each ending on the newest award on record, so the map is never empty when the record is behind the calendar; or everything on record), category, agency, minimum dollars, node type and watchlist only. Selecting a node dims everything but its neighbors and opens a side card. It opens in 3D (drag to orbit, click a node to fly to it, drag a node to move it) with a toggle to a flat view that keeps the filters and the selection |
 | Entity page | `/entity/<id>` | An organization, its name as the hero: its signals for the 90 days to the newest award on record (dollars, rank, stage reached, the last award), path to production as one line with dates and the time between stages, awards, who pays it, sources |
 | Field report | `/feed` | The week's digest in a reading column, then every recent award and solicitation as a table |
 | About the numbers | `/about/numbers` | What each figure means, the tables it is computed from, how far back the record reaches, and what the numbers cannot tell you |
@@ -206,7 +206,9 @@ says whether the data reaches back far enough to compare with the prior period.
 every window (7, 30, 90, 365 days) ends on it
 (`migrations/008_signals_data_anchor.sql`). The record lags the calendar by
 weeks to months (see [Sources](#sources)), so a window that ended today would
-often be empty. This is the rule the graph's "Recent" window follows. The site
+often be empty. The graph's windows end on the same day (`/api/graph` with
+`recent=true`, which the site always asks for), so a window covers the same
+days on the graph and on the dashboard. The site
 says so wherever it names a window: "90 days to Aug 19", never "the last 90
 days". `refreshed_at` is when the views were last computed.
 

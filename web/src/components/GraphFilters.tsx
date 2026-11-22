@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type { GraphNode, NodeKind } from "@/lib/api";
 import { ago, day } from "@/lib/format";
+import { endDay, windowLabel } from "@/lib/signals";
 import { tagLabel } from "@/lib/tags";
 import "./graph-rail.css";
 
@@ -14,28 +15,28 @@ import "./graph-rail.css";
 // map by one hairline: the search stays at the top, then the filters in force
 // as removable chips, then the groups, each under a hairline with its name on
 // the left and what it is set to on the right. Exclusive choices are segmented
-// controls; everything else is a checklist. The window opens on "Recent" (see
-// WINDOWS) and says how fresh the record is: how long ago the newest award
-// landed, or, once that is more than two weeks back, the day the data ends. The foot says how much of the map
-// is shown. It folds to a strip of three icon buttons. On a phone the search
+// controls; everything else is a checklist. The window (see WINDOWS) says how
+// fresh the record is: how long ago the newest award landed, or, once that is
+// more than two weeks back, the day the data ends. The foot says how much of
+// the map is shown. It folds to a strip of three icon buttons. On a phone the search
 // and the window float over the map and the groups fold behind a "Filters"
 // button, so the map stays visible. Layout and looks are in graph-rail.css.
 
-// The windows of the map. The record is not loaded on a fixed schedule, so a
-// stretch of the calendar can be empty: "Recent" is the newest stretch of the
-// record itself, the 90 days up to its newest award. It always has something
-// in it, and it is what the map opens on. The others end today; `days: 0` is
-// everything on record.
+// The windows of the map. Every one ends on the day of the newest award on
+// record, not today: the sources publish contracts weeks to months after
+// signing, so a stretch of the calendar that ends today is often empty. These
+// are the same days the Forum's windows cover (signal_meta.as_of), so "90
+// days" means the same thing on both pages, and no window is ever without
+// awards. `days: 0` is everything on record. The map opens on 90 days.
 export const WINDOWS = [
-  { key: "recent", days: 90, recent: true, label: "Recent", long: "the 90 days up to the newest award" },
-  { key: "30d", days: 30, recent: false, label: "30d", long: "the last 30 days" },
-  { key: "90d", days: 90, recent: false, label: "90d", long: "the last 90 days" },
-  { key: "1y", days: 365, recent: false, label: "1y", long: "the last year" },
-  { key: "all", days: 0, recent: false, label: "All", long: "everything on record" },
+  { key: "30d", days: 30, label: "30d" },
+  { key: "90d", days: 90, label: "90d" },
+  { key: "1y", days: 365, label: "1y" },
+  { key: "all", days: 0, label: "All" },
 ] as const;
 export type WindowKey = (typeof WINDOWS)[number]["key"];
 export type Window = (typeof WINDOWS)[number];
-export const DEFAULT_WINDOW: WindowKey = "recent";
+export const DEFAULT_WINDOW: WindowKey = "90d";
 
 /** Days after which the record counts as stale: past this, the rail stops
  *  saying how long ago the newest award was and says when the data ends. */
@@ -46,21 +47,13 @@ export function windowOf(key: WindowKey): Window {
 }
 
 /** A window in words, to follow "Awarded," or to stand alone capitalized:
- *  "90 days to Oct 3", "last 30 days", "last year", "everything on record".
- *  `latest` is the day of the newest award on record. */
+ *  "90 days to Oct 3", "1 year to Oct 3", "everything on record". `latest` is
+ *  the day of the newest award on record, where every window ends; until it
+ *  is known the window is "newest 90 days". The Forum words its windows the
+ *  same way (periodLabel in lib/signals.ts). */
 export function windowPhrase(w: Window, latest: string | null | undefined): string {
-  if (w.recent) {
-    if (!latest) return `latest ${w.days} days`;
-    // the year only when it is not this one
-    const thisYear = Number(latest.slice(0, 4)) === new Date().getFullYear();
-    return `${w.days} days to ${day(latest, thisYear)}`;
-  }
-  return w.long.replace(/^the /, "");
-}
-
-/** True when no award on record falls in a window that ends today. */
-function awardless(w: Window, age: number | null): boolean {
-  return !w.recent && w.days > 0 && age != null && age > w.days;
+  if (!w.days) return "everything on record";
+  return latest ? `${windowLabel(w.days)} to ${endDay(latest)}` : `newest ${windowLabel(w.days)}`;
 }
 
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -144,12 +137,13 @@ const SlidersIcon = () => (
 );
 
 /** The window, drawn: a line for the record, today at its right end, the
- *  chosen window as a bar on it and the newest award as a ring. When the
+ *  chosen window as a bar on it and the newest award as a ring. The bar ends
+ *  at the ring, because every window ends on the newest award. When the
  *  record is fresh the ring sits at the right end; when it is not, the gap
- *  between ring and end is how stale it is, and a bar that misses the ring is
- *  a window with no awards in it. Under it, the same in words: while the
- *  record is fresh, how long ago its newest award landed; once it is stale,
- *  the day it ends ("Sample data ends Aug 11" for the synthetic seed). */
+ *  between ring and end is how far the record is behind the calendar. Under
+ *  it, the same in words: while the record is fresh, how long ago its newest
+ *  award landed; once it is stale, the day it ends ("Sample data ends Aug
+ *  11" for the synthetic seed). */
 function WindowRecord({
   w,
   latest,
@@ -162,10 +156,10 @@ function WindowRecord({
   sample: boolean;
 }) {
   if (latest == null || age == null) return null;
-  const recent = WINDOWS[0];
-  // The line reaches a year back, or far enough to hold the Recent window.
-  const reach = Math.max(365, age + recent.days);
-  const to = w.recent ? age : 0; // days ago the window ends
+  // The line reaches a year back, or far enough to hold the window the map
+  // opens on.
+  const reach = Math.max(365, age + windowOf(DEFAULT_WINDOW).days);
+  const to = w.days ? age : 0; // days ago the window ends: at the newest award
   const len = w.days ? Math.min(w.days, reach - to) : reach;
   const pct = (days: number) => `${((days / reach) * 100).toFixed(2)}%`;
   return (
@@ -177,7 +171,7 @@ function WindowRecord({
       {age > STALE_DAYS ? (
         // the year only when it is not this one
         <p className="graph-record-note graph-record-stale">
-          {sample ? "Sample data ends" : "Data through"} {day(latest, Number(latest.slice(0, 4)) === new Date().getFullYear())}
+          {sample ? "Sample data ends" : "Data through"} {endDay(latest)}
         </p>
       ) : (
         <p className="graph-record-note">
@@ -419,22 +413,17 @@ export function GraphFilters({
 
   const windowSeg = (
     <div className="seg graph-seg graph-float" role="group" aria-label="Time window">
-      {WINDOWS.map((w) => {
-        const none = awardless(w, age);
-        return (
-          <button
-            key={w.key}
-            type="button"
-            aria-pressed={win === w.key}
-            aria-label={none ? `${capital(w.long)}: no awards` : capital(w.long)}
-            title={none ? `No awards in ${w.long}` : undefined}
-            data-empty={none}
-            onClick={() => onWin(w.key)}
-          >
-            {w.label}
-          </button>
-        );
-      })}
+      {WINDOWS.map((w) => (
+        <button
+          key={w.key}
+          type="button"
+          aria-pressed={win === w.key}
+          aria-label={capital(windowPhrase(w, latest))}
+          onClick={() => onWin(w.key)}
+        >
+          {w.label}
+        </button>
+      ))}
     </div>
   );
 

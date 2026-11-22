@@ -10,6 +10,7 @@ import { andList, day, moneyRound, spell, truncate } from "@/lib/format";
 import { TONES } from "@/lib/art";
 import { ALL_KINDS, hiddenNodes, stressGraph } from "@/lib/graphLayout";
 import { nodeSpriteSrcSet, nodeSpriteUrl, type NodeSprite } from "@/lib/nodeSprites";
+import { endDay } from "@/lib/signals";
 import { MAX_PINS, useStore, type Pin } from "@/lib/store";
 import { tagLabel, TAGS } from "@/lib/tags";
 import { Empty } from "./Empty";
@@ -21,7 +22,6 @@ import {
   STALE_DAYS,
   windowOf,
   windowPhrase,
-  WINDOWS,
   type Window,
   type WindowKey,
 } from "./GraphFilters";
@@ -230,22 +230,24 @@ function topAgencies(graph: Graph, hidden: ReadonlySet<string>): Map<string, str
   return top;
 }
 
-/** The window as the end of a sentence about the whole map: "in the last 90
- *  days", "in the last year", "on record". Recent ends on the newest award,
- *  so once that is stale it says where it ends instead of "last". */
+/** The window as the end of a sentence about the whole map: "in the 90 days
+ *  to Aug 19", "in the year to Aug 19", "on record". Every window ends on the
+ *  newest award, so the sentence says where that is. Only while the record is
+ *  fresh (the newest award is within STALE_DAYS of today) is it "the last 90
+ *  days", which is then true to within those days. */
 function lastPhrase(w: Window, latest: string | null, age: number | null): string {
   if (!w.days) return "on record";
-  if (w.recent && latest && age != null && age > STALE_DAYS) {
-    const thisYear = Number(latest.slice(0, 4)) === new Date().getFullYear();
-    return `in the ${w.days} days to ${day(latest, thisYear)}`;
-  }
-  return w.days === 365 ? "in the last year" : `in the last ${w.days} days`;
+  const span = w.days === 365 ? "year" : `${w.days} days`;
+  if (latest && age != null && age > STALE_DAYS) return `in the ${span} to ${endDay(latest)}`;
+  return `in the last ${span}`;
 }
 
-/** The window after one entity's figure: "in 90 days", "in the last year". */
+/** The window after one entity's figure, as a length only: "in 90 days", "in
+ *  one year". The line above the map has no room for the date; the rail and
+ *  the side card carry it. */
 function inPhrase(w: Window): string {
   if (!w.days) return "on record";
-  return w.days === 365 ? "in the last year" : `in ${w.days} days`;
+  return w.days === 365 ? "in one year" : `in ${w.days} days`;
 }
 
 /** What the map in view says, in a sentence or two: which agencies paid most
@@ -415,8 +417,9 @@ export function GraphExplorer() {
   const view: ViewName = no3d ? "flat" : (linked ?? saved ?? "flat");
   const viewKnown = no3d || linked !== null || saved !== undefined;
 
-  // The window opens on "Recent": the newest stretch of the record, which has
-  // something in it however long ago the data was last loaded.
+  // The window opens on 90 days. Like every window here it ends on the newest
+  // award on record, so it has something in it however far the record is
+  // behind the calendar.
   const [win, setWin] = useState<WindowKey>(DEFAULT_WINDOW);
   const chosen = windowOf(win);
   const [graph, setGraph] = useState<Graph | null>(null);
@@ -460,7 +463,8 @@ export function GraphExplorer() {
     const ac = new AbortController();
     setFailed(false);
     setReadyIn(null);
-    const path = `graph?days=${chosen.days}${chosen.recent ? "&recent=true" : ""}`;
+    // `recent` ends the window on the newest award on record instead of today.
+    const path = `graph?days=${chosen.days}&recent=true`;
     (stress ? Promise.resolve(stressGraph(stress)) : clientGet<Graph>(path, ac.signal))
       .then((g) => {
         if (!alive) return;
@@ -484,12 +488,11 @@ export function GraphExplorer() {
       focused.current = focus;
       setSelected(focus);
       requestAnimationFrame(() => api.current.focusOn(focus, true));
-    } else if (chosen.days !== 0 && (chosen.recent || chosen.days < 365) && widened.current !== focus) {
-      // older than the window: widen it once (once per focus, so a node that is
-      // never found does not hold the window open). A year, unless the record
-      // is so stale that the year would not reach what Recent shows.
+    } else if (chosen.days !== 0 && chosen.days < 365 && widened.current !== focus) {
+      // older than the window: widen it once, to a year (once per focus, so a
+      // node that is never found does not hold the window open).
       widened.current = focus;
-      setWin((graph.age ?? 0) + WINDOWS[0].days > 365 ? "all" : "1y");
+      setWin("1y");
     }
   }, [graph, ready, focus, chosen]);
 
@@ -732,18 +735,10 @@ export function GraphExplorer() {
       )}
       {empty && (
         <div className="pointer-events-none absolute inset-0 grid place-items-center">
+          {/* A window ends on the newest award, so one with awards in the
+              record is never empty: this is a record with nothing to draw. */}
           <Empty title="Nothing landed in this window">
-            {latest && !chosen.recent ? (
-              <>
-                The newest award on record is from {day(latest)}.{" "}
-                <button type="button" onClick={() => setWin("recent")} className="pointer-events-auto cursor-pointer text-ink underline">
-                  Show the most recent
-                </button>
-                .
-              </>
-            ) : (
-              "Try a longer stretch of time."
-            )}
+            {chosen.days ? "Try a longer stretch of time." : "There are no awards on record yet."}
           </Empty>
         </div>
       )}
@@ -883,7 +878,7 @@ export function GraphExplorer() {
               <dl className="graph-facts">
                 <div>
                   <dt>
-                    {detail.node.kind === "company" ? "Awarded" : "Paid"}, {chosen.days ? (chosen.recent ? `${chosen.days} days` : span) : "on record"}
+                    {detail.node.kind === "company" ? "Awarded" : "Paid"}, {chosen.days ? span : "on record"}
                   </dt>
                   <dd className="money">{moneyRound(detail.amount)}</dd>
                 </div>
