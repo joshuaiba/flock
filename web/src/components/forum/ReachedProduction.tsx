@@ -1,9 +1,9 @@
 import { NoRows, OrgLink, Panel, StageTrack } from "@/components/Signals";
 import { serverGet } from "@/lib/api";
 import { day, money, plural } from "@/lib/format";
-import { signalPath, STAGE_LABEL, type Page, type TransitionRow } from "@/lib/signals";
+import { period, signalPath, STAGE_LABEL, type Page, type TransitionRow } from "@/lib/signals";
 import { tagPhrase } from "@/lib/tags";
-import { Down, lastLabel, type PanelProps } from "./shared";
+import { Down, type PanelProps } from "./shared";
 
 const LIMIT = 8;
 
@@ -36,13 +36,13 @@ export async function ReachedProduction({ days, tag, className = "" }: PanelProp
         some ? (
           <>
             {plural(d.total, "company", "companies")}
-            {tag && <> with {tagPhrase(tag)} awards</>} crossed into production in {lastLabel(days)}.
+            {tag && <> with {tagPhrase(tag)} awards</>} crossed into production in {period(d)}.
           </>
         ) : undefined
       }
       note={
         <>
-          Companies with a first production award in {lastLabel(days)}
+          Companies with a first production award in {period(d)}
           {/* The filter is on the company (any award in the category), not on
               the production award itself. */}
           {tag && <>, among companies with {tagPhrase(tag)} awards</>}. Stages are read from award descriptions; the
@@ -52,7 +52,7 @@ export async function ReachedProduction({ days, tag, className = "" }: PanelProp
     >
       {!some ? (
         <NoRows>
-          No company{tag && <> with {tagPhrase(tag)} awards</>} reached production in {lastLabel(days)}.
+          No company{tag && <> with {tagPhrase(tag)} awards</>} reached production in {period(d)}.
         </NoRows>
       ) : (
         <>

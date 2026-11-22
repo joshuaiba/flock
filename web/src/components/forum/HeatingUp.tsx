@@ -2,10 +2,10 @@ import { SeriesChart } from "@/components/SeriesChart";
 import { Panel, signedPct } from "@/components/Signals";
 import { serverGet } from "@/lib/api";
 import { plural } from "@/lib/format";
-import { bucketLabels, pct, priorLabel, signalPath, type TopicPage, type TopicRow } from "@/lib/signals";
+import { bucketLabels, pct, period, priorLabel, signalPath, type TopicPage, type TopicRow } from "@/lib/signals";
 import { tagLabel, tagPhrase } from "@/lib/tags";
 import { getDefinitions } from "./data";
-import { Down, lastLabel, PanelEmpty, type PanelProps } from "./shared";
+import { Down, PanelEmpty, type PanelProps } from "./shared";
 
 // Topic heat: solicitations posted per category, this period against the last.
 // Solicitations come before money, so this is the Forum's leading indicator.
@@ -36,7 +36,7 @@ function reading(d: TopicPage, days: number, tag: string | null): string {
     // A topic with no postings in either period is not in the list at all.
     return chosen
       ? sentence(chosen, days)
-      : `No ${tagPhrase(tag)} solicitations were posted in ${lastLabel(days)} or in ${priorLabel(days)}.`;
+      : `No ${tagPhrase(tag)} solicitations were posted in ${period(d)} or in ${priorLabel(days)}.`;
   }
   const rising = d.items.filter((r) => r.rising);
   if (rising.length === 0) return "No topic is rising this period.";
@@ -115,7 +115,7 @@ export async function HeatingUp({ days, tag, className = "" }: PanelProps) {
         <PanelEmpty>
           {defs != null && defs.opportunities === 0
             ? "No solicitation source is loaded yet, so there are no topics to rank. This panel fills in once one is."
-            : `No solicitations were posted in ${lastLabel(days)} or in ${priorLabel(days)}.`}
+            : `No solicitations were posted in ${period(d)} or in ${priorLabel(days)}.`}
         </PanelEmpty>
       </Panel>
     );
@@ -130,7 +130,7 @@ export async function HeatingUp({ days, tag, className = "" }: PanelProps) {
       takeaway={reading(d, days, tag)}
       note={
         <>
-          Solicitations posted per category, {lastLabel(days)} against {priorLabel(days)}. Demand shows here before it
+          Solicitations posted per category, {period(d)} against {priorLabel(days)}. Demand shows here before it
           shows as awards. Each line runs across both periods, the earlier one fainter, on its own scale.
           {tag && " All topics with postings are listed; the category filter marks its own."}
         </>

@@ -20,6 +20,23 @@ async function Stamp() {
   return record ? <AsOf env={record} /> : null;
 }
 
+/** The window and category filters, with the day the windows end on. The
+ *  buttons do not wait for it: until the record answers they are shown
+ *  without the date (the Suspense fallback in Boards). */
+async function Filters({ view, showTag }: { view: View; showTag: boolean }) {
+  const record = await getRecord();
+  return (
+    <SignalFilters
+      basePath={BASE}
+      window={view.window}
+      tag={view.tag}
+      asOf={record?.as_of ?? null}
+      showTag={showTag}
+      params={filterParams(view)}
+    />
+  );
+}
+
 /** The leaderboard the URL asks for. */
 function Chosen({ view }: { view: View }) {
   switch (view.tab) {
@@ -47,15 +64,21 @@ async function Boards({ searchParams }: { searchParams: Query }) {
   return (
     <>
       <div className="mt-6">
-        <SignalFilters
-          basePath={BASE}
-          window={view.window}
-          // Topics are the categories: the filter is hidden there, but its
-          // window links keep the category for the other tabs.
-          tag={view.tag}
-          showTag={tab.usesTag}
-          params={filterParams(view)}
-        />
+        {/* Topics are the categories: the category filter is hidden there,
+            but its window links keep the category for the other tabs. */}
+        <Suspense
+          fallback={
+            <SignalFilters
+              basePath={BASE}
+              window={view.window}
+              tag={view.tag}
+              showTag={tab.usesTag}
+              params={filterParams(view)}
+            />
+          }
+        >
+          <Filters view={view} showTag={tab.usesTag} />
+        </Suspense>
         <div className="mt-6">
           <Tabs view={view} />
         </div>

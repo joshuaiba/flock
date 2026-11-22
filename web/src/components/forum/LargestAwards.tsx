@@ -2,17 +2,17 @@ import Link from "next/link";
 import { NoRows, OrgLink, Panel } from "@/components/Signals";
 import { serverGet } from "@/lib/api";
 import { day, money } from "@/lib/format";
-import { signalPath, type AwardRow, type Page } from "@/lib/signals";
+import { period, signalPath, type AwardRow, type Page } from "@/lib/signals";
 import { tagLabel, tagPhrase } from "@/lib/tags";
-import { Down, lastLabel, Scroll, type PanelProps } from "./shared";
+import { Down, Scroll, type PanelProps } from "./shared";
 
 const WORDS = ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"];
 
 /** The panel's one-line reading: how many awards are listed, and the category
- *  that took the most of them. */
-function reading(items: AwardRow[], days: number, tag: string | null): string {
+ *  that took the most of them. `when` is the window in words. */
+function reading(items: AwardRow[], when: string, tag: string | null): string {
   const n = items.length;
-  const head = `The ${n === 1 ? "largest single award" : `${WORDS[n]?.toLowerCase() ?? n} largest single awards`} in ${lastLabel(days)}${tag ? `, in ${tagPhrase(tag)}` : ""}.`;
+  const head = `The ${n === 1 ? "largest single award" : `${WORDS[n]?.toLowerCase() ?? n} largest single awards`} in ${when}${tag ? `, in ${tagPhrase(tag)}` : ""}.`;
   if (tag || n < 2) return head;
   const counts = new Map<string, number>();
   for (const a of items) for (const t of a.tags) counts.set(t, (counts.get(t) ?? 0) + 1);
@@ -36,12 +36,12 @@ export async function LargestAwards({ days, tag, className = "" }: PanelProps) {
     <Panel
       title="Largest awards"
       className={className}
-      takeaway={d.items.length > 0 ? reading(d.items, days, tag) : undefined}
+      takeaway={d.items.length > 0 ? reading(d.items, period(d), tag) : undefined}
       note={<>Largest obligated amount first. Point at a recipient for what the award was for.</>}
     >
       {d.items.length === 0 ? (
         <NoRows>
-          No {tag && <>{tagPhrase(tag)} </>}awards on record in {lastLabel(days)}.
+          No {tag && <>{tagPhrase(tag)} </>}awards on record in {period(d)}.
         </NoRows>
       ) : (
         <Scroll label="Largest awards">

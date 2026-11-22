@@ -30,7 +30,7 @@ The Next.js site. See "Web UI" in the repository README for how to run it.
 - `src/components/explorer/explorer.css` the explorer's styles (prefix `ex-`)
 - `src/lib/store.tsx` what lives in the browser: the mode (dark, paper or Classic), the motion switch, and the watchlist's pins
 - `src/lib/signals.ts` types for the signals API (`/api/signals/*`), the windows and wording helpers
-- `src/components/Signals.tsx` shared pieces of the signals pages: panel, change against the prior period, rank change, organization link, stage dots, as-of line, loading rows
+- `src/components/Signals.tsx` shared pieces of the signals pages: panel, change against the prior period, rank change, organization link, stage dots, the "data through" line, loading rows
 - `src/components/SignalFilters.tsx` the window and category controls, kept in the URL (`?window=&tag=`)
 - `src/components/SeriesChart.tsx` one series as a thin line in the text color, used as a sparkline
 - `src/components/forum/` the Forum's panels and the data they load; `MoneyByFamily.tsx` and `MoneyBar.tsx` are "Where the money went", `ForumGutters.tsx` the engraved figures in the margins

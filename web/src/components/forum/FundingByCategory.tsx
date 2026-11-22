@@ -2,16 +2,16 @@ import { SeriesChart } from "@/components/SeriesChart";
 import { Delta, NoRows, Panel } from "@/components/Signals";
 import { serverGet } from "@/lib/api";
 import { day, money } from "@/lib/format";
-import { bucketLabels, pct, priorLabel, signalPath, type CategorySeries } from "@/lib/signals";
+import { bucketLabels, pct, period, priorLabel, signalPath, type CategorySeries } from "@/lib/signals";
 import { tagLabel } from "@/lib/tags";
-import { Down, lastLabel, type PanelProps } from "./shared";
+import { Down, type PanelProps } from "./shared";
 
 /** The panel's one-line reading: the category whose dollars rose the most
  *  against the prior period, with a percentage only when the API gives one. */
 function reading(d: CategorySeries, days: number): string {
   const top = d.items[0]; // the API lists the largest category first
   if (!d.coverage.prior_complete)
-    return `${tagLabel(top.category)} drew the most in ${lastLabel(days)}: ${money(top.amount)}. The record has no full earlier period to compare with.`;
+    return `${tagLabel(top.category)} drew the most in ${period(d)}: ${money(top.amount)}. The record has no full earlier period to compare with.`;
   const up = d.items.filter((c) => c.delta > 0).sort((a, b) => b.delta - a.delta)[0];
   if (!up) return `No category grew against ${priorLabel(days)}.`;
   const name = tagLabel(up.category);
@@ -38,7 +38,7 @@ export async function FundingByCategory({ days, tag, className = "" }: PanelProp
     return (
       <Panel title="Funding by category" className={className}>
         <NoRows>
-          No awards on record in {lastLabel(days)} or in {priorLabel(days)}.
+          No awards on record in {period(d)} or in {priorLabel(days)}.
         </NoRows>
       </Panel>
     );
@@ -52,7 +52,7 @@ export async function FundingByCategory({ days, tag, className = "" }: PanelProp
       takeaway={reading({ ...d, items }, days)}
       note={
         <>
-          Award dollars across {priorLabel(days)} (fainter) and {lastLabel(days)}. Each chart has its own scale, so
+          Award dollars across {priorLabel(days)} (fainter) and {period(d)}. Each chart has its own scale, so
           compare shapes, not heights. An award with two categories counts in both here; &ldquo;Where the money
           went&rdquo; splits it instead.
           {!d.coverage.prior_complete && d.coverage.first_award_day && (

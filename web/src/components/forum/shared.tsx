@@ -1,6 +1,5 @@
 import { NoRows } from "@/components/Signals";
 import { money } from "@/lib/format";
-import { windowLabel } from "@/lib/signals";
 
 // Small pieces the Forum's panels share. Nothing here needs the browser, so
 // both the server panels and the watchlist (a client component) can use them.
@@ -23,11 +22,6 @@ export function carry(path: string, days: number, tag: string | null, extra: Rec
   if (tag) q.set("tag", tag);
   const s = q.toString();
   return s ? `${path}?${s}` : path;
-}
-
-/** "the last 90 days" / "the last year" */
-export function lastLabel(days: number): string {
-  return days === 365 ? "the last year" : `the last ${windowLabel(days)}`;
 }
 
 /** A dollar change with its sign: "+$54.5M", "−$1.2M". */

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { Empty } from "@/components/Empty";
 import { Footer } from "@/components/Footer";
+import { AsOf } from "@/components/Signals";
 import { serverGet } from "@/lib/api";
 import { day, dollars } from "@/lib/format";
 import { signalPath, type Definitions } from "@/lib/signals";
@@ -64,10 +65,7 @@ async function Numbers() {
     <article>
       <header>
         <h1 className="page-title">About the numbers</h1>
-        <p className="mt-3 text-muted">
-          Data through {day(d.as_of)}
-          {d.sample && " · sample data"}
-        </p>
+        <AsOf env={d} className="mt-3" />
       </header>
 
       {/* What the record holds. */}

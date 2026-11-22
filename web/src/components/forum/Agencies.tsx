@@ -1,27 +1,28 @@
 import { NoRows, OrgLink, Panel } from "@/components/Signals";
 import { serverGet } from "@/lib/api";
 import { money, plural } from "@/lib/format";
-import { mixText, signalPath, type AgencyRow, type Page } from "@/lib/signals";
+import { mixText, period, signalPath, type AgencyRow, type Page } from "@/lib/signals";
 import { tagPhrase } from "@/lib/tags";
-import { Down, lastLabel, type PanelProps } from "./shared";
+import { Down, type PanelProps } from "./shared";
 
 const LIMIT = 8;
 
-/** The panel's one-line reading: the biggest buyer and what it mostly buys. */
-function reading(items: AgencyRow[], total: number, days: number, tag: string | null): string {
+/** The panel's one-line reading: the biggest buyer and what it mostly buys.
+ *  `when` is the window in words. */
+function reading(items: AgencyRow[], total: number, when: string, tag: string | null): string {
   const top = items[0]; // the API sorts by award dollars
   if (top.amount <= 0) {
     // Every agency in the list awarded or posted, and none awarded: `total` is
     // the number that posted (the list on screen may be cut short).
     const what = tag ? `${tagPhrase(tag)} award` : "award";
-    return `No agency made ${/^[aeiou]/i.test(what) ? "an" : "a"} ${what} in ${lastLabel(days)}; ${plural(total, "agency", "agencies")} posted solicitations.`;
+    return `No agency made ${/^[aeiou]/i.test(what) ? "an" : "a"} ${what} in ${when}; ${plural(total, "agency", "agencies")} posted solicitations.`;
   }
-  if (tag) return `${top.org.name} bought the most ${tagPhrase(tag)}: ${money(top.amount)} in ${lastLabel(days)}.`;
+  if (tag) return `${top.org.name} bought the most ${tagPhrase(tag)}: ${money(top.amount)} in ${when}.`;
   const lead = top.mix.find((m) => m.amount > 0);
   const categorized = top.mix.reduce((s, m) => s + m.amount, 0);
-  if (!lead) return `${top.org.name} bought the most: ${money(top.amount)} in ${lastLabel(days)}.`;
+  if (!lead) return `${top.org.name} bought the most: ${money(top.amount)} in ${when}.`;
   const how = lead.amount / categorized >= 0.5 ? "mostly" : "led by";
-  return `${top.org.name} bought the most: ${money(top.amount)} in ${lastLabel(days)}, ${how} ${tagPhrase(lead.category)}.`;
+  return `${top.org.name} bought the most: ${money(top.amount)} in ${when}, ${how} ${tagPhrase(lead.category)}.`;
 }
 
 /** Which agencies and offices are buying, and what: a name, its dollars, a
@@ -40,7 +41,7 @@ export async function Agencies({ days, tag, className = "" }: PanelProps) {
     return (
       <Panel title="Agencies" className={className}>
         <NoRows>
-          No agency awarded or posted anything{tag && <> in {tagPhrase(tag)}</>} in {lastLabel(days)}.
+          No agency awarded or posted anything{tag && <> in {tagPhrase(tag)}</>} in {period(d)}.
         </NoRows>
       </Panel>
     );
@@ -50,10 +51,10 @@ export async function Agencies({ days, tag, className = "" }: PanelProps) {
     <Panel
       title="Agencies"
       className={className}
-      takeaway={reading(d.items, d.total, days, tag)}
+      takeaway={reading(d.items, d.total, period(d), tag)}
       note={
         <>
-          Award dollars in {lastLabel(days)} by awarding agency or office, as the source recorded it (offices are not
+          Award dollars in {period(d)} by awarding agency or office, as the source recorded it (offices are not
           rolled up into their parent){tag && <>, {tagPhrase(tag)} only</>}. The shares are of each agency&rsquo;s
           categorized dollars; an award with two categories counts in both.
           {d.total > d.items.length && <> The top {d.items.length} of {d.total.toLocaleString("en-US")}.</>}

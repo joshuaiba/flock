@@ -4,7 +4,7 @@ import { Empty } from "@/components/Empty";
 import { NoRows, Panel, SkeletonRows } from "@/components/Signals";
 import { serverGet } from "@/lib/api";
 import { day } from "@/lib/format";
-import { priorLabel, WINDOWS, windowLabel, type Page } from "@/lib/signals";
+import { periodLabel, priorLabel, WINDOWS, type Page } from "@/lib/signals";
 import { tagLabel } from "@/lib/tags";
 import type { Board, Column, Ctx } from "./boards";
 import { getRecord } from "./record";
@@ -234,7 +234,7 @@ export async function Ledger<R, P extends Page<R>>({ board, view }: { board: Boa
 
   const rows = board.arrange ? board.arrange(page.items, ctx) : page.items;
   const sorts = tabOf(view.tab).sorts;
-  const caption = `${title}, ${windowLabel(page.window_days)}${page.tag ? `, ${tagLabel(page.tag)}` : ""}`;
+  const caption = `${title}, ${periodLabel(page)}${page.tag ? `, ${tagLabel(page.tag)}` : ""}`;
 
   return (
     <Panel title={title} note={note} id={LEDGER_ID} className={CARD}>
