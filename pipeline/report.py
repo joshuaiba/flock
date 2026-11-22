@@ -264,9 +264,10 @@ def render(
     signals_outcome = outcomes.get("signals")
     if g := stats.get("signals"):
         details.append(
-            f"- **signals**: refreshed as of {g.get('as_of', '?')} over "
-            f"{g.get('signal_awards', 0)} awards and "
-            f"{g.get('signal_opportunities', 0)} solicitations"
+            f"- **signals**: refreshed over {g.get('signal_awards', 0)} awards and "
+            f"{g.get('signal_opportunities', 0)} solicitations; windows end on "
+            f"{g.get('as_of', '?')}"
+            + (", the newest award on record" if g.get("signal_awards") else "")
         )
     elif signals_outcome and signals_outcome != "success":
         details.append(

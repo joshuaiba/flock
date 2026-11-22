@@ -3,10 +3,17 @@
 One endpoint per signal, all under /api/signals. Every endpoint reads the
 materialized views in migrations/007_signals.sql (where each metric's exact
 definition lives, as SQL and comments) and returns the same envelope: `as_of`
-(the day the views were last refreshed; every window ends on it), the window,
-the category filter, the source tables the numbers came from, and `coverage`,
-which says how far back the data goes, so a page can tell "no change" from "no
-earlier data to compare with".
+(the day every window ends on), `refreshed_at` (when the views were last
+computed), the window, the category filter, the source tables the numbers came
+from, and `coverage`, which says how far back the data goes, so a page can tell
+"no change" from "no earlier data to compare with".
+
+`as_of` is the day of the newest autonomy award on record, not today
+(migrations/008_signals_data_anchor.sql): the sources publish contracts weeks
+to months after signing, so "the last 30 days" by the calendar is usually
+empty. A window of N days is therefore "the N days to `as_of`". Only two things
+here are measured from the calendar: `days_since_last` (how long ago an
+organization's last award was) and the watchlist's `since`.
 
 Nothing here estimates or fills in. A metric with no rows behind it returns an
 empty list (or zeros with `coverage.prior_complete` false), never a placeholder.
@@ -64,10 +71,13 @@ DEFINITIONS: list[dict] = [
         "key": "windows",
         "name": "Windows and the prior period",
         "text": (
-            "A window of 30, 90 or 365 days is that many days ending on the as-of date, "
-            "inclusive. The prior period is the same number of days immediately before it. "
-            "The as-of date is the last nightly refresh. When our data does not reach back "
-            "to the start of the prior period, changes are not shown."
+            "A window of 30, 90 or 365 days is that many days ending on the 'data through' "
+            "date at the top of each page, inclusive. The prior period is the same number of "
+            "days immediately before it. That date is the day of the newest award on record, "
+            "not today: the sources publish contracts weeks to months after they are signed, so "
+            "a window that ended today would be mostly or wholly empty. Solicitation counts use "
+            "the same days, and 'open' means open on that date. When our data does not reach "
+            "back to the start of the prior period, changes are not shown."
         ),
         "tables": ["awards"],
     },
@@ -167,9 +177,11 @@ DEFINITIONS: list[dict] = [
         "name": "Watchlist changes",
         "text": (
             "For each watched organization, awards and stages that first appeared in our data "
-            "after your last visit, and its rank by 90-day dollars now against its rank on the "
-            "day of that visit. The watchlist and the time of your last visit are kept in your "
-            "browser only."
+            "after your last visit, and its rank by dollars in the 90 days to the 'data "
+            "through' date against its rank as the record stood on the day of that visit (the "
+            "90 days to the newest award we had then). 'Days ago' for its last award is counted "
+            "from today. The watchlist and the time of your last visit are kept in your browser "
+            "only."
         ),
         "tables": AWARD_TABLES,
     },
@@ -200,7 +212,10 @@ class Coverage(BaseModel):
 
 
 class Envelope(BaseModel):
+    # The day every window ends on: the newest autonomy award on record, or the
+    # day of the refresh when there are no awards. Not today.
     as_of: date
+    # When the views were last computed. Can be months after as_of.
     refreshed_at: datetime
     window_days: int
     tag: str | None
@@ -413,7 +428,7 @@ class WatchRow(BaseModel):
     rank: int | None
     rank_then: int | None
     last_award_day: date | None
-    days_since_last: int | None
+    days_since_last: int | None  # counted from today, not from as_of
 
 
 class Watchlist(Envelope):
@@ -437,7 +452,7 @@ class OrgSignals(Envelope):
     path: list[StagePoint]
     first_day: date | None
     last_award_day: date | None
-    days_since_last: int | None
+    days_since_last: int | None  # counted from today, not from as_of
 
 
 class Family(BaseModel):
@@ -531,6 +546,14 @@ def _envelope(
             "solicitations_prior_complete": opps_ok,
         },
     }
+
+
+def _today(conn: psycopg.Connection) -> date:
+    """Today by the database's calendar, the one the views' fallback uses.
+    "Last award 94 days ago" is a statement about the calendar, so it is
+    measured from here and not from `as_of`: an award on the as-of day is not
+    an award "today"."""
+    return _rows(conn, "SELECT current_date AS d")[0]["d"]
 
 
 def _order_by(allowed: dict[str, str], sort: str, order: str) -> str:
@@ -1346,27 +1369,38 @@ def watchlist(
     ] = None,
 ) -> Watchlist:
     """Signal 8: for each watched organization, what is new since `since`: awards
-    and stages that first appeared in our data after it, and rank by 90-day
-    dollars now against rank on that day. Without `since` nothing is new."""
+    and stages that first appeared in our data after it, and rank by dollars in
+    the 90 days to `as_of` against rank as the record stood on that day.
+    Without `since` nothing is new."""
     try:
         wanted = [int(x) for x in ids.split(",") if x.strip()][:20]
     except ValueError:
         raise HTTPException(422, "ids must be integers") from None
     env = _envelope(conn, 90, None, AWARD_TABLES)
-    as_of = env["as_of"]
+    today = _today(conn)
     then: dict[int, int] = {}
     if since is not None:
         # Rank as the site would have shown it on the day of the last visit:
-        # trailing 90 days ending that day, over awards we had by then.
+        # over the awards we had by then, the 90 days to the newest of them
+        # (the as-of rule of signal_meta, applied to the record as it stood).
         then = {
             r["recipient_id"]: r["rank"]
             for r in _rows(
                 conn,
-                """SELECT recipient_id, rank() OVER (ORDER BY sum(amount) DESC) AS rank
-                   FROM signal_awards
-                   WHERE first_seen_at <= %(since)s AND recipient_id IS NOT NULL
-                     AND day > %(since)s::date - 90 AND day <= %(since)s::date
-                   GROUP BY recipient_id""",
+                """WITH seen AS (
+                       SELECT recipient_id, amount, day FROM signal_awards
+                       WHERE first_seen_at <= %(since)s
+                   ),
+                   anchor AS (
+                       SELECT COALESCE(max(day) FILTER (WHERE day <= %(since)s::date),
+                                       %(since)s::date) AS as_of
+                       FROM seen
+                   )
+                   SELECT s.recipient_id, rank() OVER (ORDER BY sum(s.amount) DESC) AS rank
+                   FROM seen s, anchor a
+                   WHERE s.recipient_id IS NOT NULL
+                     AND s.day > a.as_of - 90 AND s.day <= a.as_of
+                   GROUP BY s.recipient_id""",
                 since=since,
             )
         }
@@ -1430,7 +1464,7 @@ def watchlist(
                 # Only companies are ranked "then"; agencies have no stored history.
                 rank_then=then.get(oid) if row["org_kind"] == "company" else None,
                 last_award_day=last,
-                days_since_last=(as_of - last).days if last else None,
+                days_since_last=(today - last).days if last else None,
             )
         )
     return Watchlist(**env, since=since, items=items)
@@ -1438,8 +1472,9 @@ def watchlist(
 
 @router.get("/orgs/{org_id}")
 def org_signals(conn: Conn, org_id: int) -> OrgSignals:
-    """The entity page's signals: 90-day momentum, rank overall and in its
-    largest category, stage reached, and time since the last award."""
+    """The entity page's signals: momentum over the 90 days to `as_of`, rank
+    overall and in its largest category, stage reached, and time since the last
+    award (counted from today)."""
     row = _org_row(conn, org_id)
     if row is None:
         raise HTTPException(404, "organization not found")
@@ -1493,5 +1528,5 @@ def org_signals(conn: Conn, org_id: int) -> OrgSignals:
         path=_path(stages),
         first_day=row["first_day"],
         last_award_day=last,
-        days_since_last=(env["as_of"] - last).days if last else None,
+        days_since_last=(_today(conn) - last).days if last else None,
     )

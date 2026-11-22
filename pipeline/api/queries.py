@@ -113,7 +113,9 @@ def tags() -> list[dict]:
 def summary(conn: psycopg.Connection) -> dict:
     """The hero's figures. The 30-day numbers and the open-solicitation count
     come from the signal views (migrations/007_signals.sql), so they match the
-    dashboard exactly."""
+    dashboard exactly. Like every signal window, the 30 days end on `as_of`,
+    the day of the newest award on record, not today
+    (migrations/008_signals_data_anchor.sql), and "open" is open on that day."""
     row = _one(
         conn,
         """
@@ -525,13 +527,19 @@ def search(conn: psycopg.Connection, q: str, limit: int = 12) -> list[dict]:
 
 
 def digest(conn: psycopg.Connection) -> dict:
-    """The last seven days against the seven before, for the field report.
+    """The newest seven days on record against the seven before, for the field
+    report.
 
     Read from the signal views, with the 7-day window: the same rows and the
-    same as-of date as the dashboard, so the two never disagree."""
+    same as-of date as the dashboard, so the two never disagree. The week is
+    `week_of` to `through`, and `through` is that as-of date: the day of the
+    newest award on record, which can be months before today
+    (migrations/008_signals_data_anchor.sql). Only `closing` looks at the
+    calendar: a solicitation is closing soon when it closes in the next 14
+    days from today, whatever week the report covers."""
     meta = _one(conn, "SELECT as_of FROM signal_meta")
-    today = meta["as_of"]
-    start = today - timedelta(days=6)
+    through = meta["as_of"]
+    start = through - timedelta(days=6)
     week = _one(
         conn,
         """SELECT amount, awards, prev_amount, prev_awards FROM signal_funding
@@ -546,11 +554,11 @@ def digest(conn: psycopg.Connection) -> dict:
         FROM signal_awards a
         LEFT JOIN organizations o ON o.id = a.recipient_id
         LEFT JOIN organizations ag ON ag.id = a.agency_id
-        WHERE a.day >= %(start)s AND a.day <= %(today)s AND a.amount IS NOT NULL
+        WHERE a.day >= %(start)s AND a.day <= %(through)s AND a.amount IS NOT NULL
         ORDER BY a.amount DESC, a.id LIMIT 5
         """,
         start=start,
-        today=today,
+        through=through,
     )
     by_tag = _rows(
         conn,
@@ -565,11 +573,11 @@ def digest(conn: psycopg.Connection) -> dict:
         """
         SELECT o.id, o.canonical_name AS name, c.first_day, c.amount
         FROM signal_companies c JOIN organizations o ON o.id = c.org_id
-        WHERE c.first_day >= %(start)s AND c.first_day <= %(today)s
+        WHERE c.first_day >= %(start)s AND c.first_day <= %(through)s
         ORDER BY c.amount DESC, o.id LIMIT 5
         """,
         start=start,
-        today=today,
+        through=through,
     )
     opened = _rows(
         conn,
@@ -577,11 +585,11 @@ def digest(conn: psycopg.Connection) -> dict:
         SELECT o.id, o.title, o.url, o.day AS posted, o.closes_at::date AS closes,
                ag.id AS agency_id, ag.canonical_name AS agency_name
         FROM signal_opportunities o LEFT JOIN organizations ag ON ag.id = o.agency_id
-        WHERE o.day >= %(start)s AND o.day <= %(today)s
+        WHERE o.day >= %(start)s AND o.day <= %(through)s
         ORDER BY o.day DESC, o.id DESC LIMIT 5
         """,
         start=start,
-        today=today,
+        through=through,
     )
     closing = _rows(
         conn,
@@ -589,10 +597,9 @@ def digest(conn: psycopg.Connection) -> dict:
         SELECT o.id, o.title, o.url, o.closes_at::date AS closes,
                ag.id AS agency_id, ag.canonical_name AS agency_name
         FROM signal_opportunities o LEFT JOIN organizations ag ON ag.id = o.agency_id
-        WHERE o.closes_at::date > %(today)s AND o.closes_at::date <= %(today)s::date + 14
+        WHERE o.closes_at::date > current_date AND o.closes_at::date <= current_date + 14
         ORDER BY o.closes_at LIMIT 4
         """,
-        today=today,
     )
     for r in top:
         r["amount"] = _money(r["amount"])
@@ -600,7 +607,7 @@ def digest(conn: psycopg.Connection) -> dict:
         r["amount"] = _money(r["amount"])
     return {
         "week_of": start,
-        "through": today,
+        "through": through,
         "awards": week["awards"],
         "amount": _money(week["amount"]),
         "prev_awards": week["prev_awards"],

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 from fastapi.testclient import TestClient
 
+from pipeline import signals
 from pipeline.api import queries, seed
 from pipeline.api.app import app, get_conn
 
@@ -156,6 +159,46 @@ def test_digest_covers_the_last_seven_days(seeded):
     assert [a["amount"] for a in d["top"]] == sorted((a["amount"] for a in d["top"]), reverse=True)
     assert all(a["day"] >= d["week_of"] for a in d["top"])
     assert d["newcomers"], "the seed plants companies whose whole history is this week"
+
+
+def test_summary_and_digest_follow_a_record_that_ends_94_days_ago(seeded):
+    """The hero's 30-day figures and the field report's week come from the
+    signal views, whose windows end on the newest award on record. A record
+    last added to 94 days ago still fills them; by the calendar it would not."""
+    client, db, _ = seeded
+    before = client.get("/api/summary").json(), client.get("/api/digest").json()
+    db.execute(
+        "UPDATE awards SET signed_at = signed_at - 94, fetched_at = fetched_at - interval '94 days'"
+    )
+    db.execute(
+        "UPDATE opportunities SET posted_at = posted_at - interval '94 days',"
+        " closes_at = closes_at - interval '94 days',"
+        " fetched_at = fetched_at - interval '94 days'"
+    )
+    signals.refresh(db)
+    (newest,) = db.execute(
+        "SELECT max(signed_at) FROM awards WHERE source_id <> 'award-not-autonomy'"
+    ).fetchone()
+    (today,) = db.execute("SELECT current_date").fetchone()
+    assert (today - newest).days == 94
+    assert client.get("/api/graph", params={"days": 90}).json()["nodes"] == []  # by the calendar
+
+    summary = client.get("/api/summary").json()
+    assert summary["as_of"] == str(newest)
+    assert summary["awards_30d"] > 0 and summary["amount_30d"] > 0
+    # The whole record moved back together, so the figures are the ones it had.
+    for key in ("awards_30d", "amount_30d", "awards_total", "open_opportunities"):
+        assert summary[key] == before[0][key], key
+
+    digest = client.get("/api/digest").json()
+    assert digest["through"] == str(newest)
+    assert digest["week_of"] == str(newest - timedelta(days=6))
+    assert digest["awards"] > 0 and digest["top"] and digest["newcomers"]
+    assert all(digest["week_of"] <= a["day"] <= digest["through"] for a in digest["top"])
+    for key in ("awards", "amount", "prev_awards", "prev_amount"):
+        assert digest[key] == before[1][key], key
+    # "Closing soon" is by the calendar: nothing that closed months ago.
+    assert all(o["closes"] > str(today) for o in digest["closing"])
 
 
 def test_tags_come_from_the_taxonomy():

@@ -139,7 +139,7 @@ fetched.
 | The Forum | `/forum` | The signals dashboard: the summary row, where the money went (award dollars by category family, as parts of a whole), momentum, stage transitions, topic heat, largest awards, funding by category, agency appetite and watchlist changes, over 30 days, 90 days or 1 year, for all categories or one. Engraved figures stand in the side margins on a wide window |
 | Leaderboards | `/forum/leaderboards` | The full rankings behind the Forum's panels |
 | Graph explorer | `/graph` | Companies as filled dots sized by dollars, agencies and offices as rings, solicitations as small diamonds; award edges in the accent, weight by dollars; search; filters for window (Recent, the default: the 90 days up to the newest award on record, so the map is never empty when the data has not been loaded lately; or 30 days / 90 days / 1 year back from today / everything on record), category, agency, minimum dollars, node type and watchlist only. Selecting a node dims everything but its neighbors and opens a side card. It opens in 3D (drag to orbit, click a node to fly to it, drag a node to move it) with a toggle to a flat view that keeps the filters and the selection |
-| Entity page | `/entity/<id>` | An organization, its name as the hero: its signals for the last 90 days (dollars, rank, stage reached, the last award), path to production as one line with dates and the time between stages, awards, who pays it, sources |
+| Entity page | `/entity/<id>` | An organization, its name as the hero: its signals for the 90 days to the newest award on record (dollars, rank, stage reached, the last award), path to production as one line with dates and the time between stages, awards, who pays it, sources |
 | Field report | `/feed` | The week's digest in a reading column, then every recent award and solicitation as a table |
 | About the numbers | `/about/numbers` | What each figure means, the tables it is computed from, how far back the record reaches, and what the numbers cannot tell you |
 
@@ -201,6 +201,14 @@ watchlist changes. Each view's definition is in the SQL comments. The API
 serves one endpoint per signal under `/api/signals/` (see `/api/docs`); every
 response carries `as_of`, the window, the source tables, and `coverage`, which
 says whether the data reaches back far enough to compare with the prior period.
+
+`as_of` is the day of the newest autonomy award on record, not today, and
+every window (7, 30, 90, 365 days) ends on it
+(`migrations/008_signals_data_anchor.sql`). The record lags the calendar by
+weeks to months (see [Sources](#sources)), so a window that ended today would
+often be empty. This is the rule the graph's "Recent" window follows. The site
+says so wherever it names a window: "90 days to Aug 19", never "the last 90
+days". `refreshed_at` is when the views were last computed.
 
 The views are refreshed by `python -m pipeline.signals`, the last step of the
 nightly workflow. The hero's 30-day figures and the field report's weekly
