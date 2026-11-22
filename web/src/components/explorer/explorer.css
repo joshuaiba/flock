@@ -25,6 +25,8 @@
 
 /* ---- Type ---- */
 
+/* Labels are sentence case in the interface face, as everywhere on the
+   site: no monospaced capitals. */
 .ex-sec,
 .ex-kicker,
 .ex-colhead,
@@ -33,23 +35,21 @@
 .ex-edgelabel,
 .ex-centersub,
 .ex-rowsub {
-  font-family: var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
+  font-family: var(--font-sans);
+  letter-spacing: 0;
 }
 .ex-sec {
   display: flex;
   align-items: baseline;
   gap: 0.75rem;
   margin: 0 0 0.625rem;
-  font-size: 0.6875rem;
+  font-size: 0.8125rem;
   font-weight: 500;
   line-height: 1.4;
   color: var(--muted);
 }
 .ex-count {
   color: var(--text);
-  letter-spacing: 0.02em;
 }
 .ex-linkish {
   margin-left: auto;
@@ -57,7 +57,7 @@
   border: 0;
   background: none;
   font: inherit;
-  letter-spacing: 0.06em;
+  font-weight: 400;
   color: var(--text);
   text-decoration: underline;
   text-decoration-color: var(--line2);
@@ -517,7 +517,7 @@
 /* ---- The flow ---- */
 
 .ex-colhead {
-  font-size: 0.625rem;
+  font-size: 0.75rem;
   fill: var(--muted) !important;
 }
 .ex-band {
@@ -603,12 +603,11 @@
   fill: var(--accent-light);
 }
 .ex-newtag {
-  font-family: var(--font-mono);
-  font-size: 0.625rem;
+  font-family: var(--font-display);
+  font-size: 0.8125rem;
+  font-style: italic;
   font-weight: 400;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  fill: var(--accent-light);
+  fill: var(--muted);
 }
 
 /* ---- The timeline ---- */
@@ -702,7 +701,7 @@
   stroke-width: 1.5;
 }
 .ex-timelabel {
-  font-size: 0.625rem;
+  font-size: 0.6875rem;
   fill: var(--muted) !important;
 }
 .ex-rowlabel {
@@ -711,9 +710,8 @@
   font-style: italic;
 }
 .ex-rowsub {
-  font-size: 0.59375rem;
+  font-size: 0.6875rem;
   fill: var(--muted) !important;
-  letter-spacing: 0.06em;
 }
 
 /* ---- The constellation ---- */
@@ -736,7 +734,7 @@
   stroke-dasharray: 2 5;
 }
 .ex-hoplabel {
-  font-size: 0.59375rem;
+  font-size: 0.6875rem;
   fill: var(--muted) !important;
 }
 .ex-edge2 {
@@ -780,8 +778,7 @@
   opacity: 0.2;
 }
 .ex-edgelabel {
-  font-size: 0.5625rem;
-  letter-spacing: 0.04em;
+  font-size: 0.6875rem;
   fill: var(--accent-light) !important;
 }
 .ex-starnode {
@@ -849,8 +846,8 @@
   font-weight: 500;
 }
 .ex-centersub {
-  font-size: 0.625rem;
-  fill: var(--accent) !important;
+  font-size: 0.75rem;
+  fill: var(--muted) !important;
 }
 
 /* ---- The inspector ---- */
@@ -880,8 +877,8 @@
   fill: var(--text);
 }
 .ex-kicker {
-  font-size: 0.6875rem;
-  color: var(--accent);
+  font-size: 0.8125rem;
+  color: var(--muted);
 }
 .ex-insp-title {
   margin-top: 0.125rem;

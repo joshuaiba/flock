@@ -22,9 +22,10 @@ function HeroWords({ data }: { data: Flows | null }) {
   const head = data ? headline(buildModel(data.awards), names(data)) : null;
   return (
     <div className="ld-hero-text">
-      <p className="ld-eyebrow">{data ? `Field report · ${data.window.label}` : "Field report"}</p>
       <h1 className="hero-title ld-hero-title">
-        {head ? `${head.claim}.` : "Following the money on the frontier of autonomy, from solicitation to production."}
+        {head && data
+          ? `${head.claim} in the ${data.window.label}.`
+          : "Following the money on the frontier of autonomy, from solicitation to production."}
       </h1>
       {head?.leaders && <p className="ld-lede">{head.leaders}</p>}
       <p className="ld-body">Flock follows the money on the frontier of autonomy, from solicitation to production.</p>

@@ -120,7 +120,6 @@ function TimelineThumb({ data }: { data: Flows }) {
 
 const WAYS = [
   {
-    n: "I.",
     title: "Flow",
     body: "Who pays whom. Agency to mission to company, with every band sized by dollars and traceable to its contracts.",
     href: "/graph",
@@ -128,7 +127,6 @@ const WAYS = [
     Thumb: FlowThumb,
   },
   {
-    n: "II.",
     title: "Constellation",
     body: "Pick any company or agency and see its neighborhood: who funds it, who else they fund, and what it builds.",
     href: "/graph?view=constellation",
@@ -136,7 +134,6 @@ const WAYS = [
     Thumb: ConstellationThumb,
   },
   {
-    n: "III.",
     title: "Timeline",
     body: "What changed and when. Every award as a tick across the window, a brush to narrow it, and what is new since you last looked.",
     href: "/graph?view=timeline",
@@ -145,26 +142,26 @@ const WAYS = [
   },
 ] as const;
 
+/** The graph's three views, side by side: a small drawing of each, its name,
+ *  one sentence, a link. No boxes and no numbering: the columns are set apart
+ *  by hairlines, as the About section's are. */
 export function ThreeWays({ data }: { data: Flows }) {
   return (
     <section className="ld-section">
       <div className="ld-section-head">
-        <h2 className="ld-h2">Three ways into the money</h2>
-        <p>Start from a flow, a single company or a date. Each view is drawn from the same contracts.</p>
+        <h2 className="ld-h2">Three ways in</h2>
+        <p>Start from a flow, a company or a date. All three are drawn from the same contracts.</p>
       </div>
       <div className="ld-ways">
-        {WAYS.map(({ n, title, body, href, cta, Thumb }) => (
+        {WAYS.map(({ title, body, href, cta, Thumb }) => (
           <article key={title} className="ld-way">
-            <div className="ld-way-art">
+            <Link href={href} className="ld-way-art" tabIndex={-1} aria-hidden="true">
               <Thumb data={data} />
-            </div>
-            <div className="ld-way-title">
-              <span>{n}</span>
-              <h3>{title}</h3>
-            </div>
+            </Link>
+            <h3>{title}</h3>
             <p>{body}</p>
             <Link href={href} className="ld-way-link">
-              {cta} →
+              {cta}
             </Link>
           </article>
         ))}
@@ -185,11 +182,10 @@ export function Report({ data }: { data: Flows }) {
     <section id="report" className="ld-section ld-report">
       <div>
         <h2 className="ld-h2 ld-h2-small">Who&rsquo;s getting paid</h2>
-        <p className="ld-label">Top recipients · {data.window.label}</p>
         <ol className="ld-leaders">
           {leaders.map((c, i) => (
             <li key={c.id}>
-              <span className="ld-rank">{String(i + 1).padStart(2, "0")}</span>
+              <span className="ld-rank">{i + 1}</span>
               <span className="ld-leader">
                 <Link href={focus(c.id, "constellation")}>{who.get(c.id)?.label ?? c.name}</Link>
                 <span className="ld-leader-sub">{c.missions.slice(0, 2).map(missionLabel).join(" · ")}</span>
@@ -208,12 +204,11 @@ export function Report({ data }: { data: Flows }) {
           ))}
         </ol>
         <Link href="/forum/leaderboards" className="ld-way-link">
-          Full leaderboard →
+          The full leaderboard
         </Link>
       </div>
       <div>
         <h2 className="ld-h2 ld-h2-small">Where the activity is</h2>
-        <p className="ld-label">Companies by mission · {data.window.label}</p>
         <ul className="ld-missions">
           {missions.map((m) => (
             <li key={m.id}>

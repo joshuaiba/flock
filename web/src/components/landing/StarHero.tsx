@@ -484,7 +484,6 @@ export function StarHero({ data }: { data: Flows }) {
         </div>
 
         <div className="ld-side">
-          <p className="ld-eyebrow">The chart · {w.label}</p>
           <h2 className="ld-h2">Every arc is an agency paying a company.</h2>
           {touring && cur ? (
             <div className="ld-tour" role="group" aria-label="Narrated tour">
@@ -513,7 +512,7 @@ export function StarHero({ data }: { data: Flows }) {
             </div>
           ) : (
             <p className="ld-body">
-              The {spell(model.agencies.size)} paying agencies sit on the outer ring, the missions are its sectors, and
+              In the {w.label}, the {spell(model.agencies.size)} paying agencies sit on the outer ring, the missions are its sectors, and
               every company is a star in the sector it is paid most for. The copper arcs are the newest awards on
               record: hover one to read it, click it to open the contract.
             </p>
@@ -567,73 +566,6 @@ export function StarHero({ data }: { data: Flows }) {
         </div>
       </section>
 
-      {/* The feed: the newest awards, each a link to its record. It scrolls by
-          hand; it does not crawl. */}
-      <section className="ld-feed" aria-label="Newest awards on record">
-        <h2 className="ld-feed-head">
-          Latest
-          <span>through {day(w.latest_data_date, true)}</span>
-        </h2>
-        <ul className="ld-feed-row" tabIndex={0} aria-label="Newest awards, newest first; scroll sideways for more">
-          {live.map((l, i) => {
-            const a = l.award;
-            const key = `live:${a.id}`;
-            const body = (
-              <>
-                <span aria-hidden="true" className="ld-dot">
-                  ●
-                </span>
-                <span className="ld-feed-who">
-                  {label(a.agency)} → {label(a.company)}
-                </span>
-                <span className="ld-feed-what">{missionLabel(a.missions[0])}</span>
-                <span className="ld-feed-amt">{moneyRound(a.amount)}</span>
-                <span className="ld-feed-what">{day(a.day, true)}</span>
-              </>
-            );
-            return (
-              <li
-                key={a.id}
-                style={{ animationDelay: `${(0.2 + i * 0.08).toFixed(2)}s` }}
-                onPointerEnter={() => setHover({ key, ends: [l.source, l.target] })}
-                onPointerLeave={() => setHover(null)}
-              >
-                {a.url ? (
-                  <a
-                    href={a.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    title={`${dollars(a.amount)} · open the source record`}
-                    onFocus={() => setHover({ key, ends: [l.source, l.target] })}
-                    onBlur={() => setHover(null)}
-                  >
-                    {body}
-                  </a>
-                ) : (
-                  <span>{body}</span>
-                )}
-              </li>
-            );
-          })}
-          {data.solicitations
-            .filter((s) => s.open)
-            .slice(-4)
-            .reverse()
-            .map((s) => {
-              const body = (
-                <>
-                  <span aria-hidden="true" className="ld-sol">
-                    ◇
-                  </span>
-                  <span className="ld-feed-who">{label(s.agency)} · solicitation opened</span>
-                  <span className="ld-feed-what">{s.missions[0] ? missionLabel(s.missions[0]) : s.title}</span>
-                  {s.closes && <span className="ld-feed-amt">closes {day(s.closes, true)}</span>}
-                </>
-              );
-              return <li key={s.id}>{s.url ? <a href={s.url}>{body}</a> : <span>{body}</span>}</li>;
-            })}
-        </ul>
-      </section>
     </>
   );
 }

@@ -68,20 +68,12 @@
   gap: 1.5rem;
   min-width: 0;
 }
-.ld-eyebrow,
-.ld-label,
+/* A figure's name: plain sentence case in the interface face, as the
+   Forum's figures are named. */
 .ld-stats dt {
   margin: 0;
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: 0.8125rem;
   color: var(--muted);
-}
-.ld-eyebrow {
-  font-size: 0.75rem;
-  letter-spacing: 0.12em;
-  color: var(--accent);
 }
 .ld-lede {
   margin: 0;
@@ -321,10 +313,9 @@
   stroke-width: 2;
 }
 .ld-agencylabel {
-  font-family: var(--font-mono) !important;
-  font-size: 10.5px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-family: var(--font-sans) !important;
+  font-size: 11.5px;
+  font-weight: 500;
   fill: var(--text);
 }
 .ld-sectorlabel {
@@ -357,12 +348,11 @@
   fill: var(--text);
 }
 .ld-cap {
-  font-family: var(--font-mono) !important;
-  font-size: 8.5px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-family: var(--font-display) !important;
+  font-size: 13px;
+  font-style: italic;
   text-anchor: middle;
-  fill: var(--accent);
+  fill: var(--muted);
 }
 
 /* ---- The tour's caption ---- */
@@ -413,91 +403,6 @@
   cursor: default;
 }
 
-/* ---- The feed ---- */
-
-.ld-feed {
-  display: flex;
-  align-items: stretch;
-  min-height: 3.5rem;
-  border-block: 1px solid var(--hair);
-  background: var(--panel);
-}
-.ld-feed-head {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  justify-content: center;
-  gap: 0.125rem;
-  padding: 0 1.25rem 0 1rem;
-  border-right: 1px solid var(--hair);
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  font-weight: 400;
-  letter-spacing: 0.14em;
-  line-height: 1.3;
-  text-transform: uppercase;
-  color: var(--accent);
-}
-.ld-feed-head span {
-  letter-spacing: 0.06em;
-  color: var(--muted);
-}
-@media (min-width: 640px) {
-  .ld-feed-head {
-    padding-left: 2.5rem;
-  }
-}
-.ld-feed-row {
-  display: flex;
-  flex: 1;
-  gap: 3rem;
-  align-items: center;
-  min-width: 0;
-  margin: 0;
-  padding: 0 2rem;
-  list-style: none;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  scrollbar-width: thin;
-  font-family: var(--font-mono);
-  font-size: 0.78125rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-.ld-feed-row li {
-  flex: none;
-  animation: ld-fade 0.6s ease-out both;
-}
-.ld-feed-row li > * {
-  display: inline-flex;
-  gap: 0.625rem;
-  align-items: center;
-  min-height: 2.75rem;
-  color: inherit;
-  text-decoration: none;
-}
-.ld-feed-row a:hover .ld-feed-who {
-  color: var(--accent-light);
-}
-.ld-dot,
-.ld-feed-amt {
-  color: var(--accent);
-}
-.ld-sol {
-  color: var(--steel);
-}
-.ld-feed-who {
-  color: var(--text);
-}
-.ld-feed-what {
-  color: var(--muted);
-}
-@keyframes ld-fade {
-  from {
-    opacity: 0;
-  }
-}
 
 /* ---- Sections ---- */
 
@@ -538,45 +443,61 @@
   margin-bottom: 1rem;
   font-size: 2.25rem;
 }
+/* Three columns set apart by hairlines and nothing else, like the About
+   section's: no boxes, no numbering. The drawing leads; the name, one
+   sentence and a quiet link follow. */
 .ld-ways {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
-  gap: 1.5rem;
+  border-top: 1px solid var(--line);
+}
+@media (min-width: 768px) {
+  .ld-ways {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 .ld-way {
   display: flex;
   flex-direction: column;
-  gap: 1.125rem;
-  padding: 1.75rem;
-  border: 1px solid var(--hair);
-  border-radius: 6px;
-  background: var(--panel);
+  gap: 0.75rem;
+  padding: 2rem 0 2.25rem;
+  border-bottom: 1px solid var(--line);
 }
+@media (min-width: 768px) {
+  .ld-way {
+    padding: 2.25rem 2rem 0.5rem;
+    border-bottom: 0;
+    border-left: 1px solid var(--line);
+  }
+  .ld-way:first-child {
+    padding-left: 0;
+    border-left: 0;
+  }
+  .ld-way:last-child {
+    padding-right: 0;
+  }
+}
+/* every drawing in the same box, so the three names line up */
 .ld-way-art {
-  padding-bottom: 1.125rem;
-  border-bottom: 1px solid var(--hair);
+  display: block;
+  aspect-ratio: 300 / 190;
+  margin-bottom: 0.75rem;
+  opacity: 0.85;
+  transition: opacity 0.2s;
+}
+.ld-way:hover .ld-way-art {
+  opacity: 1;
 }
 .ld-thumb {
   display: block;
   width: 100%;
-  height: auto;
+  height: 100%;
   aspect-ratio: 300 / 190;
 }
-.ld-way-title {
-  display: flex;
-  align-items: baseline;
-  gap: 0.875rem;
-}
-.ld-way-title span {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--accent);
-}
-.ld-way-title h3 {
+.ld-way h3 {
   margin: 0;
-  font-size: 2rem;
-  font-style: italic;
+  font-size: 1.6875rem;
   font-weight: 500;
+  line-height: 1.15;
 }
 .ld-way p {
   margin: 0;
@@ -584,16 +505,23 @@
   line-height: 1.6;
   color: var(--muted);
 }
+/* A plain underlined link, as "How these are counted" is on the Forum. */
 .ld-way-link {
   align-self: flex-start;
   margin-top: auto;
-  padding: 0.5rem 0;
+  padding: 0.375rem 0;
   font-size: 0.875rem;
-  font-weight: 500;
-  text-decoration: none;
+  color: var(--muted);
+  text-decoration: underline;
+  text-decoration-color: var(--line2);
+  text-underline-offset: 0.24em;
+  transition:
+    color 0.15s,
+    text-decoration-color 0.15s;
 }
 .ld-way-link:hover {
-  color: var(--accent-light);
+  color: var(--text);
+  text-decoration-color: currentColor;
 }
 .ld-th-band {
   fill: color-mix(in srgb, var(--text) 16%, transparent);
@@ -675,9 +603,9 @@
   border-bottom: 1px solid var(--line);
 }
 .ld-rank {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--accent);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--faint);
 }
 .ld-leader {
   display: flex;
@@ -776,9 +704,7 @@
   font-style: italic;
 }
 .ld-close-src {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  letter-spacing: 0.04em;
+  font-size: 0.8125rem;
   color: var(--muted);
 }
 

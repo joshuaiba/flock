@@ -17,8 +17,8 @@ const display = Cormorant_Garamond({
 });
 const serif = EB_Garamond({ variable: "--font-garamond", subsets: ["latin"], style: ["normal", "italic"] });
 const sans = Inter({ variable: "--font-inter", subsets: ["latin"] });
-// Numbers: IBM Plex Mono for dollars and counts (tabular by nature), the small
-// uppercase labels and timestamps.
+// Numbers: IBM Plex Mono for dollars and counts (tabular by nature). Labels
+// are never set in it: they are sentence case in the interface face.
 const mono = IBM_Plex_Mono({ variable: "--font-plex-mono", subsets: ["latin"], weight: ["400", "500"] });
 
 export const metadata: Metadata = {
