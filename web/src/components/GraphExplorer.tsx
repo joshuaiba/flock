@@ -7,9 +7,7 @@ import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clientGet, type Graph, type GraphEdge, type GraphNode, type NodeKind, type Org } from "@/lib/api";
 import { andList, day, moneyRound, spell, truncate } from "@/lib/format";
-import { TONES } from "@/lib/art";
 import { ALL_KINDS, hiddenNodes, stressGraph } from "@/lib/graphLayout";
-import { nodeSpriteSrcSet, nodeSpriteUrl, type NodeSprite } from "@/lib/nodeSprites";
 import { endDay } from "@/lib/signals";
 import { MAX_PINS, useStore, type Pin } from "@/lib/store";
 import { tagLabel, TAGS } from "@/lib/tags";
@@ -26,6 +24,7 @@ import {
   type WindowKey,
 } from "./GraphFilters";
 import { GraphFlat } from "./GraphFlat";
+import { Mark } from "./GraphMarks";
 import { NO_API, type GraphViewApi } from "./GraphView";
 
 // The graph explorer: the whole /graph screen. It fetches the graph, holds the
@@ -101,52 +100,6 @@ function writeView(view: ViewName): void {
  *  on the map keep clear of where they are now. */
 function chromeMoved(): void {
   window.dispatchEvent(new Event("graph:chrome"));
-}
-
-/** The four marks of the map, drawn as the canvases draw them. */
-/** One node sprite as a legend icon. Both tones are in the markup and the
- *  mode shows one (see .graph-legend-sprite in graph-rail.css), the way
- *  components/Art.tsx does it, so a theme change never flashes; the hidden
- *  tone is never fetched, because both load lazily. */
-function LegendSprite({ name }: { name: NodeSprite }) {
-  return (
-    <>
-      {TONES.map((tone) => (
-        <img
-          key={tone}
-          src={nodeSpriteUrl(name, tone, 64)}
-          srcSet={nodeSpriteSrcSet(name, tone)}
-          sizes="18px"
-          width={18}
-          height={18}
-          alt=""
-          className={`art-${tone}`}
-          loading="lazy"
-          decoding="async"
-          draggable={false}
-        />
-      ))}
-    </>
-  );
-}
-
-/** The legend's picture of each kind of mark, drawn the way the map draws it:
- *  a silver coin for a company (a text-colored disc with the coin's lines in
- *  the opposite tone on top), the laurel wreath for an agency, the open tablet
- *  for a solicitation, and the accent line for dollars awarded. */
-function Mark({ kind }: { kind: "company" | "org" | "opportunity" | "award" }) {
-  if (kind === "award") return <span className="block h-[2px] w-[16px] rounded-full bg-accent" />;
-  if (kind === "company")
-    return (
-      <span className="graph-legend-coin graph-legend-sprite">
-        <LegendSprite name="coin-aerial" />
-      </span>
-    );
-  return (
-    <span className="graph-legend-sprite">
-      <LegendSprite name={kind === "org" ? "wreath-laurel" : "tablet-open"} />
-    </span>
-  );
 }
 
 /** What the marks on the map mean. It lives in the map's corner, never under

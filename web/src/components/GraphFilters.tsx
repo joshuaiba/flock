@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { GraphNode, NodeKind } from "@/lib/api";
-import { ago, day } from "@/lib/format";
+import { ago, andList, day } from "@/lib/format";
 import { endDay, windowLabel } from "@/lib/signals";
 import { tagLabel } from "@/lib/tags";
+import { Mark, type MarkKind } from "./GraphMarks";
 import "./graph-rail.css";
 
 // The graph's left rail: search, the filters in force, and the filters. It
@@ -12,10 +13,18 @@ import "./graph-rail.css";
 // one function (lib/graphLayout.ts hiddenNodes) applies it to both views.
 //
 // On a wide screen it is a 280px column down the left edge, set off from the
-// map by one hairline: the search stays at the top, then the filters in force
-// as removable chips, then the groups, each under a hairline with its name on
-// the left and what it is set to on the right. Exclusive choices are segmented
-// controls; everything else is a checklist. The window (see WINDOWS) says how
+// map by one hairline: the search stays at the top, then one sentence naming
+// the filters in force, then the groups, each under a hairline with its name
+// in the display serif and what it is set to beside it in italic.
+//
+// The rail is set like the key of a plate, not like a form. It has no boxed
+// controls: the window is a row of words with the chosen one underlined (the
+// leaderboards' tabs) over the drawn record; the categories are an index,
+// name, dotted leader and count, in the italic the map labels its clusters
+// with; the minimum award is a scale whose heavy part is what is kept; the
+// kinds of entity are switched by the map's own marks; the agency is a line
+// of text that opens the native list. Every one is still a real button,
+// checkbox or select underneath. The window (see WINDOWS) says how
 // fresh the record is: how long ago the newest award landed, or, once that is
 // more than two weeks back, the day the data ends. The foot says how much of
 // the map is shown. It folds to a strip of three icon buttons. On a phone the search
@@ -74,10 +83,11 @@ export const AMOUNTS = [
 
 // There is no "program" in the data: the kinds are these four, and the rail
 // shows them as three rows (agencies and their offices go together).
-const SHOWN: { label: string; kinds: NodeKind[] }[] = [
-  { label: "Companies", kinds: ["company"] },
-  { label: "Agencies and offices", kinds: ["agency", "office"] },
-  { label: "Solicitations", kinds: ["opportunity"] },
+// Each row is drawn with the mark the map uses for it.
+const SHOWN: { label: string; kinds: NodeKind[]; mark: MarkKind }[] = [
+  { label: "Companies", kinds: ["company"], mark: "company" },
+  { label: "Agencies and offices", kinds: ["agency", "office"], mark: "org" },
+  { label: "Solicitations", kinds: ["opportunity"], mark: "opportunity" },
 ];
 const KIND_ONE: Record<NodeKind, string> = {
   company: "Company",
@@ -208,9 +218,11 @@ function Group({
   );
 }
 
-/** One row of a checklist (.check in globals.css): a box, a name, and a count
- *  where there is one. */
-function Check({
+/** One row of an index: a small ring that fills when the row is chosen, the
+ *  name in italic, and, where there is a count, a dotted leader out to it. A
+ *  real checkbox lies over the whole row, unseen: it takes the click and the
+ *  keyboard, and the row draws its focus ring. */
+function Row({
   checked,
   onChange,
   count,
@@ -224,10 +236,36 @@ function Check({
   children: ReactNode;
 }) {
   return (
-    <label className="check graph-check" data-empty={count === 0} data-disabled={disabled}>
+    <label className="graph-row" data-on={checked} data-empty={count === 0} data-disabled={disabled}>
       <input type="checkbox" checked={checked} disabled={disabled} onChange={onChange} />
-      <span>{children}</span>
-      {count !== undefined && <span className="check-count">{count.toLocaleString("en-US")}</span>}
+      <span className="graph-row-mark" aria-hidden="true" />
+      <span className="graph-row-name">{children}</span>
+      {count !== undefined && (
+        <>
+          <span className="graph-row-leader" aria-hidden="true" />
+          <span className="graph-row-count">{count.toLocaleString("en-US")}</span>
+        </>
+      )}
+    </label>
+  );
+}
+
+/** One kind of entity, switched by its own mark: the mark and the name as the
+ *  map shows them while the kind is shown; dimmed, struck through and marked
+ *  "hidden" in words while it is not. A real checkbox underneath, as in Row. */
+function Kind({ on, onChange, mark, children }: { on: boolean; onChange: () => void; mark: MarkKind; children: ReactNode }) {
+  return (
+    <label className="graph-kind" data-on={on}>
+      <input type="checkbox" checked={on} onChange={onChange} />
+      <span className="graph-kind-mark" aria-hidden="true">
+        <Mark kind={mark} />
+      </span>
+      <span className="graph-kind-name">{children}</span>
+      {!on && (
+        <span className="graph-kind-state" aria-hidden="true">
+          hidden
+        </span>
+      )}
     </label>
   );
 }
@@ -399,17 +437,19 @@ export function GraphFilters({
     }
   };
 
-  const chips: { key: string; label: string; remove: () => void }[] = [
-    ...present.filter((t) => tags.has(t)).map((t) => ({ key: `tag:${t}`, label: tagLabel(t), remove: () => onToggleTag(t) })),
-    ...(agencyName ? [{ key: "agency", label: agencyName, remove: () => onAgency(null) }] : []),
-    ...(min ? [{ key: "min", label: `${AMOUNTS.find((a) => a.min === min)?.label ?? "Minimum"} or more`, remove: () => onMin(0) }] : []),
-    ...hiddenRows.map((row) => ({
-      key: `kind:${row.kinds[0]}`,
-      label: `No ${row.label.toLowerCase().replace(" and ", " or ")}`,
-      remove: () => setRow(row, true),
-    })),
-    ...(watch ? [{ key: "watch", label: "Watchlist only", remove: () => onWatch(false) }] : []),
+  // The filters in force, as the parts of one sentence: "Narrowed to
+  // maritime, Navy, $10M or more and no solicitations."
+  const pickedTags = present.filter((t) => tags.has(t));
+  const narrowed: string[] = [
+    ...(pickedTags.length > 3
+      ? [`${pickedTags.length} categories`]
+      : pickedTags.map((t) => tagLabel(t).toLowerCase())),
+    ...(agencyName ? [agencyName] : []),
+    ...(min ? [`${AMOUNTS.find((a) => a.min === min)?.label ?? "a minimum"} or more`] : []),
+    ...hiddenRows.map((row) => `no ${row.label.toLowerCase().replace(" and ", " or ")}`),
+    ...(watch ? ["your watchlist"] : []),
   ];
+  const minAt = Math.max(0, AMOUNTS.findIndex((a) => a.min === min));
 
   const windowSeg = (
     <div className="seg graph-seg graph-float" role="group" aria-label="Time window">
@@ -478,6 +518,9 @@ export function GraphFilters({
         >
           <label className="graph-search-field">
             <span className="sr-only">Search the graph</span>
+            <span className="graph-search-glass" aria-hidden="true">
+              <SearchIcon />
+            </span>
             <input
               ref={input}
               className="field"
@@ -570,80 +613,100 @@ export function GraphFilters({
         </div>
 
         <div id="graph-filter-list" className="graph-rail-body" data-open={open}>
-          {/* What is narrowing the map now, each removable, and one way to drop them all. */}
-          {chips.length > 0 && (
-            <div className="graph-active">
-              <ul aria-label="Filters in use">
-                {chips.map((c) => (
-                  <li key={c.key}>
-                    <span className="chip">
-                      <span>{c.label}</span>
-                      <button type="button" aria-label={`Remove filter: ${c.label}`} onClick={c.remove}>
-                        <CloseIcon size={12} />
-                      </button>
-                    </span>
-                  </li>
-                ))}
-              </ul>
+          {/* What is narrowing the map now, in one sentence, and the way to drop it all. */}
+          {narrowed.length > 0 && (
+            <p className="graph-active" role="status">
+              Narrowed to {andList(narrowed)}.{" "}
               <button type="button" className="graph-clear" onClick={onReset}>
                 Clear
               </button>
-            </div>
+            </p>
           )}
 
-          <Group title="Window" value={capital(windowPhrase(chosen, latest))} className="graph-only-wide">
-            {windowSeg}
+          <Group title="Window" value={windowPhrase(chosen, latest)} className="graph-only-wide">
+            {/* Words, the chosen one underlined, over the record they are windows of. */}
+            <div className="graph-tabs" role="group" aria-label="Time window">
+              {WINDOWS.map((w) => (
+                <button
+                  key={w.key}
+                  type="button"
+                  aria-pressed={win === w.key}
+                  aria-label={capital(windowPhrase(w, latest))}
+                  onClick={() => onWin(w.key)}
+                >
+                  {w.days ? windowLabel(w.days) : "All"}
+                </button>
+              ))}
+            </div>
             <WindowRecord w={chosen} latest={latest} age={age} sample={sample} />
           </Group>
 
-          <Group title="Categories" value={tags.size ? `${tags.size} of ${present.length}` : "All"}>
-            <div className="graph-checklist graph-checklist-scroll" role="group" aria-label="Filter by category">
+          <Group title="Categories" value={tags.size ? `${tags.size} of ${present.length}` : "all"}>
+            <div className="graph-rows graph-rows-scroll" role="group" aria-label="Filter by category">
               {present.map((t) => (
-                <Check
-                  key={t}
-                  checked={tags.has(t)}
-                  onChange={() => onToggleTag(t)}
-                  count={tagCounts[t] ?? 0}
-                >
+                <Row key={t} checked={tags.has(t)} onChange={() => onToggleTag(t)} count={tagCounts[t] ?? 0}>
                   {tagLabel(t)}
-                </Check>
+                </Row>
               ))}
             </div>
           </Group>
 
-          <Group title="Agency" value={agencyName ?? "All"}>
-            <select
-              className="field"
-              aria-label="Show one agency or office, its awardees and its solicitations"
-              value={agency ?? ""}
-              onChange={(e) => onAgency(e.target.value || null)}
-            >
-              <option value="">All agencies</option>
-              {top.length > 0 && (
-                <optgroup label="Agencies">
-                  {top.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {shortName(a)}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-              {offices.length > 0 && (
-                <optgroup label="Offices">
-                  {offices.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {shortName(a)}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-            </select>
-          </Group>
+          {/* The agency is one line: its name is the control. A native select
+              dressed as text, so the list, the keyboard and the phone's
+              picker are the system's own. */}
+          <div className="graph-group graph-line">
+            <span className="graph-group-title" aria-hidden="true">
+              Agency
+            </span>
+            <span className="graph-select">
+              <select
+                data-set={agency != null}
+                aria-label="Agency: show one agency or office, its awardees and its solicitations"
+                value={agency ?? ""}
+                onChange={(e) => onAgency(e.target.value || null)}
+              >
+                <option value="">All agencies</option>
+                {top.length > 0 && (
+                  <optgroup label="Agencies">
+                    {top.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {shortName(a)}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {offices.length > 0 && (
+                  <optgroup label="Offices">
+                    {offices.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {shortName(a)}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+              <DiscloseIcon />
+            </span>
+          </div>
 
-          <Group title="Minimum award" value={min ? (AMOUNTS.find((a) => a.min === min)?.label ?? "Set") : "Any"}>
-            <div className="seg graph-seg" role="group" aria-label="Least dollars awarded to a company in this window">
-              {AMOUNTS.map((a) => (
-                <button key={a.min} type="button" aria-pressed={min === a.min} onClick={() => onMin(a.min)}>
+          <Group title="Minimum award" value={min ? `${AMOUNTS[minAt].label} or more` : "any"}>
+            {/* A scale: the stops are the choices, and the heavy part of the
+                line, from the chosen stop up, is what stays on the map. */}
+            <div
+              className="graph-scale"
+              role="group"
+              aria-label="Least dollars awarded to a company in this window"
+              style={{ "--at": minAt, "--stops": AMOUNTS.length - 1 } as CSSProperties}
+            >
+              {AMOUNTS.map((a, i) => (
+                <button
+                  key={a.min}
+                  type="button"
+                  aria-pressed={min === a.min}
+                  data-kept={i >= minAt}
+                  style={{ "--i": i } as CSSProperties}
+                  onClick={() => onMin(a.min)}
+                >
                   {a.label}
                 </button>
               ))}
@@ -653,18 +716,20 @@ export function GraphFilters({
           <Group
             title="Show"
             value={
-              watch ? "Watchlist only" : hiddenRows.length ? `${rows.length - hiddenRows.length} of ${rows.length} kinds` : "All kinds"
+              watch ? "watchlist only" : hiddenRows.length ? `${rows.length - hiddenRows.length} of ${rows.length} kinds` : "all kinds"
             }
           >
-            <div className="graph-checklist" role="group" aria-label="Kinds of entity">
+            <div className="graph-kinds" role="group" aria-label="Kinds of entity">
               {rows.map((row) => (
-                <Check key={row.label} checked={row.on} onChange={() => setRow(row, !row.on)}>
+                <Kind key={row.label} on={row.on} mark={row.mark} onChange={() => setRow(row, !row.on)}>
                   {row.label}
-                </Check>
+                </Kind>
               ))}
-              <Check checked={watch} onChange={() => onWatch(!watch)} disabled={pins === 0 && !watch}>
+            </div>
+            <div className="graph-rows graph-rows-after">
+              <Row checked={watch} onChange={() => onWatch(!watch)} disabled={pins === 0 && !watch}>
                 Watchlist only
-              </Check>
+              </Row>
             </div>
             <p className="graph-note">
               {pins === 0
@@ -678,7 +743,7 @@ export function GraphFilters({
 
         <div className="graph-rail-foot">
           <span>
-            <b>{shown.toLocaleString("en-US")}</b> of {total.toLocaleString("en-US")} shown
+            <b>{shown.toLocaleString("en-US")}</b> of {total.toLocaleString("en-US")} on the map
           </span>
           <button
             ref={hideBtn}

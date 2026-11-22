@@ -2,12 +2,15 @@
    controls, legend and side card around the map (GraphExplorer.tsx). Plain CSS
    with graph- prefixed names (CSS Modules are not available here).
 
-   One language throughout: the interface sans at 13px, hairlines instead of
-   boxes, 26px rows, and the shared controls from globals.css (.seg, .field,
-   .chip, .check, .btn). The display serif is kept for entity names. The rail
-   is part of the page, not a card: only what floats over the map (the side
-   card, the search results, the phone's filter sheet) takes the floating
-   surface.
+   The rail is set like the key of an engraved plate, in the site's three
+   faces: group names in the display serif, what each is set to and the
+   category names in the reading serif's italic (the face the map labels its
+   clusters with), figures and stops in the interface sans with tabular
+   figures. It has hairlines and marks, and no boxes: the shared boxed
+   controls (.seg, .field, .btn) are kept for what floats over the map, where
+   a control needs the page under it. The rail is part of the page, not a
+   card: only what floats (the side card, the search results, the phone's
+   filter sheet) takes the floating surface.
 
    Geometry the two renderers rely on (see room() in GraphFlat.tsx and
    Graph3DStage.ts): on a wide screen the rail ends 280px from the left edge,
@@ -34,6 +37,9 @@
 /* ---- The rail ---- */
 
 .graph-rail {
+  /* the ground the rail's marks are drawn on: the sheet on a phone, the page
+     with room */
+  --rail-ground: var(--surface);
   position: absolute;
   left: 0.75rem;
   right: 0.75rem;
@@ -95,6 +101,7 @@
     width: var(--graph-rail-w);
     max-height: none;
     gap: 0;
+    --rail-ground: var(--bg);
     padding: 4.5rem 1.25rem 0 2rem;
     border-right: 1px solid var(--line);
     background: var(--bg);
@@ -138,15 +145,11 @@
   }
 }
 
-/* ---- Search ---- */
+/* ---- Search: a boxed field while it floats over the map (phone); with
+   room, a ruled line under a magnifying glass, the placeholder in italic. ---- */
 
 .graph-search {
   position: relative;
-}
-@media (min-width: 768px) {
-  .graph-search {
-    padding-bottom: 0.75rem;
-  }
 }
 .graph-search-field {
   position: relative;
@@ -163,6 +166,46 @@
 /* the browser's own clear button would double ours */
 .graph-search-field > .field::-webkit-search-cancel-button {
   display: none;
+}
+.graph-search-glass {
+  display: none;
+}
+@media (min-width: 768px) {
+  .graph-search-field > .field {
+    height: 2.5rem;
+    padding-left: 1.625rem;
+    border: 0;
+    border-bottom: 1px solid var(--line2);
+    border-radius: 0;
+    background: none;
+    font-size: 0.875rem;
+  }
+  .graph-search-field > .field::placeholder {
+    font-family: var(--font-serif);
+    font-size: 0.9375rem;
+    font-style: italic;
+    font-feature-settings: normal;
+  }
+  .graph-search-field > .field:hover {
+    border-color: color-mix(in srgb, var(--text) 45%, transparent);
+  }
+  .graph-search-field > .field:focus-visible {
+    border-color: var(--text);
+    border-radius: 0;
+  }
+  .graph-search-glass {
+    position: absolute;
+    left: 0;
+    top: 50%;
+    display: grid;
+    color: var(--muted);
+    translate: 0 -50%;
+    pointer-events: none;
+    transition: color 0.15s;
+  }
+  .graph-search-field:focus-within > .graph-search-glass {
+    color: var(--text);
+  }
 }
 .graph-search-aside {
   position: absolute;
@@ -198,7 +241,7 @@
 }
 @media (min-width: 768px) {
   .graph-hits {
-    top: calc(100% - 0.5rem);
+    top: calc(100% + 0.375rem);
   }
 }
 .graph-hit {
@@ -237,54 +280,52 @@
   color: var(--muted);
 }
 
-/* ---- Active filters: removable chips, then one way to drop them all ---- */
+/* ---- The filters in force: one sentence in the reading italic, and the
+   way to drop them all ---- */
 
 .graph-active {
-  padding: 0.75rem 0;
-}
-@media (min-width: 768px) {
-  .graph-active {
-    padding-top: 0;
-  }
-}
-.graph-active > ul {
-  display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
-  gap: 0.375rem;
-}
-.graph-active > ul > li {
-  max-width: 100%;
+  padding: 0.875rem 0 0.25rem;
+  font-family: var(--font-serif);
+  font-size: 0.9375rem;
+  font-style: italic;
+  line-height: 1.4;
+  font-feature-settings: normal;
+  color: var(--muted);
+  text-wrap: pretty;
 }
 .graph-clear {
-  margin: 0.5rem 0 0 0.3rem;
+  font-family: var(--font-sans);
   font-size: 0.8125rem;
-  color: var(--muted);
+  font-style: normal;
+  font-feature-settings: "tnum";
+  color: var(--text);
   text-decoration: underline;
   text-decoration-color: var(--line2);
   text-underline-offset: 0.24em;
   cursor: pointer;
-  transition:
-    color 0.15s,
-    text-decoration-color 0.15s;
+  transition: text-decoration-color 0.15s;
 }
 .graph-clear:hover {
-  color: var(--text);
   text-decoration-color: currentColor;
 }
 
-/* ---- Groups: under a hairline, a name on the left and what it is set to on
-   the right. A group folds; its chevron shows when the header is pointed at
-   or focused. ---- */
+/* ---- Groups: under a hairline, the name in the display serif and, beside
+   it, what the group is set to in italic. A group folds; its chevron shows
+   when the header is pointed at or focused, and stays while it is folded. ---- */
 
 .graph-group {
   border-top: 1px solid var(--line);
 }
-.graph-rail-body > .graph-group:first-child {
+/* no rule over the first group: the search's own rule (with room) or the
+   sheet's edge (on a phone, where the window group is not in the sheet) is
+   already there */
+.graph-rail-body > .graph-group:first-child,
+.graph-rail-body > .graph-active + .graph-group,
+.graph-rail-body > .graph-only-wide + .graph-group {
   border-top: 0;
 }
 @media (min-width: 768px) {
-  .graph-rail-body > .graph-group:first-child {
+  .graph-rail-body > .graph-only-wide + .graph-group {
     border-top: 1px solid var(--line);
   }
 }
@@ -293,13 +334,13 @@
   display: flex;
   align-items: baseline;
   gap: 0.75rem;
-  padding: 1rem 0 0.9rem;
+  padding: 1.05rem 0 0.95rem;
   list-style: none;
   cursor: pointer;
   user-select: none;
 }
 .graph-group[open] > summary {
-  padding-bottom: 0.5rem;
+  padding-bottom: 0.55rem;
 }
 .graph-group > summary::-webkit-details-marker {
   display: none;
@@ -309,8 +350,12 @@
 }
 .graph-group-title {
   flex: none;
+  font-family: var(--font-display);
+  font-size: 1.1875rem;
   font-weight: 500;
-  color: var(--muted);
+  line-height: 1.2;
+  font-feature-settings: normal;
+  color: var(--text);
 }
 .graph-group-value {
   min-width: 0;
@@ -319,13 +364,18 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: right;
-  font-variant-numeric: tabular-nums;
-  color: var(--faint);
+  font-family: var(--font-serif);
+  font-size: 0.9375rem;
+  font-style: italic;
+  line-height: 1.2;
+  font-variant-numeric: lining-nums;
+  font-feature-settings: normal;
+  color: var(--muted);
 }
 .graph-group > summary > svg {
   position: absolute;
   right: -1rem;
-  top: 1.1rem;
+  top: 1.3rem;
   color: var(--muted);
   opacity: 0;
   transition: opacity 0.15s;
@@ -339,20 +389,54 @@
   opacity: 1;
 }
 .graph-group-body {
-  padding-bottom: 1.1rem;
+  padding-bottom: 1.2rem;
 }
-.graph-group-body > .seg,
-.graph-group-body > .field {
-  display: flex;
-  width: 100%;
+.graph-note {
+  margin-top: 0.5rem;
+  font-family: var(--font-serif);
+  font-size: 0.875rem;
+  font-style: italic;
+  line-height: 1.35;
+  font-feature-settings: normal;
+  color: var(--muted);
 }
+
+/* the phone's window control floats over the map, so it stays a boxed
+   segmented control; its four choices fit a narrow row */
 .graph-seg > * {
   padding: 0 0.4rem;
 }
-.graph-note {
-  margin-top: 0.4rem;
-  font-size: 0.75rem;
-  color: var(--faint);
+
+/* ---- The window: the choices as words on one line, the chosen one in the
+   text color with a rule under it (the leaderboards' tabs, .forum-tab), over
+   the drawn record. ---- */
+
+.graph-tabs {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.graph-tabs > button {
+  /* a 28px row to press, with the rule close under the word */
+  padding: 0.35rem 0 0.2rem;
+  border-bottom: 1px solid transparent;
+  font-size: 0.8125rem;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--muted);
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+.graph-tabs > button:hover {
+  color: var(--text);
+}
+.graph-tabs > button[aria-pressed="true"] {
+  border-bottom-color: var(--text);
+  font-weight: 500;
+  color: var(--text);
 }
 
 /* ---- The window, drawn (WindowRecord in GraphFilters.tsx): the record as a
@@ -410,7 +494,7 @@
   height: 0.5625rem;
   border: 1.5px solid var(--text);
   border-radius: 50%;
-  background: var(--bg);
+  background: var(--rail-ground);
   translate: 50% -50%;
 }
 .graph-record-note {
@@ -427,21 +511,27 @@
 .graph-record-note > :last-child {
   color: var(--muted);
 }
-/* a stale record: one phrase, "Data through Aug 11", in the quiet color */
+/* a stale record: one phrase, "Data through Aug 11", in the rail's italic */
 .graph-record-note.graph-record-stale {
   justify-content: flex-start;
-}
-.graph-record-note.graph-record-stale:last-child {
-  color: var(--faint);
+  font-family: var(--font-serif);
+  font-size: 0.875rem;
+  font-style: italic;
+  font-variant-numeric: lining-nums;
+  font-feature-settings: normal;
+  color: var(--muted);
 }
 
-/* ---- Checklists: the shared .check rows, with two more states ---- */
+/* ---- An index (Row in GraphFilters.tsx): a small ring, a name in italic, a
+   dotted leader and a count. The ring fills and the name takes the text color
+   when the row is chosen. The checkbox itself lies over the whole row and is
+   not drawn; the row shows its focus. ---- */
 
-.graph-checklist-scroll {
+.graph-rows-scroll {
   max-height: 16.25rem; /* ten rows */
-  /* room for the focus ring of a row's box */
-  margin: 0 -0.25rem;
-  padding: 0 0.25rem;
+  /* room for the focus ring of a row */
+  margin: 0 -0.375rem;
+  padding: 0 0.375rem;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
@@ -450,38 +540,345 @@
 /* On a short window the list keeps to six and a half rows, so the half row
    says there is more, and the groups under it stay in reach. */
 @media (max-height: 800px) {
-  .graph-checklist-scroll {
+  .graph-rows-scroll {
     max-height: 10.5625rem;
   }
 }
-/* nothing in this window would be added by ticking it */
-.graph-check[data-empty="true"]:not(:has(input:checked)) {
+.graph-row {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+  min-height: 1.625rem;
+  padding: 0.15rem 0;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.graph-row > input,
+.graph-kind > input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  appearance: none;
+  opacity: 0;
+  cursor: pointer;
+}
+.graph-row:has(> input:focus-visible),
+.graph-kind:has(> input:focus-visible) {
+  border-radius: 4px;
+  outline: 1.5px solid var(--text);
+  outline-offset: 2px;
+}
+.graph-row:hover,
+.graph-row[data-on="true"] {
+  color: var(--text);
+}
+.graph-row-mark {
+  width: 0.4375rem;
+  height: 0.4375rem;
+  flex: none;
+  /* on the name's x-height, not its baseline */
+  align-self: center;
+  border: 1px solid var(--muted);
+  border-radius: 50%;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s;
+}
+.graph-row:hover > .graph-row-mark {
+  border-color: var(--text);
+}
+.graph-row[data-on="true"] > .graph-row-mark {
+  border-color: var(--text);
+  background: var(--text);
+}
+.graph-row-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-serif);
+  font-size: 0.9375rem;
+  font-style: italic;
+  line-height: 1.3;
+  font-feature-settings: normal;
+}
+.graph-row-leader {
+  min-width: 0.75rem;
+  flex: 1;
+  border-bottom: 1px dotted var(--line2);
+  translate: 0 -0.22em;
+}
+.graph-row-count {
+  /* two figures wide, so every leader ends on the same line */
+  min-width: 1.05rem;
+  flex: none;
+  text-align: right;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.graph-row[data-on="true"] > .graph-row-count {
+  color: var(--text);
+}
+/* nothing in this window would be added by choosing it */
+.graph-row[data-empty="true"]:not([data-on="true"]),
+.graph-row[data-disabled="true"] {
   color: var(--faint);
 }
-.graph-check[data-disabled="true"] {
+.graph-row[data-empty="true"]:not([data-on="true"]) > .graph-row-mark,
+.graph-row[data-disabled="true"] > .graph-row-mark,
+.graph-row[data-empty="true"]:not([data-on="true"]) > .graph-row-count {
+  border-color: var(--faint);
   color: var(--faint);
+}
+.graph-row[data-disabled="true"],
+.graph-row[data-disabled="true"] > input {
   cursor: default;
 }
-.graph-check[data-disabled="true"] > input {
-  border-color: var(--line);
-  cursor: default;
+.graph-rows-after {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--line);
+}
+
+/* ---- The kinds of entity (Kind in GraphFilters.tsx), switched by the map's
+   own marks. Shown: the mark and the name as the map has them. Hidden: the
+   mark faded, the name struck through, and the word "hidden" at the right, so
+   the state never rests on color alone. ---- */
+
+.graph-kind {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 1.875rem;
+  font-size: 0.8125rem;
+  color: var(--text);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.graph-kind-mark {
+  display: grid;
+  width: 1.125rem;
+  flex: none;
+  place-items: center;
+  transition: opacity 0.15s;
+}
+.graph-kind-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  text-decoration-color: transparent;
+  transition: text-decoration-color 0.15s;
+}
+.graph-kind[data-on="false"] {
+  color: var(--muted);
+}
+.graph-kind[data-on="false"] > .graph-kind-mark {
+  opacity: 0.3;
+}
+.graph-kind[data-on="false"] > .graph-kind-name {
+  text-decoration-color: currentColor;
+}
+.graph-kind[data-on="false"]:hover {
+  color: var(--text);
+}
+.graph-kind[data-on="false"]:hover > .graph-kind-mark {
+  opacity: 0.6;
+}
+.graph-kind-state {
+  flex: none;
+  font-family: var(--font-serif);
+  font-size: 0.875rem;
+  font-style: italic;
+  font-feature-settings: normal;
+  color: var(--muted);
+}
+
+/* ---- The agency: one line, the group's name and, as its value, a native
+   select dressed as italic text with a small chevron. ---- */
+
+.graph-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 1.05rem 0 0.95rem;
+}
+.graph-select {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  justify-content: flex-end;
+}
+.graph-select > select {
+  min-width: 0;
+  max-width: 100%;
+  padding: 0 1.125rem 0 0;
+  appearance: none;
+  border: 0;
+  border-bottom: 1px solid var(--line2);
+  border-radius: 0;
+  background: none;
+  font-family: var(--font-serif);
+  font-size: 0.9375rem;
+  font-style: italic;
+  line-height: 1.35;
+  font-feature-settings: normal;
+  text-align: right;
+  text-align-last: right;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+.graph-select > select:hover,
+.graph-select > select[data-set="true"] {
+  color: var(--text);
+}
+.graph-select > select:hover {
+  border-bottom-color: color-mix(in srgb, var(--text) 45%, transparent);
+}
+.graph-select > select:focus-visible {
+  outline-offset: 4px;
+}
+/* The native list of options takes the floating surface and the plain face. */
+.graph-select > select option,
+.graph-select > select optgroup {
+  background: var(--surface);
+  font-family: var(--font-sans);
+  font-style: normal;
+  color: var(--text);
+}
+.graph-select > svg {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  color: var(--muted);
+  rotate: 90deg;
+  translate: 0 -50%;
+  pointer-events: none;
+}
+
+/* ---- The minimum award: a scale. The stops are the choices, set along a
+   hairline at even steps; the heavy part of the line, from the chosen stop to
+   the right end, is what stays on the map. The last stop sits short of that
+   end, so its label is centered under it like the others and the line runs on
+   past it: "$100M and up". --at is the chosen stop's index, --stops the
+   number of steps, --i each button's own index (set inline). ---- */
+
+.graph-scale {
+  /* the stops are spread over the line less this tail */
+  --tail: 1.4rem;
+  position: relative;
+  height: 2.625rem;
+  margin-top: 0.15rem;
+}
+.graph-scale::before,
+.graph-scale::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 0.5rem;
+  translate: 0 -50%;
+}
+.graph-scale::before {
+  left: 0;
+  height: 1px;
+  background: var(--line2);
+}
+.graph-scale::after {
+  left: calc(var(--at) / var(--stops) * (100% - var(--tail)));
+  height: 2px;
+  border-radius: 1px;
+  background: var(--text);
+  transition: left 0.2s var(--ease-out);
+}
+.graph-scale > button {
+  position: absolute;
+  left: calc(var(--i) / var(--stops) * (100% - var(--tail)));
+  top: 0;
+  z-index: 1;
+  /* the stop's dot is drawn in the top of the button, the label under it */
+  padding: 1.2rem 0.3rem 0.15rem;
+  font-size: 0.8125rem;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--muted);
+  translate: -50% 0;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.graph-scale > button::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 0.5rem;
+  width: 0.4375rem;
+  height: 0.4375rem;
+  border: 1px solid var(--muted);
+  border-radius: 50%;
+  background: var(--rail-ground);
+  translate: -50% -50%;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s,
+    scale 0.15s var(--ease-out);
+}
+/* the first stop: its dot on the rail's edge, its label running inward */
+.graph-scale > button:first-child {
+  padding-left: 0;
+  translate: 0 0;
+}
+.graph-scale > button:first-child::before {
+  left: 0;
+  translate: 0 -50%;
+}
+.graph-scale > button:hover {
+  color: var(--text);
+}
+.graph-scale > button:hover::before,
+.graph-scale > button[data-kept="true"]::before {
+  border-color: var(--text);
+}
+.graph-scale > button[aria-pressed="true"] {
+  font-weight: 500;
+  color: var(--text);
+}
+.graph-scale > button[aria-pressed="true"]::before {
+  background: var(--text);
+  scale: 1.3;
 }
 
 /* ---- Foot: how much of the map is shown, and the fold ---- */
 
 .graph-rail-foot {
-  height: 2.75rem;
+  height: 2.875rem;
   flex: none;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
   border-top: 1px solid var(--line);
-  font-size: 0.75rem;
-  font-variant-numeric: tabular-nums;
+  font-family: var(--font-serif);
+  font-size: 0.9375rem;
+  font-style: italic;
+  font-variant-numeric: lining-nums;
+  font-feature-settings: normal;
   color: var(--muted);
 }
 .graph-rail-foot b {
-  font-weight: 500;
+  font-weight: 400;
   color: var(--text);
 }
 .graph-rail-foot .graph-icon-btn {
