@@ -198,10 +198,18 @@ def graph(
     `days = 0` means everything on record.
 
     The window ends today, or, with `recent`, on the day of the newest award on
-    record: the data is not loaded on a fixed schedule, so the last `days` days
-    can be empty while the record's own latest stretch is not. Either way the
-    answer says when the newest award was (`latest`, and `age` in days), so the
-    caller can tell which windows have anything in them.
+    record: the sources publish contracts weeks to months after signing, so the
+    last `days` days can be empty while the record's own latest stretch is not.
+    The site always asks for `recent`. Either way the answer says when the
+    newest award was (`latest`, and `age` in days), so the caller can tell
+    which windows have anything in them.
+
+    `latest` and the window follow the rules of the signal views, so a window
+    here covers the same days as the same window on the dashboard: `latest` is
+    signal_meta.as_of (the newest autonomy award not dated after today, see
+    migrations/008_signals_data_anchor.sql), computed over the live rows
+    instead of the nightly snapshot, and a window of N days is the N days
+    ending on `through`, inclusive: `since` is its first day.
 
     Each organization node also carries `display_name`, a short label for the
     graph ("AeroVironment", "Army"; see pipeline/api/names.py), next to its full
@@ -210,23 +218,25 @@ def graph(
     at = _one(
         conn,
         AWARDS_CTE
-        + "SELECT current_date AS today, max(aa.day) AS latest,"
+        + "SELECT current_date AS today,"
+        + " max(aa.day) FILTER (WHERE aa.day <= current_date) AS latest,"
         + " EXISTS (SELECT 1 FROM awards WHERE source = 'seed') AS sample"
-        + " FROM aa WHERE aa.recipient_id IS NOT NULL",
+        + " FROM aa",
     )
     today, latest = at["today"], at["latest"]
     through = latest if recent and latest else today
-    since = through - timedelta(days=days) if days else None
+    since = through - timedelta(days=days - 1) if days else None
     rows = _rows(
         conn,
         AWARDS_CTE
         + """
         SELECT aa.recipient_id, aa.agency_id, aa.opportunity_id, aa.amount, aa.tags
         FROM aa
-        WHERE (%(since)s::date IS NULL OR aa.day >= %(since)s::date)
+        WHERE (%(since)s::date IS NULL OR aa.day BETWEEN %(since)s::date AND %(through)s::date)
           AND aa.recipient_id IS NOT NULL
         """,
         since=since,
+        through=through,
     )
     totals: dict[int, float] = {}
     for r in rows:
@@ -279,10 +289,12 @@ def graph(
         FROM opportunities o
         WHERE o.id = ANY(%(ids)s)
            OR %(since)s::date IS NULL
-           OR COALESCE(o.posted_at, o.fetched_at) >= %(since)s::date
+           OR COALESCE(o.posted_at, o.fetched_at)::date
+              BETWEEN %(since)s::date AND %(through)s::date
         """,
         ids=list(opp_ids),
         since=since,
+        through=through,
     ):
         n = node(f"opp:{o['id']}")
         n.update(

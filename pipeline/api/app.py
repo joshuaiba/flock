@@ -39,7 +39,8 @@ def recent(conn: Conn, limit: Annotated[int, Query(ge=1, le=200)] = 70) -> list[
 
 @app.get("/api/graph")
 def graph(conn: Conn, days: int = 90, recent: bool = False) -> dict:
-    """`recent` ends the window on the newest award on record instead of today."""
+    """`recent` ends the window on the newest award on record instead of today,
+    the day the signal windows end on. The site always asks for it."""
     if days not in (0, 30, 90, 365):
         raise HTTPException(422, "days must be 30, 90, 365, or 0 for everything on record")
     return queries.graph(conn, days, recent=recent)

@@ -50,7 +50,7 @@ def test_graph_edges_join_known_nodes_and_exclude_untagged(seeded):
     awarded = sum(e["amount"] for e in g["edges"] if e["kind"] == "award")
     (expected,) = db.execute(
         "SELECT sum(amount) FROM awards WHERE source_id <> 'award-not-autonomy'"
-        " AND signed_at >= current_date - 365"
+        " AND signed_at > current_date - 365"
     ).fetchone()
     assert awarded == pytest.approx(float(expected))
     assert client.get("/api/graph", params={"days": 7}).status_code == 422
@@ -91,10 +91,67 @@ def test_graph_recent_window_ends_on_the_newest_award(seeded):
     assert recent["through"] == recent["latest"] == by_calendar["latest"]
     (expected,) = db.execute(
         "SELECT sum(amount) FROM awards WHERE source_id <> 'award-not-autonomy'"
-        " AND signed_at >= (SELECT max(signed_at) FROM awards"
+        " AND signed_at > (SELECT max(signed_at) FROM awards"
         " WHERE source_id <> 'award-not-autonomy') - 90"
     ).fetchone()
     assert total(recent) == pytest.approx(float(expected))
+
+
+def test_graph_windows_cover_the_same_days_as_the_dashboard(seeded):
+    """The graph's window and the Forum's are one rule: N days ending on the
+    newest autonomy award not dated after today. Same end day, same first day,
+    same dollars, on a record that ends 94 days ago."""
+    client, db, _ = seeded
+    db.execute(
+        "UPDATE awards SET signed_at = signed_at - 94, fetched_at = fetched_at - interval '94 days'"
+    )
+    (newest,) = db.execute(
+        "SELECT max(signed_at) FROM awards WHERE source_id <> 'award-not-autonomy'"
+    ).fetchone()
+
+    def award(key: str, day, amount: int) -> None:
+        """One more autonomy award, between a company and an agency of the seed."""
+        (aid,) = db.execute(
+            """INSERT INTO awards (recipient_id, agency_id, amount, signed_at, description,
+                                   source, source_id)
+               SELECT a.recipient_id, a.agency_id, %s, %s, 'Research', 'test', %s
+               FROM awards a WHERE a.source_id = 'award-1' RETURNING id""",
+            (amount, day, key),
+        ).fetchone()
+        db.execute(
+            """INSERT INTO taggings (entity_type, entity_id, tag_id, source, source_id)
+               SELECT 'award', %s, id, 'test', %s FROM tags WHERE slug = %s""",
+            (aid, key, queries.taxonomy()["root"]),
+        )
+
+    # The edges of the 90-day window, and an award dated after today, which is
+    # a mistake in a source and must not move either page's window.
+    award("first-day", newest - timedelta(days=89), 1_000_000)
+    award("day-before", newest - timedelta(days=90), 2_000_000)
+    award("typo", newest + timedelta(days=94 + 30), 4_000_000)
+    signals.refresh(db)
+
+    total = lambda g: sum(e["amount"] for e in g["edges"] if e["kind"] == "award")  # noqa: E731
+    for days in (30, 90, 365):
+        g = client.get("/api/graph", params={"days": days, "recent": True}).json()
+        forum = client.get("/api/signals/overview", params={"window": days}).json()
+        assert g["latest"] == g["through"] == forum["as_of"] == str(newest), days
+        assert g["since"] == str(newest - timedelta(days=days - 1)), days
+        assert g["age"] == 94
+        assert total(g) == pytest.approx(forum["amount"]), days
+    quarter = client.get("/api/graph", params={"days": 90, "recent": True}).json()
+    (expected,) = db.execute(
+        "SELECT sum(amount) FROM awards WHERE source_id NOT IN ('award-not-autonomy', 'typo')"
+        " AND signed_at > %s AND signed_at <= %s",
+        (newest - timedelta(days=90), newest),
+    ).fetchone()
+    assert total(quarter) == pytest.approx(float(expected))  # first-day in, day-before out
+    # Everything on record is everything: no window, so the mis-dated award too.
+    everything = client.get("/api/graph", params={"days": 0}).json()
+    (on_record,) = db.execute(
+        "SELECT sum(amount) FROM awards WHERE source_id <> 'award-not-autonomy'"
+    ).fetchone()
+    assert total(everything) == pytest.approx(float(on_record))
 
 
 def test_org_page_for_company(seeded):
