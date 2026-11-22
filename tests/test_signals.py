@@ -1060,12 +1060,58 @@ def test_as_of_is_today_for_an_empty_record_and_never_in_the_future(db):
     refresher.refresh(db, as_of=None)
     today = db.execute("SELECT current_date").fetchone()[0]
     assert db.execute("SELECT as_of FROM signal_meta").fetchone()[0] == today
-    # An award dated ahead of the calendar does not drag the windows past today.
+    # Awards dated ahead of the calendar do not drag the windows past today:
+    # the windows end on the newest record that is not.
     seed.seed(db)
     db.execute("UPDATE awards SET signed_at = signed_at + 10")
     db.commit()
     refresher.refresh(db, as_of=None)
-    assert db.execute("SELECT as_of FROM signal_meta").fetchone()[0] == today
+    (newest_past,) = db.execute(
+        "SELECT max(signed_at) FROM awards WHERE source_id <> 'award-not-autonomy'"
+        " AND signed_at <= current_date"
+    ).fetchone()
+    (as_of,) = db.execute("SELECT as_of FROM signal_meta").fetchone()
+    assert as_of <= today
+    assert as_of >= newest_past
+
+
+def test_one_future_dated_record_does_not_empty_a_stale_record_s_windows(db):
+    """The record ends 94 days ago, and one award and one solicitation carry a
+    date after today (a typo in a source). The windows still end on the
+    newest record dated on or before today, so they keep their awards; under
+    008's rule, as_of fell back to today and every window was empty."""
+    latest = _stale_record(db)
+    db.execute(
+        "UPDATE awards SET signed_at = current_date + 30"
+        " WHERE id = (SELECT min(id) FROM awards WHERE source_id <> 'award-not-autonomy')"
+    )
+    db.execute(
+        "UPDATE opportunities SET posted_at = current_date + 400"
+        " WHERE id = (SELECT min(id) FROM opportunities)"
+    )
+    db.commit()
+    (newest,) = db.execute(
+        "SELECT GREATEST("
+        " (SELECT max(signed_at) FROM awards"
+        "  WHERE source_id <> 'award-not-autonomy' AND signed_at <= current_date),"
+        " (SELECT max(posted_at)::date FROM opportunities WHERE posted_at::date <= current_date))"
+    ).fetchone()
+    assert newest <= latest
+    refresher.refresh(db, as_of=None)
+    assert db.execute("SELECT as_of FROM signal_meta").fetchone()[0] == newest
+    for days in (30, 90):
+        (awards,) = db.execute(
+            "SELECT awards FROM signal_funding"
+            " WHERE window_days = %s AND subject_type = 'total' AND slice = ''",
+            (days,),
+        ).fetchone()
+        assert awards > 0, days
+    # The mis-dated award is on record, and in no window.
+    (in_any,) = db.execute(
+        "SELECT count(*) FROM signal_awards a, signal_windows w"
+        " WHERE a.day > current_date AND a.day > w.prev_after AND a.day <= w.as_of"
+    ).fetchone()
+    assert in_any == 0
 
 
 def test_a_pinned_as_of_lasts_one_refresh(db):
