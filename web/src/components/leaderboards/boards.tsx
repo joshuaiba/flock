@@ -554,7 +554,7 @@ export const TOPICS: Board<TopicRow, TopicPage> = {
         </>
       ),
     },
-    { key: "open", head: "Open now", hint: "Solicitations open on the as-of date", sort: "open", value: (r) => r.open, num: true, cell: (r) => r.open },
+    { key: "open", head: "Open", hint: "Solicitations open on the day the data runs through", sort: "open", value: (r) => r.open, num: true, cell: (r) => r.open },
     {
       key: "amount",
       head: "Award dollars",

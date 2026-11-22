@@ -2,7 +2,7 @@ import { SeriesChart } from "@/components/SeriesChart";
 import { Panel, signedPct } from "@/components/Signals";
 import { serverGet } from "@/lib/api";
 import { plural } from "@/lib/format";
-import { bucketLabels, pct, period, priorLabel, signalPath, type TopicPage, type TopicRow } from "@/lib/signals";
+import { bucketLabels, endDay, pct, period, priorLabel, signalPath, type TopicPage, type TopicRow } from "@/lib/signals";
 import { tagLabel, tagPhrase } from "@/lib/tags";
 import { getDefinitions } from "./data";
 import { Down, PanelEmpty, type PanelProps } from "./shared";
@@ -44,19 +44,22 @@ function reading(d: TopicPage, days: number, tag: string | null): string {
 }
 
 /** One topic as a tile: its name, the postings over time, then the count
- *  against the prior period in words ("14 posted, up from 6") and what is
- *  open now. */
+ *  against the prior period in words ("14 posted, up from 6") and what was
+ *  open on the day the window ends. */
 function Topic({
   r,
   labels,
   comparable,
   chosen,
+  asOf,
 }: {
   r: TopicRow;
   labels: string[];
   /** false when there is no full prior period: no change is shown */
   comparable: boolean;
   chosen: boolean;
+  /** the day the window ends on, which is the day "open" is counted on */
+  asOf: string;
 }) {
   const name = tagLabel(r.category);
   const against = !comparable
@@ -68,7 +71,7 @@ function Topic({
     <li aria-current={chosen ? "true" : undefined} className="forum-tile">
       <h3 className="forum-tile-name">
         {name}
-        {chosen && <span className="label ml-2 whitespace-nowrap">selected</span>}
+        {chosen && <span className="label mt-0.5 block">selected</span>}
       </h3>
       {/* A long name may take two lines; the chart is pushed down, so the
           charts in a row still line up. */}
@@ -86,7 +89,7 @@ function Topic({
         {against}
         {comparable && r.pct != null && r.delta !== 0 && <span className="sr-only"> ({signedPct(r.pct)})</span>}
       </p>
-      <p className="text-muted">{r.open > 0 ? `${r.open} open now` : "none open now"}</p>
+      <p className="text-muted">{r.open > 0 ? `${r.open} open on ${endDay(asOf)}` : `none open on ${endDay(asOf)}`}</p>
     </li>
   );
 }
@@ -130,8 +133,18 @@ export async function HeatingUp({ days, tag, className = "" }: PanelProps) {
       takeaway={reading(d, days, tag)}
       note={
         <>
-          Solicitations posted per category, {period(d)} against {priorLabel(days)}. Demand shows here before it
-          shows as awards. Each line runs across both periods, the earlier one fainter, on its own scale.
+          {comparable ? (
+            <>
+              Solicitations posted per category, {period(d)} against {priorLabel(days)}. Demand shows here before it
+              shows as awards. Each line runs across both periods, the earlier one fainter, on its own scale.
+            </>
+          ) : (
+            <>
+              Solicitations posted per category in {period(d)}. Demand shows here before it shows as awards. Each
+              line is on its own scale; its fainter first half is {priorLabel(days)}, which the record does not
+              fully cover.
+            </>
+          )}
           {tag && " All topics with postings are listed; the category filter marks its own."}
         </>
       }
@@ -139,7 +152,7 @@ export async function HeatingUp({ days, tag, className = "" }: PanelProps) {
       {/* One tile per topic, in the API's order. */}
       <ul className="forum-tiles">
         {d.items.map((r) => (
-          <Topic key={r.category} r={r} labels={labels} comparable={comparable} chosen={r.category === tag} />
+          <Topic key={r.category} r={r} labels={labels} comparable={comparable} chosen={r.category === tag} asOf={d.as_of} />
         ))}
       </ul>
     </Panel>

@@ -1,6 +1,16 @@
 import Link from "next/link";
 import { day } from "@/lib/format";
-import { change, endDay, pct, priorLabel, STAGE_LABEL, type Envelope, type SignalOrg, type StagePoint } from "@/lib/signals";
+import {
+  change,
+  earlierLabel,
+  endDay,
+  pct,
+  priorLabel,
+  STAGE_LABEL,
+  type Envelope,
+  type SignalOrg,
+  type StagePoint,
+} from "@/lib/signals";
 import "./forum/forum.css";
 
 // Shared pieces of the Forum, the leaderboards and the entity page's signals.
@@ -67,13 +77,19 @@ export function signedPct(v: number): string {
  *
  *  Pass `pct` when the API gives one for this figure: `null` there means the
  *  API withheld the percentage (the prior period is under its baseline), and
- *  this says so instead of working one out from the two amounts. */
+ *  this says so instead of working one out from the two amounts.
+ *
+ *  Pass `point` for a figure that is counted on a day, not summed over the
+ *  window (solicitations open on the as-of date): its earlier value is the
+ *  count on the day the prior period ended, so the comparison reads "+50% vs
+ *  90 days earlier", not "vs the prior 90 days". */
 export function Delta({
   cur,
   prev,
   env,
   pct: given,
   short = false,
+  point = false,
 }: {
   cur: number;
   prev: number;
@@ -81,17 +97,21 @@ export function Delta({
   pct?: number | null;
   /** just the signed figure, for tight rows */
   short?: boolean;
+  /** counted on a day, compared with the same count a window earlier */
+  point?: boolean;
 }) {
   const quiet = "text-muted";
-  if (!env.coverage.prior_complete) return <span className={quiet}>no earlier period on record</span>;
-  if (given === null && prev > 0)
-    return <span className={quiet}>too little in {priorLabel(env.window_days)} for a percentage</span>;
+  const then = point ? earlierLabel(env.window_days) : priorLabel(env.window_days);
+  if (!env.coverage.prior_complete)
+    return <span className={quiet}>{point ? "no earlier count on record" : "no earlier period on record"}</span>;
+  if (given === null && prev > 0) return <span className={quiet}>too little in {then} for a percentage</span>;
   const c = change(cur, prev, true);
-  if (!c) return <span className={quiet}>nothing in {priorLabel(env.window_days)}</span>;
-  if (c.flat) return <span className={quiet}>level{!short && <> with {priorLabel(env.window_days)}</>}</span>;
+  if (!c) return <span className={quiet}>{point ? `none ${then}` : `nothing in ${then}`}</span>;
+  if (c.flat) return <span className={quiet}>level{!short && <> with {then}</>}</span>;
   const text = signedPct((cur - prev) / prev);
-  // "+41% vs the prior 90 days", but "13× the prior 90 days".
-  const joiner = text.endsWith("×") ? "" : "vs ";
+  // "+41% vs the prior 90 days", but "13× the prior 90 days" (and, for a
+  // count on a day, "13× the count 90 days earlier").
+  const joiner = text.endsWith("×") ? (point ? "the count " : "") : "vs ";
   return (
     <span className={quiet}>
       <span className="delta text-ink">{text}</span>
@@ -99,7 +119,7 @@ export function Delta({
         <>
           {" "}
           {joiner}
-          {priorLabel(env.window_days)}
+          {then}
         </>
       )}
     </span>
@@ -211,7 +231,10 @@ export function StageTrack({
         <span key={p.stage} className="inline-flex items-center" title={`${STAGE_LABEL[p.stage]}${p.day ? `: ${day(p.day)}` : ": not on record"}`}>
           {i > 0 && (
             <span
-              className={`${wide ? "w-8 sm:w-9" : "w-4 sm:w-5"} ${p.day && path[i - 1].day ? "h-[1.5px] bg-ink" : "h-px bg-line2"}`}
+              // A solid link is a move from the stage before to this one: both
+              // reached, and in that order. A company whose solicitation is
+              // dated after its Phase I reached both, but did not move between.
+              className={`${wide ? "w-8 sm:w-9" : "w-4 sm:w-5"} ${p.day && path[i - 1].day && path[i - 1].day! <= p.day ? "h-[1.5px] bg-ink" : "h-px bg-line2"}`}
             />
           )}
           <span className={`block h-[9px] w-[9px] rounded-full border ${p.day ? "border-ink bg-ink" : "border-muted bg-transparent"}`} />

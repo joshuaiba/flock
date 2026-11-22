@@ -2,13 +2,38 @@ import { SeriesChart } from "@/components/SeriesChart";
 import { Delta, NoRows, Panel } from "@/components/Signals";
 import { serverGet } from "@/lib/api";
 import { day, money } from "@/lib/format";
-import { bucketLabels, pct, period, priorLabel, signalPath, type CategorySeries } from "@/lib/signals";
+import {
+  bucketLabels,
+  pct,
+  period,
+  priorLabel,
+  signalPath,
+  type CategorySeries,
+  type CategorySeriesRow,
+} from "@/lib/signals";
 import { tagLabel } from "@/lib/tags";
 import { Down, type PanelProps } from "./shared";
 
+/** The reading with a category chosen: that category's dollars and how they
+ *  moved, so the sentence is about what the filter picked. */
+function chosenReading(c: CategorySeriesRow, d: CategorySeries, days: number): string {
+  const drew = `${tagLabel(c.category)} drew ${money(c.amount)} in ${period(d)}`;
+  if (!d.coverage.prior_complete) return `${drew}. The record has no full earlier period to compare with.`;
+  if (c.prev_amount <= 0) return `${drew}, and nothing in ${priorLabel(days)}.`;
+  if (c.delta === 0) return `${drew}, level with ${priorLabel(days)}.`;
+  const dir = c.delta > 0 ? "up" : "down";
+  if (c.pct == null) return `${drew}, ${dir} ${money(Math.abs(c.delta))} on ${priorLabel(days)}.`;
+  // pct() writes large growth as a multiple ("25×"), which needs other words.
+  if (c.pct >= 10) return `${drew}, ${pct(c.pct)} its total in ${priorLabel(days)}.`;
+  return `${drew}, ${dir} ${pct(c.pct)} on ${priorLabel(days)}.`;
+}
+
 /** The panel's one-line reading: the category whose dollars rose the most
- *  against the prior period, with a percentage only when the API gives one. */
-function reading(d: CategorySeries, days: number): string {
+ *  against the prior period, with a percentage only when the API gives one.
+ *  With a category chosen, it is about that category instead. */
+function reading(d: CategorySeries, days: number, tag: string | null): string {
+  const chosen = tag ? d.items.find((c) => c.category === tag) : undefined;
+  if (chosen) return chosenReading(chosen, d, days);
   const top = d.items[0]; // the API lists the largest category first
   if (!d.coverage.prior_complete)
     return `${tagLabel(top.category)} drew the most in ${period(d)}: ${money(top.amount)}. The record has no full earlier period to compare with.`;
@@ -49,14 +74,18 @@ export async function FundingByCategory({ days, tag, className = "" }: PanelProp
     <Panel
       title="Funding by category"
       className={className}
-      takeaway={reading({ ...d, items }, days)}
+      takeaway={reading({ ...d, items }, days, tag)}
       note={
         <>
           Award dollars across {priorLabel(days)} (fainter) and {period(d)}. Each chart has its own scale, so
           compare shapes, not heights. An award with two categories counts in both here; &ldquo;Where the money
           went&rdquo; splits it instead.
           {!d.coverage.prior_complete && d.coverage.first_award_day && (
-            <> The record starts on {day(d.coverage.first_award_day)}.</>
+            <>
+              {" "}
+              The record starts on {day(d.coverage.first_award_day)}, so the fainter half of each line is not a full{" "}
+              {days === 365 ? "year" : "period"}.
+            </>
           )}
           {tag && " All categories are drawn; the category filter marks one."}
         </>
@@ -70,7 +99,7 @@ export async function FundingByCategory({ days, tag, className = "" }: PanelProp
             <li key={c.category} aria-current={chosen ? "true" : undefined} className="forum-tile">
               <h3 className="forum-tile-name">
                 {name}
-                {chosen && <span className="label ml-2 whitespace-nowrap">selected</span>}
+                {chosen && <span className="label mt-0.5 block">selected</span>}
               </h3>
               {/* A long name may take two lines; the chart is pushed down, so
                   the charts in a row still line up. */}

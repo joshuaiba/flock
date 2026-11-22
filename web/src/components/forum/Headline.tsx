@@ -74,7 +74,7 @@ export async function HeadlineStats({ days, tag }: PanelProps) {
       ) : (
         // Open on the day the window ends, like every other figure here.
         <Stat label={`Open solicitations, ${endDay(o.as_of)}`} value={o.open_solicitations.toLocaleString("en-US")}>
-          <Delta cur={o.open_solicitations} prev={o.prev_open_solicitations} env={forSolicitations(o)} />
+          <Delta cur={o.open_solicitations} prev={o.prev_open_solicitations} env={forSolicitations(o)} point />
         </Stat>
       )}
     </dl>

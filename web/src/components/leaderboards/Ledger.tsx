@@ -86,18 +86,33 @@ export function LedgerSkeleton({ title }: { title?: string }) {
   );
 }
 
+/** How a column behaves on a phone, where the ledger is wider than the
+ *  screen and scrolls sideways inside its section: the name column (the first
+ *  that is not a rank or a place) stays put at the left edge, so a figure
+ *  scrolled into view still has its name beside it; the company's category,
+ *  the least needed column, is left out to bring the figures closer. See
+ *  .ledger-stick and .ledger-skip in forum.css. */
+function phoneClass<R, P>(col: Column<R, P>, columns: Column<R, P>[]): string {
+  const name = columns.find((c) => c.key !== "rank" && c.key !== "place");
+  if (col === name) return "ledger-stick";
+  return col.key === "category" ? "ledger-skip" : "";
+}
+
 function Head<R, P>({
   col,
   view,
   active,
   sortable,
+  phone,
 }: {
   col: Column<R, P>;
   view: View;
   active: Sort | null;
   sortable: boolean;
+  /** the column's phone behavior (phoneClass) */
+  phone: string;
 }) {
-  const align = col.num ? "num" : "";
+  const align = `${col.num ? "num" : ""} ${phone}`;
   if (!sortable || !col.sort)
     return (
       <th scope="col" className={align} title={col.hint}>
@@ -254,7 +269,14 @@ export async function Ledger<R, P extends Page<R>>({ board, view }: { board: Boa
           <thead>
             <tr>
               {columns.map((col) => (
-                <Head key={col.key} col={col} view={view} active={active} sortable={col.sort != null && Object.hasOwn(sorts, col.sort)} />
+                <Head
+                  key={col.key}
+                  col={col}
+                  view={view}
+                  active={active}
+                  sortable={col.sort != null && Object.hasOwn(sorts, col.sort)}
+                  phone={phoneClass(col, columns)}
+                />
               ))}
             </tr>
           </thead>
@@ -262,7 +284,7 @@ export async function Ledger<R, P extends Page<R>>({ board, view }: { board: Boa
             {rows.map((row, i) => (
               <tr key={board.rowKey(row)}>
                 {columns.map((col) => (
-                  <td key={col.key} className={`${col.num ? "num" : ""} ${col.className ?? ""}`}>
+                  <td key={col.key} className={`${col.num ? "num" : ""} ${col.className ?? ""} ${phoneClass(col, columns)}`}>
                     {col.cell(row, ctx, page.offset + i)}
                   </td>
                 ))}
